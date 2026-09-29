@@ -41,7 +41,10 @@ echo "== the app"
 cd "$FORK/macos"
 # Apple silicon only: GhosttyKit (-Dxcframework-target=native) and hotty-blitz
 # are built for this machine, and ReleaseLocal would also build x86_64.
+# Swift packages (Sparkle) are checked out where scripts/notices.py finds
+# their licences.
 xcodebuild -target Ghostty -configuration ReleaseLocal ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
+  -clonedSourcePackagesDirPath "$FORK/macos/build/SourcePackages" \
   OTHER_LDFLAGS="\$(inherited) -liconv $LIB/libhotty_blitz.a"
 
 NAME="$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["identity"]["name"])' "$HERE/brand/brand.toml")"
@@ -49,6 +52,13 @@ APP="$HERE/out/$NAME.app"
 mkdir -p "$HERE/out"
 rm -rf "$APP"
 cp -R build/ReleaseLocal/Ghostty.app "$APP"
+
+# The licence and the third-party notices go into the app's resources.
+cp "$HERE/LICENSE" "$APP/Contents/Resources/LICENSE"
+python3 "$HERE/scripts/notices.py" --platform macos-arm64 --target aarch64-apple-darwin \
+  --fork "$FORK" --blitz "$BLITZ" \
+  --extra Sparkle https://github.com/sparkle-project/Sparkle "$FORK/macos/build/SourcePackages/checkouts/Sparkle" \
+  -o "$APP/Contents/Resources/THIRD-PARTY-NOTICES.txt"
 
 # The menu bar shows CFBundleName, which Xcode sets to the product name
 # (brand/brand.toml explains). Set it here, then sign again ad hoc, keeping

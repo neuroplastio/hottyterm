@@ -1,0 +1,38 @@
+# Components whose packages leave their licence file out, and what their
+# upstream says instead. scripts/notices.py uses these, then standard texts
+# by SPDX id (notices/texts/, or the Rust toolchain's), and fails on a
+# component with none: add an entry here, checked by hand against upstream.
+#
+# The texts under upstream/ are the upstream files, fetched once:
+#   gh api 'repos/<repo>/contents/<file>?ref=<ref>' --jq .content | base64 -d
+
+# Zig packages (Zig's package archives include only what build.zig.zon's
+# .paths lists, which can leave the licence out).
+
+[zig.z2d]
+source = "https://github.com/vancluever/z2d"
+license = "MPL-2.0"
+files = ["upstream/z2d.txt"]            # at 7dbae85, the pinned commit
+
+[zig.gobject]
+source = "https://github.com/ianprime0509/zig-gobject"
+license = "0BSD"
+files = ["upstream/zig-gobject.txt"]
+
+[zig.bindings]
+source = "https://github.com/dearimgui/dear_bindings"
+license = "MIT"
+files = ["upstream/dear_bindings.txt"]  # ImGui itself is listed as imgui
+
+[zig.iterm2_themes]
+source = "https://github.com/mbadolato/iTerm2-Color-Schemes"
+license = "MIT"
+files = ["upstream/iTerm2-Color-Schemes.txt"]  # Ghostty's themes are built from it
+
+# Bundled in the macOS app. build-macos.sh points at Xcode's checkout of it;
+# this is the fallback, at the version Ghostty's Package.resolved pins.
+
+[bundled.Sparkle]
+source = "https://github.com/sparkle-project/Sparkle"
+license = "MIT"
+files = ["upstream/Sparkle.txt"]        # at 2.9.6

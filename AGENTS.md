@@ -34,6 +34,10 @@ neuroplastio/hotty) through hotty-blitz's C ABI, and nothing else.
 - **Moving `ghostty-ref`** is one deliberate step: `scripts/canary.sh` first,
   then rebase the fork onto the new commit, fix, export, build, smoke test,
   and commit `ghostty-ref` and `patches/` together.
+- **Releases carry licence notices** (`scripts/notices.py`). When it fails
+  on a new component, check the component's upstream licence and add it to
+  `notices/overrides.toml` with the upstream file under `notices/upstream/`;
+  never drop the check.
 - **The gate is `make check`:** the patches apply cleanly to `ghostty-ref`
   and the branding finds its anchors, the fork builds against hotty-blitz,
   and the smoke test renders a surface.

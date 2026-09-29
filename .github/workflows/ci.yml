@@ -140,11 +140,16 @@ jobs:
           key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-${{ github.sha }}
 
       # bin/hottyterm finds lib/libhotty_blitz.so through its $ORIGIN rpath.
+      # The licence and the third-party notices go at the top.
       - name: Package
         run: |
           mkdir -p dist/hottyterm/lib
           cp -R hottyterm/ghostty/zig-out/. dist/hottyterm/
           cp hotty-blitz/main/target/release/libhotty_blitz.so dist/hottyterm/lib/
+          cp hottyterm/main/LICENSE dist/hottyterm/LICENSE
+          python3 hottyterm/main/scripts/notices.py --platform linux-x86_64 \
+            --target x86_64-unknown-linux-gnu --fork hottyterm/ghostty --blitz hotty-blitz/main \
+            -o dist/hottyterm/THIRD-PARTY-NOTICES.txt
           tar -C dist -czf hottyterm-linux-x86_64.tar.gz hottyterm
 
       - uses: actions/upload-artifact@v7
@@ -266,6 +271,11 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           cd dist
+          # Each build's notices, also as a file of their own.
+          tar -xzf hottyterm-linux-x86_64.tar.gz -O hottyterm/THIRD-PARTY-NOTICES.txt \
+            > "hottyterm-$VERSION-linux-x86_64-THIRD-PARTY-NOTICES.txt"
+          unzip -p hottyterm-macos-arm64.zip hottyterm.app/Contents/Resources/THIRD-PARTY-NOTICES.txt \
+            > "hottyterm-$VERSION-macos-arm64-THIRD-PARTY-NOTICES.txt"
           mv hottyterm-linux-x86_64.tar.gz "hottyterm-$VERSION-linux-x86_64.tar.gz"
           mv hottyterm-macos-arm64.zip "hottyterm-$VERSION-macos-arm64.zip"
           sha256sum hottyterm-* > SHA256SUMS
@@ -292,6 +302,7 @@ jobs:
           Assets:
           - \`hottyterm-$VERSION-linux-x86_64.tar.gz\`: \`bin/\`, \`share/\` and \`lib/libhotty_blitz.so\`. Needs GTK 4, libadwaita and gtk4-layer-shell.
           - \`hottyterm-$VERSION-macos-arm64.zip\`: \`hottyterm.app\` for Apple silicon, signed ad hoc: the first launch needs right-click, Open.
+          - \`hottyterm-$VERSION-*-THIRD-PARTY-NOTICES.txt\`: the licences of everything each build contains (also inside the archive and the app).
           - \`SHA256SUMS\`
           NOTES
           gh release create "$VERSION" --draft --prerelease --target "$GITHUB_SHA" \

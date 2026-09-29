@@ -132,6 +132,16 @@ One workflow, `.github/workflows/ci.yml`:
 | `canary` | daily, or on demand | the patches and the branding against upstream's latest main |
 | `release` | on main, when both builds ran and passed | a GitHub prerelease with both artifacts and `SHA256SUMS` |
 
+Every build carries `LICENSE` and `THIRD-PARTY-NOTICES.txt` (the Linux
+archive's top, the app's `Contents/Resources`), and each release attaches
+them as files of their own. `scripts/notices.py` writes them from what the
+build contained: every Zig package Ghostty's build used, every Rust crate
+linked into hotty-blitz, the Zig and Rust standard libraries, and Sparkle in
+the macOS app, with their licence texts. It fails on a component with no
+licence it can find; `notices/overrides.toml` records, checked by hand, what
+upstream says for packages that ship none. `make notices` writes this
+machine's.
+
 Releases are versioned like the other neuroplastio projects: CalVer from the
 commit's UTC date, then the short commit, e.g. `26.09.29-dev.1e81d70`. The
 tag is the version; the notes name the Ghostty and hotty-blitz commits the
