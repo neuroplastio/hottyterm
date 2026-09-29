@@ -39,7 +39,9 @@ echo "== the app"
 # objects would fail zig build. Its Rust standard library also wants
 # libiconv, which the app does not link otherwise.
 cd "$FORK/macos"
-xcodebuild -target Ghostty -configuration ReleaseLocal \
+# Apple silicon only: GhosttyKit (-Dxcframework-target=native) and hotty-blitz
+# are built for this machine, and ReleaseLocal would also build x86_64.
+xcodebuild -target Ghostty -configuration ReleaseLocal ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
   OTHER_LDFLAGS="\$(inherited) -liconv $LIB/libhotty_blitz.a"
 
 mkdir -p "$HERE/out"
