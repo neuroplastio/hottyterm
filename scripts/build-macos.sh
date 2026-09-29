@@ -44,7 +44,16 @@ cd "$FORK/macos"
 xcodebuild -target Ghostty -configuration ReleaseLocal ARCHS=arm64 ONLY_ACTIVE_ARCH=YES \
   OTHER_LDFLAGS="\$(inherited) -liconv $LIB/libhotty_blitz.a"
 
+NAME="$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb"))["identity"]["name"])' "$HERE/brand/brand.toml")"
+APP="$HERE/out/$NAME.app"
 mkdir -p "$HERE/out"
-rm -rf "$HERE/out/hottyterm.app"
-cp -R build/ReleaseLocal/Ghostty.app "$HERE/out/hottyterm.app"
-echo "built $HERE/out/hottyterm.app"
+rm -rf "$APP"
+cp -R build/ReleaseLocal/Ghostty.app "$APP"
+
+# The menu bar shows CFBundleName, which Xcode sets to the product name
+# (brand/brand.toml explains). Set it here, then sign again ad hoc, keeping
+# the entitlements.
+plutil -replace CFBundleName -string "$NAME" "$APP/Contents/Info.plist"
+codesign --force --sign - --preserve-metadata=entitlements,requirements,flags,runtime "$APP"
+codesign --verify --deep "$APP"
+echo "built $APP"

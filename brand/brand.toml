@@ -272,11 +272,10 @@ from = 'INFOPLIST_KEY_CFBundleDisplayName = "Ghostty Dock Tile Plugin";'
 to = 'INFOPLIST_KEY_CFBundleDisplayName = "@name@ Dock Tile Plugin";'
 count = 3
 
-# The menu bar shows CFBundleName, which would otherwise be the target's name.
-[[replace]]
-file = "macos/Ghostty-Info.plist"
-from = '<key>GhosttyBuild</key>'
-to = "<key>CFBundleName</key>\n\t<string>@name@</string>\n\t<key>GhosttyBuild</key>"
+# CFBundleName, which the menu bar shows, is the product name, and Xcode
+# overrides it in Info.plist; renaming the product would break Interface
+# Builder's module references. scripts/build-macos.sh sets it in the built
+# app instead.
 
 [[replace]]
 file = "macos/Ghostty-Info.plist"

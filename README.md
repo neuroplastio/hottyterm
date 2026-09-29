@@ -118,7 +118,7 @@ hoc, with hotty-blitz's static library added to its link. macOS asks to confirm 
 `io.github.neuroplastio.hottyterm`, name, icon (Icon Composer bundle and
 image sets), menus, AppleScript dictionary and Swift strings. It never looks
 for updates: Ghostty's update feed would replace it with Ghostty. Still
-Ghostty's: the executable inside the bundle (`Contents/MacOS/Ghostty`), and
+Ghostty's: the executable inside the bundle (`Contents/MacOS/ghostty`), and
 the parts the "custom icon" setting composes an icon from.
 
 ## CI
