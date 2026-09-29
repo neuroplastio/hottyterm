@@ -21,9 +21,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  src/Surface.zig               |  10 +
  src/build/GhosttyExe.zig      |  10 +
  src/termio/Termio.zig         |  11 +
- src/termio/hotty.zig          | 826 ++++++++++++++++++++++++++++++++++
+ src/termio/hotty.zig          | 888 ++++++++++++++++++++++++++++++++++
  src/termio/stream_handler.zig |  10 +-
- 5 files changed, 866 insertions(+), 1 deletion(-)
+ 5 files changed, 928 insertions(+), 1 deletion(-)
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
@@ -155,10 +155,10 @@ index d08f2e5f..918f9a0a 100644
      if (self.terminal_stream.handler.termio_messaged) {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
 new file mode 100644
-index 00000000..4e6c4714
+index 00000000..c1bf7288
 --- /dev/null
 +++ b/src/termio/hotty.zig
-@@ -0,0 +1,826 @@
+@@ -0,0 +1,888 @@
 +//! hottyterm: HOTTY surfaces (HTML over the TTY), rendered by the terminal.
 +//!
 +//! A program sends HOTTY commands on OSC 7279 (SPEC.md in neuroplastio/hotty).
@@ -313,6 +313,14 @@ index 00000000..4e6c4714
 +    /// terminal's own.
 +    shape: ?terminal.MouseShape = null,
 +    shown_shape: ?terminal.MouseShape = null,
++    /// The surface a press landed on: until the release the pointer is its,
++    /// as in a browser, so a drag out of it keeps selecting and the release
++    /// reaches it.
++    capture: [72]u8 = undefined,
++    capture_len: usize = 0,
++    /// A pointer event or a key drew a frame: the renderer must show it,
++    /// whether or not a surface took the event (a leave repaints too).
++    drew: bool = false,
 +
 +    const Place = struct {
 +        surface: [:0]u8,
@@ -466,6 +474,7 @@ index 00000000..4e6c4714
 +        while (it.next()) |k| self.alloc.free(k.*);
 +        self.placed.clearRetainingCapacity();
 +        self.hover_len = 0;
++        self.capture_len = 0;
 +    }
 +
 +    /// Carries out what the host asked for: deletions, then placements (which
@@ -496,7 +505,7 @@ index 00000000..4e6c4714
 +            pending = true;
 +            if (self.host) |h| hotty_host_redeliver(h, p.surface.ptr);
 +        }
-+        if (pending) self.render(t);
++        if (pending) _ = self.render(t);
 +        self.clearPlaces();
 +    }
 +
@@ -559,7 +568,7 @@ index 00000000..4e6c4714
 +        self.prune(t);
 +        if (t.modes.get(.synchronized_output)) return;
 +        if (!hotty_host_has_dirty(h)) return;
-+        self.render(t);
++        _ = self.render(t);
 +    }
 +
 +    /// Forgets placements whose image is gone: scrolled out of the
@@ -608,17 +617,20 @@ index 00000000..4e6c4714
 +        const h = self.host orelse return;
 +        const cfg = self.config(t);
 +        hotty_host_configure(h, &cfg);
-+        self.render(t);
++        _ = self.render(t);
 +    }
 +
 +    // --- rendering -----------------------------------------------------------
 +
-+    const RenderCtx = struct { self: *Hotty, t: *terminal.Terminal };
++    const RenderCtx = struct { self: *Hotty, t: *terminal.Terminal, drew: bool = false };
 +
-+    fn render(self: *Hotty, t: *terminal.Terminal) void {
-+        const h = self.host orelse return;
++    /// Renders the dirty surfaces into their images. True if a frame went
++    /// out, for the renderer to draw.
++    fn render(self: *Hotty, t: *terminal.Terminal) bool {
++        const h = self.host orelse return false;
 +        var ctx: RenderCtx = .{ .self = self, .t = t };
 +        hotty_host_render(h, &ctx, onFrame);
++        return ctx.drew;
 +    }
 +
 +    fn onFrame(
@@ -633,6 +645,7 @@ index 00000000..4e6c4714
 +        full: bool,
 +    ) callconv(.c) void {
 +        const ctx: *RenderCtx = @ptrCast(@alignCast(ctx_ptr.?));
++        ctx.drew = true;
 +        const self = ctx.self;
 +        const t = ctx.t;
 +        const name = std.mem.span(surface);
@@ -793,39 +806,57 @@ index 00000000..4e6c4714
 +
 +    // --- input --------------------------------------------------------------
 +
++    const Target = struct { name: []const u8, x: f32, y: f32 };
++
++    /// Where a placed surface's window is on the viewport, in pixels, and
++    /// where the window starts in the surface. Null when it is not on the
++    /// active screen.
++    fn onScreen(self: *Hotty, t: *terminal.Terminal, p: Placed) ?struct { x0: f64, y0: f64, w: f64, h: f64, dx: f64, dy: f64 } {
++        if (p.screen != t.screens.active_key) return null;
++        const screen = t.screens.active;
++        const pkey: kitty.graphics.ImageStorage.PlacementKey = .{
++            .image_id = p.image_id,
++            .placement_id = .{ .tag = .external, .id = 1 },
++        };
++        const placement = screen.kitty_images.placements.get(pkey) orelse return null;
++        const pin = switch (placement.location) {
++            .pin => |pin| pin,
++            else => return null,
++        };
++        const vp = screen.pages.pointFromPin(.viewport, pin.*) orelse return null;
++        return .{
++            .x0 = @floatFromInt(@as(u32, vp.viewport.x) * self.cell_w),
++            .y0 = @floatFromInt(@as(u32, vp.viewport.y) * self.cell_h),
++            .w = @floatFromInt(@as(u32, p.win.w) * self.cell_w),
++            .h = @floatFromInt(@as(u32, p.win.h) * self.cell_h),
++            .dx = @floatFromInt(@as(u32, p.win.x) * self.cell_w),
++            .dy = @floatFromInt(@as(u32, p.win.y) * self.cell_h),
++        };
++    }
++
 +    /// The surface under viewport pixel (`px`, `py`), and the pixel inside
 +    /// it, found from the active screen's kitty placements.
-+    fn hit(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64) ?struct { name: []const u8, x: f32, y: f32 } {
-+        if (self.placed.count() == 0 or self.cell_w == 0 or self.cell_h == 0) return null;
-+        const screen = t.screens.active;
-+        const storage = &screen.kitty_images;
++    fn hit(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64) ?Target {
++        if (self.cell_w == 0 or self.cell_h == 0) return null;
 +        var it = self.placed.iterator();
 +        while (it.next()) |e| {
-+            if (e.value_ptr.screen != t.screens.active_key) continue;
-+            const pkey: kitty.graphics.ImageStorage.PlacementKey = .{
-+                .image_id = e.value_ptr.image_id,
-+                .placement_id = .{ .tag = .external, .id = 1 },
-+            };
-+            const placement = storage.placements.get(pkey) orelse continue;
-+            const pin = switch (placement.location) {
-+                .pin => |pin| pin,
-+                else => continue,
-+            };
-+            const vp = screen.pages.pointFromPin(.viewport, pin.*) orelse continue;
-+            const x0: f64 = @floatFromInt(@as(u32, vp.viewport.x) * self.cell_w);
-+            const y0: f64 = @floatFromInt(@as(u32, vp.viewport.y) * self.cell_h);
-+            // The placement shows the window; the surface's pixel is
-+            // offset by where the window starts.
-+            const win = e.value_ptr.win;
-+            const w: f64 = @floatFromInt(@as(u32, win.w) * self.cell_w);
-+            const hh: f64 = @floatFromInt(@as(u32, win.h) * self.cell_h);
-+            const dx: f64 = @floatFromInt(@as(u32, win.x) * self.cell_w);
-+            const dy: f64 = @floatFromInt(@as(u32, win.y) * self.cell_h);
-+            if (px >= x0 and px < x0 + w and py >= y0 and py < y0 + hh) {
-+                return .{ .name = e.key_ptr.*, .x = @floatCast(px - x0 + dx), .y = @floatCast(py - y0 + dy) };
++            const b = self.onScreen(t, e.value_ptr.*) orelse continue;
++            if (px >= b.x0 and px < b.x0 + b.w and py >= b.y0 and py < b.y0 + b.h) {
++                // The placement shows the window; the surface's pixel is
++                // offset by where the window starts.
++                return .{ .name = e.key_ptr.*, .x = @floatCast(px - b.x0 + b.dx), .y = @floatCast(py - b.y0 + b.dy) };
 +            }
 +        }
 +        return null;
++    }
++
++    /// Viewport pixel (`px`, `py`) in surface `name`, inside it or not.
++    fn at(self: *Hotty, t: *terminal.Terminal, name: []const u8, px: f64, py: f64) ?Target {
++        if (self.cell_w == 0 or self.cell_h == 0) return null;
++        const e = self.placed.getEntry(name) orelse return null;
++        if (e.value_ptr.hidden) return null;
++        const b = self.onScreen(t, e.value_ptr.*) orelse return null;
++        return .{ .name = e.key_ptr.*, .x = @floatCast(px - b.x0 + b.dx), .y = @floatCast(py - b.y0 + b.dy) };
 +    }
 +
 +    /// A pointer event at viewport pixel (`px`, `py`). True if a surface took
@@ -833,8 +864,14 @@ index 00000000..4e6c4714
 +    fn pointer(self: *Hotty, t: *terminal.Terminal, kind: PointerKind, px: f64, py: f64, mods: u32) bool {
 +        self.shape = null;
 +        const h = self.host orelse return false;
-+        if (self.placed.count() == 0) return false;
-+        const target = self.hit(t, px, py);
++        if (self.placed.count() == 0) {
++            self.capture_len = 0;
++            return false;
++        }
++        // While a press holds the pointer, its surface gets every event.
++        const held: ?Target = if (self.capture_len > 0) self.at(t, self.capture[0..self.capture_len], px, py) else null;
++        if (self.capture_len > 0 and held == null) self.capture_len = 0; // it went away
++        const target = held orelse self.hit(t, px, py);
 +        const fx = self.effects();
 +
 +        // Leaving a surface (or moving onto another) clears its hover.
@@ -855,11 +892,28 @@ index 00000000..4e6c4714
 +            hotty_host_pointer(h, name.ptr, @intFromEnum(kind), tg.x, tg.y, mods, &fx);
 +            const css = hotty_host_cursor(h, name.ptr);
 +            self.shape = if (css) |c| terminal.MouseShape.fromString(std.mem.span(c)) orelse .default else .default;
++            switch (kind) {
++                .down => if (tg.name.len <= self.capture.len) {
++                    @memcpy(self.capture[0..tg.name.len], tg.name);
++                    self.capture_len = tg.name.len;
++                },
++                .up => {
++                    self.capture_len = 0;
++                    // Released outside it: the pointer has left it.
++                    const now = self.hit(t, px, py);
++                    if (now == null or !std.mem.eql(u8, now.?.name, tg.name)) {
++                        hotty_host_pointer(h, name.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
++                        self.hover_len = 0;
++                        self.shape = null;
++                    }
++                },
++                else => {},
++            }
 +        } else if (kind == .down) {
 +            // A click outside every surface takes the keyboard back.
 +            if (hotty_host_focused(h)) |name| hotty_host_blur(h, name, &fx);
 +        }
-+        self.render(t);
++        if (self.render(t)) self.drew = true;
 +        return target != null;
 +    }
 +
@@ -868,7 +922,7 @@ index 00000000..4e6c4714
 +        const h = self.host orelse return false;
 +        const fx = self.effects();
 +        const consumed = hotty_host_key(h, code, text, mods, &fx);
-+        self.render(t);
++        if (self.render(t)) self.drew = true;
 +        return consumed;
 +    }
 +
@@ -897,8 +951,9 @@ index 00000000..4e6c4714
 +    return m;
 +}
 +
-+/// Sends what the surfaces replied to the program, and redraws.
-+fn deliver(s: *Surface, took: bool) void {
++/// Sends what the surfaces replied to the program, and redraws when a
++/// surface took the event or drew a frame.
++fn deliver(s: *Surface, redraw: bool) void {
 +    const hs = &s.io.terminal_stream.handler.hotty;
 +    if (hs.replies.items.len > 0) {
 +        defer hs.replies.clearRetainingCapacity();
@@ -909,24 +964,27 @@ index 00000000..4e6c4714
 +            } else |_| {}
 +        }
 +    }
-+    if (took) s.renderer_thread.wakeup.notify() catch {};
++    if (redraw) s.renderer_thread.wakeup.notify() catch {};
 +}
 +
 +fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.Mods) bool {
 +    const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = pos.x, .y = pos.y } };
 +    const tp = coord.convert(.terminal, s.size).terminal;
 +    var shape: ?terminal.MouseShape = null;
++    var drew = false;
 +    const took = took: {
 +        s.renderer_state.mutex.lockUncancelable(global.io());
 +        defer s.renderer_state.mutex.unlock(global.io());
 +        const hs = &s.io.terminal_stream.handler.hotty;
 +        const took = hs.pointer(&s.io.terminal, kind, tp.x, tp.y, hostMods(mods));
 +        shape = hs.shapeChange(s.io.terminal.mouse_shape);
++        drew = hs.drew;
++        hs.drew = false;
 +        break :took took;
 +    };
 +    // The pointer shows what the surface under it asks for (SPEC §9).
 +    if (shape) |v| _ = s.rt_app.performAction(.{ .surface = s }, .mouse_shape, v) catch {};
-+    deliver(s, took);
++    deliver(s, took or drew);
 +    return took;
 +}
 +
@@ -950,6 +1008,7 @@ index 00000000..4e6c4714
 +pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
 +    if (s.readonly) return false;
 +    const hs = &s.io.terminal_stream.handler.hotty;
++    var drew = false;
 +    const consumed = consumed: {
 +        s.renderer_state.mutex.lockUncancelable(global.io());
 +        defer s.renderer_state.mutex.unlock(global.io());
@@ -980,9 +1039,12 @@ index 00000000..4e6c4714
 +            break :consumed false
 +        else
 +            null;
-+        break :consumed hs.key(&s.io.terminal, code, text, hostMods(event.mods));
++        const used = hs.key(&s.io.terminal, code, text, hostMods(event.mods));
++        drew = hs.drew;
++        hs.drew = false;
++        break :consumed used;
 +    };
-+    deliver(s, consumed);
++    deliver(s, consumed or drew);
 +    return consumed;
 +}
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
