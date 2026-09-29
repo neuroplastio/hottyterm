@@ -88,10 +88,13 @@ jobs:
           path: hotty-blitz/main
           ssh-key: ${{ secrets.HOTTY_BLITZ_DEPLOY_KEY }}
 
-      - name: mise
-        run: |
-          curl -fsSL https://mise.run | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # mise-action installs mise and caches what it installs. The tools
+      # come from each repository's mise.toml (Zig here, Rust in
+      # hotty-blitz), so the key covers both and the installs are ours.
+      - uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache_key: mise-${{ runner.os }}-${{ hashFiles('hottyterm/main/mise.toml', 'hotty-blitz/main/mise.toml') }}
 
       - name: Toolchains
         run: |
@@ -165,10 +168,13 @@ jobs:
       - name: Xcode
         run: xcodebuild -version
 
-      - name: mise
-        run: |
-          curl -fsSL https://mise.run | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      # mise-action installs mise and caches what it installs. The tools
+      # come from each repository's mise.toml (Zig here, Rust in
+      # hotty-blitz), so the key covers both and the installs are ours.
+      - uses: jdx/mise-action@v4
+        with:
+          install: false
+          cache_key: mise-${{ runner.os }}-${{ hashFiles('hottyterm/main/mise.toml', 'hotty-blitz/main/mise.toml') }}
 
       - name: Toolchains
         run: |
