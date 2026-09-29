@@ -1,0 +1,920 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 17:02:56 +0200
+Subject: [PATCH] hottyterm: HOTTY surfaces over hotty-blitz
+
+Programs send HOTTY (HTML over the TTY) on OSC 7279; hottyterm renders
+the surfaces itself through hotty-blitz's C ABI and shows each one as a
+kitty image placed at the cursor. Updates are kitty frame edits (a=f,
+r=1) of the damaged rectangles, the way the polyfill sends them.
+
+All of the logic is in the new src/termio/hotty.zig. Upstream files get
+hooks only, 41 lines in four files:
+
+- Termio: the settings, osc_unknown_max_bytes, flush per read, resize
+- stream_handler: the osc_unknown action (upstream #14452), full reset
+- Surface: keys, clicks and hover
+- GhosttyExe: link libhotty_blitz (HOTTY_BLITZ_LIB)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/Surface.zig               |  10 +
+ src/build/GhosttyExe.zig      |  10 +
+ src/termio/Termio.zig         |  11 +
+ src/termio/hotty.zig          | 702 ++++++++++++++++++++++++++++++++++
+ src/termio/stream_handler.zig |  10 +-
+ 5 files changed, 742 insertions(+), 1 deletion(-)
+ create mode 100644 src/termio/hotty.zig
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 1342e41c..3e48b176 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -27,6 +27,7 @@ const crash = @import("crash/main.zig");
+ const unicode = @import("unicode/main.zig");
+ const rendererpkg = @import("renderer.zig");
+ const termio = @import("termio.zig");
++const hotty = @import("termio/hotty.zig");
+ const font = @import("font/main.zig");
+ const Command = @import("Command.zig");
+ const terminal = @import("terminal/main.zig");
+@@ -2806,6 +2807,9 @@ pub fn keyCallback(
+         if (self.io.terminal.modes.get(.disable_keyboard)) return .consumed;
+     }
+ 
++    // hottyterm: a surface holding the keyboard gets the key first.
++    if (hotty.surfaceKey(self, event)) return .consumed;
++
+     // If this input event has text, then we hide the mouse if configured.
+     // We only do this on pressed events to avoid hiding the mouse when we
+     // change focus due to a keybinding (i.e. switching tabs).
+@@ -3902,6 +3906,9 @@ pub fn mouseButtonCallback(
+     // Update our modifiers if they changed
+     self.modsChanged(mods);
+ 
++    // hottyterm: a click on a surface belongs to the surface.
++    if (hotty.surfaceButton(self, action, button, mods)) return true;
++
+     // This is set to true if the terminal is allowed to capture the shift
+     // modifier. Note we can do this more efficiently probably with less
+     // locking/unlocking but clicking isn't that frequent enough to be a
+@@ -4629,6 +4636,9 @@ pub fn cursorPosCallback(
+ 
+     // log.debug("cursor pos x={} y={} mods={?}", .{ pos.x, pos.y, mods });
+ 
++    // hottyterm: hovering a surface restyles it and is not reported.
++    if (hotty.surfaceMove(self, pos, mods)) return;
++
+     // If the position is negative, it is outside our viewport and
+     // we need to clear any hover states.
+     if (pos.x < 0 or pos.y < 0) {
+diff --git a/src/build/GhosttyExe.zig b/src/build/GhosttyExe.zig
+index 22f39b7b..790f4af4 100644
+--- a/src/build/GhosttyExe.zig
++++ b/src/build/GhosttyExe.zig
+@@ -33,6 +33,16 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
+     // heavy deps so cross-compilation doesn't pull in GTK, etc.
+     if (!cfg.emit_lib_vt) _ = try deps.add(exe);
+ 
++    // hottyterm: hotty-blitz's C ABI (src/termio/hotty.zig), a shared
++    // library from `cargo build --release` in neuroplastio/hotty-blitz.
++    // HOTTY_BLITZ_LIB is its directory (an environment variable: this init
++    // runs once per exe variant, and options may not repeat).
++    if (b.graph.environ_map.get("HOTTY_BLITZ_LIB")) |dir| {
++        exe.root_module.addLibraryPath(.{ .cwd_relative = dir });
++        exe.root_module.addRPathSpecial(dir);
++    }
++    exe.root_module.linkSystemLibrary("hotty_blitz", .{});
++
+     // Check for possible issues
+     try checkNixShell(exe, cfg);
+ 
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index d08f2e5f..918f9a0a 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -12,6 +12,7 @@ const EnvMap = std.process.Environ.Map;
+ const posix = std.posix;
+ const termio = @import("../termio.zig");
+ const StreamHandler = @import("stream_handler.zig").StreamHandler;
++const hotty = @import("hotty.zig");
+ const terminalpkg = @import("../terminal/main.zig");
+ const global = @import("../global.zig");
+ const xev = global.xev;
+@@ -180,6 +181,7 @@ pub const DerivedConfig = struct {
+     clipboard_write_limit: usize,
+     enquiry_response: []const u8,
+     conditional_state: configpkg.ConditionalState,
++    hotty: hotty.Settings,
+ 
+     pub fn init(
+         alloc_gpa: Allocator,
+@@ -217,6 +219,7 @@ pub const DerivedConfig = struct {
+             .clipboard_write_limit = config.@"clipboard-write-limit-bytes".value,
+             .enquiry_response = try alloc.dupe(u8, config.@"enquiry-response"),
+             .conditional_state = config._conditional_state,
++            .hotty = try .init(alloc, config),
+ 
+             // This has to be last so that we copy AFTER the arena allocations
+             // above happen (Zig assigns in order).
+@@ -305,6 +308,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
+         .clipboard_write = opts.config.clipboard_write,
+         .clipboard_write_limit = opts.config.clipboard_write_limit,
+         .enquiry_response = opts.config.enquiry_response,
++        .hotty = .{ .alloc = alloc, .settings = opts.config.hotty },
+     };
+ 
+     const thread_enter_state = try ThreadEnterState.create(
+@@ -326,6 +330,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
+         .terminal_stream = .init(.{
+             .allocator = alloc,
+             .handler = handler,
++            .osc_unknown_max_bytes = hotty.max_osc_bytes,
+         }),
+         .thread_enter_state = thread_enter_state,
+     };
+@@ -526,6 +531,9 @@ pub fn resize(
+         if (self.terminal.modes.get(.in_band_size_reports)) {
+             try self.sizeReportLocked(td, .mode_2048);
+         }
++
++        // hottyterm: surfaces re-render at the new cell size.
++        self.terminal_stream.handler.hotty.resized(&self.terminal);
+     }
+ 
+     // Mail the renderer so that it can update the GPU and re-render
+@@ -723,6 +731,9 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
+         self.terminal_stream.nextSlice(buf);
+     }
+ 
++    // hottyterm: surfaces render once per batch of output.
++    self.terminal_stream.handler.hotty.flush(&self.terminal);
++
+     // If our stream handling caused messages to be sent to the mailbox
+     // thread, then we need to wake it up so that it processes them.
+     if (self.terminal_stream.handler.termio_messaged) {
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+new file mode 100644
+index 00000000..0e3ebebf
+--- /dev/null
++++ b/src/termio/hotty.zig
+@@ -0,0 +1,702 @@
++//! hottyterm: HOTTY surfaces (HTML over the TTY), rendered by the terminal.
++//!
++//! A program sends HOTTY commands on OSC 7279 (SPEC.md in neuroplastio/hotty).
++//! Ghostty hands the stream handler every OSC it does not implement, as an
++//! `osc_unknown` action, once `osc_unknown_max_bytes` is set; this file takes
++//! the 7279 ones. The documents live in hotty-blitz, a Rust library behind a C
++//! ABI (crates/hotty-blitz/include/hotty_blitz.h in neuroplastio/hotty-blitz).
++//!
++//! Each surface is a kitty image in its screen's image storage, placed at the
++//! cursor, so it scrolls, clears and dies with its screen exactly like any
++//! kitty image. Changes arrive as kitty frame edits (`a=f`, `r=1`) of only the
++//! damaged rectangles, the way the polyfill sends them to a terminal. When the
++//! cell size changes, every surface re-renders at the new size without the
++//! program's help.
++//!
++//! All of hottyterm's logic is here. Upstream files only call in: Termio
++//! (settings, the stream option, flush, resize), the stream handler (the OSC
++//! and full reset) and Surface (keys and the pointer). This file reaches into
++//! Ghostty's internals where it has to, so an upstream change shows up as a
++//! compile error here instead of a rebase conflict.
++//!
++//! Everything runs on the IO thread with the terminal lock held, like the rest
++//! of the stream handler, except the Surface entry points, which take the lock.
++
++const std = @import("std");
++const Allocator = std.mem.Allocator;
++const global = @import("../global.zig");
++const terminal = @import("../terminal/main.zig");
++const configpkg = @import("../config.zig");
++const input = @import("../input.zig");
++const apprt = @import("../apprt.zig");
++const rendererpkg = @import("../renderer.zig");
++const termio = @import("../termio.zig");
++const Surface = @import("../Surface.zig");
++const kitty = terminal.kitty;
++
++const log = std.log.scoped(.hotty);
++
++// --- hotty-blitz C ABI -----------------------------------------------------
++
++pub const Host = opaque {};
++
++pub const Config = extern struct {
++    cell_w: u32,
++    cell_h: u32,
++    scale: f32,
++    fg: u32,
++    bg: u32,
++    palette: [16]u32,
++    dark: bool,
++    font_family: ?[*:0]const u8,
++};
++
++pub const Effects = extern struct {
++    ctx: ?*anyopaque,
++    reply: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void,
++    place: ?*const fn (?*anyopaque, [*:0]const u8, u16, u16, bool) callconv(.c) void,
++    remove: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) void,
++};
++
++pub const Rect = extern struct { x: u32, y: u32, w: u32, h: u32 };
++
++/// (ctx, surface, w, h, premultiplied rgba of the whole frame, stride, damaged
++/// rects, count, full): only the rects changed; copy just those.
++const FrameFn = *const fn (?*anyopaque, [*:0]const u8, u32, u32, [*]const u8, usize, [*]const Rect, usize, bool) callconv(.c) void;
++
++extern fn hotty_host_new(cfg: *const Config) ?*Host;
++extern fn hotty_host_free(h: *Host) void;
++extern fn hotty_host_configure(h: *Host, cfg: *const Config) void;
++extern fn hotty_host_osc(h: *Host, body: [*]const u8, len: usize, fx: *const Effects) void;
++extern fn hotty_host_has_dirty(h: *const Host) bool;
++extern fn hotty_host_render(h: *Host, ctx: ?*anyopaque, cb: FrameFn) void;
++extern fn hotty_host_reset(h: *Host, fx: ?*const Effects) void;
++extern fn hotty_host_pointer(h: *Host, surface: [*:0]const u8, kind: u32, x: f32, y: f32, mods: u32, fx: *const Effects) void;
++extern fn hotty_host_key(h: *Host, key: u32, text: ?[*:0]const u8, mods: u32, fx: *const Effects) bool;
++extern fn hotty_host_blur(h: *Host, surface: [*:0]const u8, fx: *const Effects) void;
++extern fn hotty_host_focused(h: *Host) ?[*:0]const u8;
++
++// --- wiring ------------------------------------------------------------------
++
++/// The longest OSC the stream keeps for us: one HOTTY chunk (4096 payload
++/// bytes, SPEC §3.4) and a generous control. Longer ones are dropped.
++pub const max_osc_bytes = 8192;
++
++const osc_prefix = "7279;";
++
++/// Surfaces get kitty image ids from here up ("HOT\x00"), clear of the ids
++/// programs pick and of Ghostty's implicit ones in the upper half.
++const id_base: u32 = 0x484F_5400;
++
++/// What hottyterm takes from the terminal's configuration. Lives in
++/// Termio's DerivedConfig, so it is allocated in that config's arena.
++pub const Settings = struct {
++    font_family: [:0]const u8 = "",
++    font_size: f32 = 12,
++
++    pub fn init(alloc: Allocator, config: *const configpkg.Config) Allocator.Error!Settings {
++        const families = config.@"font-family".list.items;
++        return .{
++            .font_family = try alloc.dupeZ(u8, if (families.len > 0) families[0] else ""),
++            .font_size = config.@"font-size",
++        };
++    }
++};
++
++pub const PointerKind = enum(u32) { move = 0, down = 1, up = 2, leave = 3 };
++
++/// One placed surface, as the terminal sees it.
++const Placed = struct {
++    image_id: u32,
++    cols: u16,
++    rows: u16,
++    /// The screen whose image storage holds it.
++    screen: terminal.ScreenSet.Key,
++};
++
++pub const Hotty = struct {
++    alloc: Allocator,
++    settings: Settings = .{},
++    host: ?*Host = null,
++    /// Surface name (owned) → its image.
++    placed: std.StringHashMapUnmanaged(Placed) = .empty,
++    next_id: u32 = id_base,
++    cell_w: u32 = 0,
++    cell_h: u32 = 0,
++
++    // Collected while one call into the host runs.
++    replies: std.ArrayListUnmanaged(u8) = .empty,
++    places: std.ArrayListUnmanaged(Place) = .empty,
++    removes: std.ArrayListUnmanaged([]u8) = .empty,
++
++    /// The surface under the pointer, so leaving it clears its hover state.
++    hover: [72]u8 = undefined,
++    hover_len: usize = 0,
++
++    const Place = struct { surface: []u8, cols: u16, rows: u16, move_cursor: bool };
++
++    pub fn deinit(self: *Hotty) void {
++        if (self.host) |h| hotty_host_free(h);
++        self.host = null;
++        var it = self.placed.keyIterator();
++        while (it.next()) |k| self.alloc.free(k.*);
++        self.placed.deinit(self.alloc);
++        self.replies.deinit(self.alloc);
++        self.clearPlaces();
++        self.places.deinit(self.alloc);
++        self.clearRemoves();
++        self.removes.deinit(self.alloc);
++    }
++
++    fn clearPlaces(self: *Hotty) void {
++        for (self.places.items) |p| self.alloc.free(p.surface);
++        self.places.clearRetainingCapacity();
++    }
++
++    fn clearRemoves(self: *Hotty) void {
++        for (self.removes.items) |r| self.alloc.free(r);
++        self.removes.clearRetainingCapacity();
++    }
++
++    fn effects(self: *Hotty) Effects {
++        return .{ .ctx = self, .reply = onReply, .place = onPlace, .remove = onRemove };
++    }
++
++    fn onReply(ctx: ?*anyopaque, data: [*]const u8, len: usize) callconv(.c) void {
++        const self: *Hotty = @ptrCast(@alignCast(ctx.?));
++        self.replies.appendSlice(self.alloc, data[0..len]) catch
++            log.warn("hotty: reply dropped, out of memory", .{});
++    }
++
++    fn onPlace(ctx: ?*anyopaque, surface: [*:0]const u8, cols: u16, rows: u16, move_cursor: bool) callconv(.c) void {
++        const self: *Hotty = @ptrCast(@alignCast(ctx.?));
++        const name = self.alloc.dupe(u8, std.mem.span(surface)) catch return;
++        self.places.append(self.alloc, .{ .surface = name, .cols = cols, .rows = rows, .move_cursor = move_cursor }) catch
++            self.alloc.free(name);
++    }
++
++    fn onRemove(ctx: ?*anyopaque, surface: [*:0]const u8) callconv(.c) void {
++        const self: *Hotty = @ptrCast(@alignCast(ctx.?));
++        const name = self.alloc.dupe(u8, std.mem.span(surface)) catch return;
++        self.removes.append(self.alloc, name) catch self.alloc.free(name);
++    }
++
++    fn rgb(c: ?terminal.color.RGB, fallback: u32) u32 {
++        const v = c orelse return fallback;
++        return (@as(u32, v.r) << 16) | (@as(u32, v.g) << 8) | v.b;
++    }
++
++    fn config(self: *Hotty, t: *terminal.Terminal) Config {
++        const cell_w: u32 = if (t.cols > 0) t.width_px / t.cols else 10;
++        const cell_h: u32 = if (t.rows > 0) t.height_px / t.rows else 21;
++        self.cell_w = cell_w;
++        self.cell_h = cell_h;
++        const fg = rgb(t.colors.foreground.get(), 0xffffff);
++        const bg = rgb(t.colors.background.get(), 0x000000);
++        var palette: [16]u32 = undefined;
++        for (&palette, 0..) |*p, i| p.* = rgb(t.colors.palette.current[i], 0);
++        const r: f32 = @floatFromInt((bg >> 16) & 0xff);
++        const g: f32 = @floatFromInt((bg >> 8) & 0xff);
++        const b: f32 = @floatFromInt(bg & 0xff);
++        // Device px per CSS px: the configured font size, in CSS px, makes
++        // rows about 1.25 font sizes tall; the cell height says how many
++        // device pixels that is. `HOTTY_SCALE` overrides.
++        const css_row = @max(self.settings.font_size * 4.0 / 3.0 * 1.25, 1.0);
++        var scale: f32 = @as(f32, @floatFromInt(cell_h)) / css_row;
++        if (std.posix.system.getenv("HOTTY_SCALE")) |s| scale = std.fmt.parseFloat(f32, std.mem.span(s)) catch scale;
++        return .{
++            .cell_w = cell_w,
++            .cell_h = cell_h,
++            .scale = @max(scale, 0.5),
++            .fg = fg,
++            .bg = bg,
++            .palette = palette,
++            .dark = 0.2126 * r + 0.7152 * g + 0.0722 * b < 128,
++            .font_family = if (self.settings.font_family.len > 0) self.settings.font_family.ptr else null,
++        };
++    }
++
++    fn ensureHost(self: *Hotty, t: *terminal.Terminal) ?*Host {
++        if (self.host) |h| return h;
++        const cfg = self.config(t);
++        self.host = hotty_host_new(&cfg);
++        if (self.host == null) log.warn("hotty-blitz failed to start", .{});
++        return self.host;
++    }
++
++    // --- from the stream handler ---------------------------------------------
++
++    /// The stream handler's `osc_unknown` action: OSC 7279 is ours, and the
++    /// rest stays ignored as upstream ignores it. `handler` is the
++    /// StreamHandler (anytype, because it imports this file).
++    pub fn osc(self: *Hotty, handler: anytype, value: terminal.osc.Command.Unknown) !void {
++        if (!std.mem.startsWith(u8, value.content, osc_prefix)) return;
++        if (value.truncated) {
++            log.warn("HOTTY command over {} bytes dropped", .{max_osc_bytes});
++            return;
++        }
++        const t: *terminal.Terminal = handler.terminal;
++        const h = self.ensureHost(t) orelse return;
++        const body = value.content[osc_prefix.len..];
++        const fx = self.effects();
++        hotty_host_osc(h, body.ptr, body.len, &fx);
++        self.apply(t);
++        if (self.replies.items.len > 0) {
++            defer self.replies.clearRetainingCapacity();
++            // What the handler's (private) messageWriter does.
++            handler.termio_mailbox.send(try termio.Message.writeReq(self.alloc, self.replies.items), handler.renderer_state.mutex);
++            handler.termio_messaged = true;
++        }
++        try handler.queueRender();
++    }
++
++    /// Full reset (RIS): every surface goes (SPEC §5.4). The terminal has
++    /// already cleared the image storage.
++    pub fn reset(self: *Hotty) void {
++        const h = self.host orelse return;
++        hotty_host_reset(h, null);
++        var it = self.placed.keyIterator();
++        while (it.next()) |k| self.alloc.free(k.*);
++        self.placed.clearRetainingCapacity();
++        self.hover_len = 0;
++    }
++
++    /// Carries out what the host asked for: deletions, then placements (which
++    /// need their first frame now, at the cursor where the command arrived).
++    fn apply(self: *Hotty, t: *terminal.Terminal) void {
++        for (self.removes.items) |name| {
++            if (self.placed.fetchRemove(name)) |kv| {
++                self.deleteImage(t, kv.value);
++                self.alloc.free(kv.key);
++            }
++        }
++        self.clearRemoves();
++        if (self.places.items.len > 0) self.render(t);
++        self.clearPlaces();
++    }
++
++    fn deleteImage(self: *Hotty, t: *terminal.Terminal, p: Placed) void {
++        const screen = t.screens.get(p.screen) orelse return;
++        screen.kitty_images.delete(global.io(), self.alloc, t, .{ .id = .{ .image_id = p.image_id, .delete = true } });
++    }
++
++    /// Renders what changed. Termio calls it once per batch of output, not
++    /// once per command.
++    pub fn flush(self: *Hotty, t: *terminal.Terminal) void {
++        const h = self.host orelse return;
++        self.prune(t);
++        if (t.modes.get(.synchronized_output)) return;
++        if (!hotty_host_has_dirty(h)) return;
++        self.render(t);
++    }
++
++    /// Forgets placements whose image is gone: scrolled out of the
++    /// scrollback, erased, or left behind on the alternate screen. The
++    /// document stays, except on the alternate screen, where SPEC §5.4 says
++    /// the surface goes with it.
++    fn prune(self: *Hotty, t: *terminal.Terminal) void {
++        var gone: [16][]const u8 = undefined;
++        var n: usize = 0;
++        var it = self.placed.iterator();
++        while (it.next()) |e| {
++            const p = e.value_ptr.*;
++            const left_alt = p.screen == .alternate and t.screens.active_key != .alternate;
++            const alive = if (t.screens.get(p.screen)) |s| s.kitty_images.images.contains(p.image_id) else false;
++            if (alive and !left_alt) continue;
++            gone[n] = e.key_ptr.*;
++            n += 1;
++            if (n == gone.len) break;
++        }
++        for (gone[0..n]) |name| {
++            const kv = self.placed.fetchRemove(name) orelse continue;
++            defer self.alloc.free(kv.key);
++            if (kv.value.screen != .alternate) continue;
++            self.deleteImage(t, kv.value);
++            self.deleteSurface(kv.key);
++        }
++    }
++
++    /// Deletes a surface's document, as the program's `a=del:s=` would.
++    fn deleteSurface(self: *Hotty, name: []const u8) void {
++        const h = self.host orelse return;
++        var buf: [128]u8 = undefined;
++        const body = std.fmt.bufPrint(&buf, "a=del:s={s}", .{name}) catch return;
++        const fx = self.effects();
++        hotty_host_osc(h, body.ptr, body.len, &fx);
++        self.replies.clearRetainingCapacity();
++        self.clearRemoves();
++    }
++
++    /// The cell size (font size, zoom) changed: every surface re-renders at
++    /// the new size, crisp, and replaces its pixels in place.
++    pub fn resized(self: *Hotty, t: *terminal.Terminal) void {
++        const h = self.host orelse return;
++        const cfg = self.config(t);
++        hotty_host_configure(h, &cfg);
++        self.render(t);
++    }
++
++    // --- rendering -----------------------------------------------------------
++
++    const RenderCtx = struct { self: *Hotty, t: *terminal.Terminal };
++
++    fn render(self: *Hotty, t: *terminal.Terminal) void {
++        const h = self.host orelse return;
++        var ctx: RenderCtx = .{ .self = self, .t = t };
++        hotty_host_render(h, &ctx, onFrame);
++    }
++
++    fn onFrame(
++        ctx_ptr: ?*anyopaque,
++        surface: [*:0]const u8,
++        w: u32,
++        h: u32,
++        rgba: [*]const u8,
++        stride: usize,
++        rects: [*]const Rect,
++        nrects: usize,
++        full: bool,
++    ) callconv(.c) void {
++        const ctx: *RenderCtx = @ptrCast(@alignCast(ctx_ptr.?));
++        const self = ctx.self;
++        const t = ctx.t;
++        const name = std.mem.span(surface);
++        const frame = rgba[0 .. stride * h];
++
++        // A new placement: transmit and display at the cursor.
++        for (self.places.items) |p| {
++            if (!std.mem.eql(u8, p.surface, name)) continue;
++            const data = straight(self.alloc, frame, stride, .{ .x = 0, .y = 0, .w = w, .h = h }) catch return;
++            defer self.alloc.free(data);
++            self.place(t, name, p, w, h, data) catch |err| log.warn("hotty place failed: {}", .{err});
++            return;
++        }
++
++        const placed = self.placed.get(name) orelse return;
++        const screen = t.screens.get(placed.screen) orelse return;
++        const storage = &screen.kitty_images;
++        const img = storage.images.getPtr(placed.image_id) orelse return;
++
++        // An update of the same size on the active screen: kitty frame edits
++        // of the damaged rectangles only.
++        if (!full and img.width == w and img.height == h and placed.screen == t.screens.active_key) {
++            if (self.edit(t, placed.image_id, frame, stride, rects[0..nrects])) return;
++        }
++
++        // Everything changed, the size did, or the screen is not showing:
++        // replace the pixels whole, keeping the placement.
++        const data = straight(self.alloc, frame, stride, .{ .x = 0, .y = 0, .w = w, .h = h }) catch return;
++        defer self.alloc.free(data);
++        replaceImage(self.alloc, storage, img, w, h, data) catch |err|
++            log.warn("hotty: surface {s} not updated: {}", .{ name, err });
++    }
++
++    /// Writes each rectangle with an `a=f` edit of the image's first frame.
++    /// False if one failed: the caller then replaces the image whole.
++    fn edit(self: *Hotty, t: *terminal.Terminal, id: u32, frame: []const u8, stride: usize, rects: []const Rect) bool {
++        for (rects) |r| {
++            if (r.w == 0 or r.h == 0) continue;
++            const data = straight(self.alloc, frame, stride, r) catch return false;
++            defer self.alloc.free(data);
++            var cmd: kitty.graphics.Command = .{
++                .control = .{ .transmit_animation_frame = .{
++                    .transmission = .{
++                        .format = .rgba,
++                        .medium = .direct,
++                        .width = r.w,
++                        .height = r.h,
++                        .image_id = id,
++                    },
++                    .x = r.x,
++                    .y = r.y,
++                    .edit_frame = 1,
++                    .composition_mode = .overwrite,
++                } },
++                .quiet = .ok,
++                .data = data,
++            };
++            if (!self.exec(t, &cmd)) return false;
++        }
++        return true;
++    }
++
++    /// Runs a kitty graphics command built in memory on the active screen.
++    /// True unless the terminal reported a failure.
++    fn exec(self: *Hotty, t: *terminal.Terminal, cmd: *kitty.graphics.Command) bool {
++        // A program's own chunked upload may be in progress; our command
++        // must not become one of its chunks.
++        const storage = &t.screens.active.kitty_images;
++        const loading = storage.loading;
++        storage.loading = null;
++        defer storage.loading = loading;
++        // With `q=1`, only failures come back.
++        const resp = t.kittyGraphics(global.io(), self.alloc, cmd) orelse return true;
++        log.warn("hotty: kitty graphics: {s}", .{resp.message});
++        return false;
++    }
++
++    /// Replaces an image's pixels, possibly at a new size, keeping its
++    /// placements. The kitty protocol cannot do this: sending an image id
++    /// again deletes its placements.
++    fn replaceImage(alloc: Allocator, storage: *kitty.graphics.ImageStorage, img: *kitty.graphics.Image, w: u32, h: u32, data: []const u8) !void {
++        if (img.animation) |anim| if (anim.frames.items.len > 0) return error.Animated;
++        const old_len = img.data.len();
++        if (storage.total_bytes - old_len + data.len > storage.total_limit) return error.StorageFull;
++        const copy = try alloc.dupe(u8, data);
++        img.data.deinit(alloc);
++        img.data = .{ .complete = copy };
++        img.width = w;
++        img.height = h;
++        img.format = .rgba;
++        img.compression = .none;
++        storage.total_bytes = storage.total_bytes - old_len + data.len;
++        storage.markImageContentChanged(global.io(), img);
++    }
++
++    /// A tightly packed straight-alpha copy of rectangle `r` of a
++    /// premultiplied frame.
++    fn straight(alloc: Allocator, frame: []const u8, stride: usize, r: Rect) ![]u8 {
++        const row_len = @as(usize, r.w) * 4;
++        const out = try alloc.alloc(u8, row_len * r.h);
++        var y: usize = 0;
++        while (y < r.h) : (y += 1) {
++            const s_row = frame[(r.y + y) * stride + @as(usize, r.x) * 4 ..][0..row_len];
++            const d_row = out[y * row_len ..][0..row_len];
++            var i: usize = 0;
++            while (i < s_row.len) : (i += 4) {
++                const a = s_row[i + 3];
++                if (a == 255 or a == 0) {
++                    @memcpy(d_row[i .. i + 4], s_row[i .. i + 4]);
++                } else {
++                    const af: u32 = a;
++                    inline for (0..3) |c| {
++                        d_row[i + c] = @intCast(@min(255, (@as(u32, s_row[i + c]) * 255 + af / 2) / af));
++                    }
++                    d_row[i + 3] = a;
++                }
++            }
++        }
++        return out;
++    }
++
++    fn place(self: *Hotty, t: *terminal.Terminal, name: []const u8, p: Place, w: u32, h: u32, data: []const u8) !void {
++        // One image per placement: a surface placed again moves.
++        if (self.placed.fetchRemove(name)) |kv| {
++            self.deleteImage(t, kv.value);
++            self.alloc.free(kv.key);
++        }
++        const id = self.next_id;
++        self.next_id = if (self.next_id >= id_base + 0xff) id_base else self.next_id + 1;
++
++        var cmd: kitty.graphics.Command = .{
++            .control = .{ .transmit_and_display = .{
++                .transmission = .{
++                    .format = .rgba,
++                    .medium = .direct,
++                    .width = w,
++                    .height = h,
++                    .image_id = id,
++                    .placement_id = 1,
++                },
++                .display = .{
++                    .image_id = id,
++                    .placement_id = 1,
++                    .columns = p.cols,
++                    .rows = p.rows,
++                    .cursor_movement = .none,
++                },
++            } },
++            .quiet = .ok,
++            .data = data,
++        };
++        if (!self.exec(t, &cmd)) return error.PlaceFailed;
++        const owned = try self.alloc.dupe(u8, name);
++        errdefer self.alloc.free(owned);
++        try self.placed.put(self.alloc, owned, .{
++            .image_id = id,
++            .cols = p.cols,
++            .rows = p.rows,
++            .screen = t.screens.active_key,
++        });
++
++        if (p.move_cursor) {
++            // The cursor goes to the start of the line below the surface,
++            // scrolling as needed (the polyfill does the same).
++            var i: usize = 0;
++            while (i < p.rows) : (i += 1) t.index() catch break;
++            t.carriageReturn();
++        }
++    }
++
++    // --- input --------------------------------------------------------------
++
++    /// The surface under viewport pixel (`px`, `py`), and the pixel inside
++    /// it, found from the active screen's kitty placements.
++    fn hit(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64) ?struct { name: []const u8, x: f32, y: f32 } {
++        if (self.placed.count() == 0 or self.cell_w == 0 or self.cell_h == 0) return null;
++        const screen = t.screens.active;
++        const storage = &screen.kitty_images;
++        var it = self.placed.iterator();
++        while (it.next()) |e| {
++            if (e.value_ptr.screen != t.screens.active_key) continue;
++            const pkey: kitty.graphics.ImageStorage.PlacementKey = .{
++                .image_id = e.value_ptr.image_id,
++                .placement_id = .{ .tag = .external, .id = 1 },
++            };
++            const placement = storage.placements.get(pkey) orelse continue;
++            const pin = switch (placement.location) {
++                .pin => |pin| pin,
++                else => continue,
++            };
++            const vp = screen.pages.pointFromPin(.viewport, pin.*) orelse continue;
++            const x0: f64 = @floatFromInt(@as(u32, vp.viewport.x) * self.cell_w);
++            const y0: f64 = @floatFromInt(@as(u32, vp.viewport.y) * self.cell_h);
++            const w: f64 = @floatFromInt(@as(u32, e.value_ptr.cols) * self.cell_w);
++            const hh: f64 = @floatFromInt(@as(u32, e.value_ptr.rows) * self.cell_h);
++            if (px >= x0 and px < x0 + w and py >= y0 and py < y0 + hh) {
++                return .{ .name = e.key_ptr.*, .x = @floatCast(px - x0), .y = @floatCast(py - y0) };
++            }
++        }
++        return null;
++    }
++
++    /// A pointer event at viewport pixel (`px`, `py`). True if a surface took
++    /// it; replies for the program stay in `replies`.
++    fn pointer(self: *Hotty, t: *terminal.Terminal, kind: PointerKind, px: f64, py: f64, mods: u32) bool {
++        const h = self.host orelse return false;
++        if (self.placed.count() == 0) return false;
++        const target = self.hit(t, px, py);
++        const fx = self.effects();
++
++        // Leaving a surface (or moving onto another) clears its hover.
++        const over: []const u8 = if (target) |tg| tg.name else "";
++        if (self.hover_len > 0 and !std.mem.eql(u8, self.hover[0..self.hover_len], over)) {
++            var buf: [73]u8 = undefined;
++            const old = std.fmt.bufPrintZ(&buf, "{s}", .{self.hover[0..self.hover_len]}) catch "";
++            hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
++            self.hover_len = 0;
++        }
++        if (target) |tg| {
++            if (tg.name.len <= self.hover.len) {
++                @memcpy(self.hover[0..tg.name.len], tg.name);
++                self.hover_len = tg.name.len;
++            }
++            var name_buf: [73]u8 = undefined;
++            const name = std.fmt.bufPrintZ(&name_buf, "{s}", .{tg.name}) catch return false;
++            hotty_host_pointer(h, name.ptr, @intFromEnum(kind), tg.x, tg.y, mods, &fx);
++        } else if (kind == .down) {
++            // A click outside every surface takes the keyboard back.
++            if (hotty_host_focused(h)) |name| hotty_host_blur(h, name, &fx);
++        }
++        self.render(t);
++        return target != null;
++    }
++
++    /// A key for the surface holding the keyboard. True if it used it.
++    fn key(self: *Hotty, t: *terminal.Terminal, code: u32, text: ?[*:0]const u8, mods: u32) bool {
++        const h = self.host orelse return false;
++        const fx = self.effects();
++        const consumed = hotty_host_key(h, code, text, mods, &fx);
++        self.render(t);
++        return consumed;
++    }
++
++    fn hasKeyboard(self: *Hotty) bool {
++        const h = self.host orelse return false;
++        return hotty_host_focused(h) != null;
++    }
++};
++
++// --- from Surface ------------------------------------------------------------
++
++fn hostMods(mods: input.Mods) u32 {
++    var m: u32 = 0;
++    if (mods.shift) m |= 1;
++    if (mods.ctrl) m |= 2;
++    if (mods.alt) m |= 4;
++    if (mods.super) m |= 8;
++    return m;
++}
++
++/// Sends what the surfaces replied to the program, and redraws.
++fn deliver(s: *Surface, took: bool) void {
++    const hs = &s.io.terminal_stream.handler.hotty;
++    if (hs.replies.items.len > 0) {
++        defer hs.replies.clearRetainingCapacity();
++        // Surface.queueIo drops writes in readonly mode; so do we.
++        if (!s.readonly) {
++            if (termio.Message.writeReq(s.alloc, hs.replies.items)) |msg| {
++                s.io.queueMessage(msg, .unlocked);
++            } else |_| {}
++        }
++    }
++    if (took) s.renderer_thread.wakeup.notify() catch {};
++}
++
++fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.Mods) bool {
++    const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = pos.x, .y = pos.y } };
++    const tp = coord.convert(.terminal, s.size).terminal;
++    const took = took: {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        break :took s.io.terminal_stream.handler.hotty.pointer(&s.io.terminal, kind, tp.x, tp.y, hostMods(mods));
++    };
++    deliver(s, took);
++    return took;
++}
++
++/// Surface.mouseButtonCallback: a left click on a surface belongs to it, and
++/// is neither reported to the program nor used for selection.
++pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.MouseButton, mods: input.Mods) bool {
++    if (button != .left) return false;
++    const pos = s.rt_surface.getCursorPos() catch return false;
++    return pointerAt(s, if (action == .press) .down else .up, pos, mods);
++}
++
++/// Surface.cursorPosCallback: hovering a surface restyles it and is not
++/// reported.
++pub fn surfaceMove(s: *Surface, pos: apprt.CursorPos, mods: ?input.Mods) bool {
++    if (pos.x < 0 or pos.y < 0) return false;
++    return pointerAt(s, .move, pos, mods orelse s.mouse.mods);
++}
++
++/// Surface.keyCallback: the surface holding the keyboard gets the key first.
++/// Keys its focused element has no use for go to the program as usual.
++pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
++    if (s.readonly) return false;
++    const hs = &s.io.terminal_stream.handler.hotty;
++    const consumed = consumed: {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        if (!hs.hasKeyboard()) break :consumed false;
++        // The press decides; its release goes wherever the press went.
++        if (event.action == .release) break :consumed true;
++        const code: u32 = switch (event.key) {
++            .enter, .numpad_enter => 1,
++            .tab => 2,
++            .backspace => 3,
++            .delete => 4,
++            .escape => 5,
++            .arrow_left => 6,
++            .arrow_right => 7,
++            .arrow_up => 8,
++            .arrow_down => 9,
++            .home => 10,
++            .end => 11,
++            .page_up => 12,
++            .page_down => 13,
++            .space => 14,
++            else => 0,
++        };
++        var text_buf: [64]u8 = undefined;
++        const text: ?[*:0]const u8 = if (code == 0 and event.utf8.len > 0 and event.utf8.len < text_buf.len)
++            (std.fmt.bufPrintZ(&text_buf, "{s}", .{event.utf8}) catch break :consumed false).ptr
++        else if (code == 0)
++            break :consumed false
++        else
++            null;
++        break :consumed hs.key(&s.io.terminal, code, text, hostMods(event.mods));
++    };
++    deliver(s, consumed);
++    return consumed;
++}
+diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
+index 22dec0c8..2e6796d1 100644
+--- a/src/termio/stream_handler.zig
++++ b/src/termio/stream_handler.zig
+@@ -11,6 +11,7 @@ const internal_os = @import("../os/main.zig");
+ const renderer = @import("../renderer.zig");
+ const termio = @import("../termio.zig");
+ const terminal = @import("../terminal/main.zig");
++const hotty = @import("hotty.zig");
+ const terminfo = @import("../terminfo/main.zig");
+ const posix = std.posix;
+ 
+@@ -80,6 +81,9 @@ pub const StreamHandler = struct {
+     /// transaction, if any.
+     kitty_clipboard_write: ?*terminal.kitty.clipboard.WriteState = null,
+ 
++    /// hottyterm: HOTTY surfaces (OSC 7279).
++    hotty: hotty.Hotty,
++
+     /// This is set to true when a message was written to the termio
+     /// mailbox. This can be used by callers to determine if they need
+     /// to wake up the termio thread.
+@@ -95,6 +99,7 @@ pub const StreamHandler = struct {
+     pub const tmux_enabled = terminal.options.tmux_control_mode;
+ 
+     pub fn deinit(self: *StreamHandler) void {
++        self.hotty.deinit();
+         self.apc.deinit();
+         self.dcs.deinit();
+         self.kittyClipboardWriteAbort();
+@@ -120,6 +125,7 @@ pub const StreamHandler = struct {
+         self.clipboard_write = config.clipboard_write;
+         self.clipboard_write_limit = config.clipboard_write_limit;
+         self.enquiry_response = config.enquiry_response;
++        self.hotty.settings = config.hotty;
+         self.terminal.setDefaultCursorStyle(config.cursor_style);
+         self.terminal.setDefaultCursorBlink(config.cursor_blink);
+ 
+@@ -374,8 +380,9 @@ pub const StreamHandler = struct {
+             .title_push,
+             .title_pop,
+             .kitty_dnd,
+-            .osc_unknown,
+             => {},
++
++            .osc_unknown => try self.hotty.osc(self, value),
+         }
+     }
+ 
+@@ -884,6 +891,7 @@ pub const StreamHandler = struct {
+         self: *StreamHandler,
+     ) !void {
+         self.terminal.fullReset();
++        self.hotty.reset();
+         try self.setMouseShape(.text);
+ 
+         // Full reset clears Kitty clipboard session grants.

@@ -1,0 +1,2 @@
+[tools]
+zig = "0.16.0"   # Ghostty's minimum_zig_version at ghostty-ref

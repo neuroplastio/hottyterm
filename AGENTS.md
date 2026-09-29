@@ -1,0 +1,30 @@
+# For agents
+
+hottyterm is a soft fork of Ghostty: upstream at a pinned commit
+(`ghostty-ref`) plus the patches in `patches/`. It adds HOTTY (`SPEC.md` in
+neuroplastio/hotty) through hotty-blitz's C ABI, and nothing else.
+
+- **The patches are the source.** Work in the fork at `../ghostty` (branch
+  `hottyterm`, set up by `scripts/fork.sh`), then run `scripts/export.sh`
+  and commit `patches/`. Never commit a copy of Ghostty's tree here.
+- **Logic goes in `src/termio/hotty.zig`; upstream files get hooks only.**
+  A hook is a line or two that calls into hotty.zig. Reaching into Ghostty's
+  internals from hotty.zig is fine: upstream changes then fail to compile
+  there, which is easier to fix than a rebase conflict. Count the lines a
+  change adds to upstream files, and say so in the commit message.
+- **HOTTY only.** A feature that is not HOTTY belongs upstream, in plexos, or
+  nowhere. A change that would help any kitty graphics user (like partial
+  texture uploads) is written as its own patch, in upstream's style, so the
+  maintainer can offer it to Ghostty.
+- **Never open issues, discussions or pull requests on ghostty-org.** Ghostty
+  requires a vouch and discloses AI use; contributing there is the
+  maintainer's own act.
+- **Not Ghostty.** Ghostty's name and icon are its non-profit's trademarks.
+  Say "a fork of Ghostty", never call hottyterm Ghostty, and do not publish a
+  build under Ghostty's name or icon.
+- **Moving `ghostty-ref`** is one deliberate step: `scripts/canary.sh` first,
+  then rebase the fork onto the new commit, fix, export, build, smoke test,
+  and commit `ghostty-ref` and `patches/` together.
+- **The gate is `make check`:** the patches apply cleanly to `ghostty-ref`,
+  the fork builds against hotty-blitz, and the smoke test renders a surface.
+  `cargo` and `zig` come from mise (`mise x --`).
