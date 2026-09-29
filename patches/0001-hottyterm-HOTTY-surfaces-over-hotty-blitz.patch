@@ -21,9 +21,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  src/Surface.zig               |  10 +
  src/build/GhosttyExe.zig      |  10 +
  src/termio/Termio.zig         |  11 +
- src/termio/hotty.zig          | 803 ++++++++++++++++++++++++++++++++++
+ src/termio/hotty.zig          | 826 ++++++++++++++++++++++++++++++++++
  src/termio/stream_handler.zig |  10 +-
- 5 files changed, 843 insertions(+), 1 deletion(-)
+ 5 files changed, 866 insertions(+), 1 deletion(-)
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
@@ -155,10 +155,10 @@ index d08f2e5f..918f9a0a 100644
      if (self.terminal_stream.handler.termio_messaged) {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
 new file mode 100644
-index 00000000..ad115dc1
+index 00000000..4e6c4714
 --- /dev/null
 +++ b/src/termio/hotty.zig
-@@ -0,0 +1,803 @@
+@@ -0,0 +1,826 @@
 +//! hottyterm: HOTTY surfaces (HTML over the TTY), rendered by the terminal.
 +//!
 +//! A program sends HOTTY commands on OSC 7279 (SPEC.md in neuroplastio/hotty).
@@ -239,6 +239,7 @@ index 00000000..ad115dc1
 +extern fn hotty_host_key(h: *Host, key: u32, text: ?[*:0]const u8, mods: u32, fx: *const Effects) bool;
 +extern fn hotty_host_blur(h: *Host, surface: [*:0]const u8, fx: *const Effects) void;
 +extern fn hotty_host_focused(h: *Host) ?[*:0]const u8;
++extern fn hotty_host_cursor(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
 +
 +// --- wiring ------------------------------------------------------------------
 +
@@ -307,6 +308,11 @@ index 00000000..ad115dc1
 +    /// The surface under the pointer, so leaving it clears its hover state.
 +    hover: [72]u8 = undefined,
 +    hover_len: usize = 0,
++    /// The pointer's shape the document under it asks for (CSS `cursor`),
++    /// null off the surfaces; and the one last shown, null for the
++    /// terminal's own.
++    shape: ?terminal.MouseShape = null,
++    shown_shape: ?terminal.MouseShape = null,
 +
 +    const Place = struct {
 +        surface: [:0]u8,
@@ -825,6 +831,7 @@ index 00000000..ad115dc1
 +    /// A pointer event at viewport pixel (`px`, `py`). True if a surface took
 +    /// it; replies for the program stay in `replies`.
 +    fn pointer(self: *Hotty, t: *terminal.Terminal, kind: PointerKind, px: f64, py: f64, mods: u32) bool {
++        self.shape = null;
 +        const h = self.host orelse return false;
 +        if (self.placed.count() == 0) return false;
 +        const target = self.hit(t, px, py);
@@ -846,6 +853,8 @@ index 00000000..ad115dc1
 +            var name_buf: [73]u8 = undefined;
 +            const name = std.fmt.bufPrintZ(&name_buf, "{s}", .{tg.name}) catch return false;
 +            hotty_host_pointer(h, name.ptr, @intFromEnum(kind), tg.x, tg.y, mods, &fx);
++            const css = hotty_host_cursor(h, name.ptr);
++            self.shape = if (css) |c| terminal.MouseShape.fromString(std.mem.span(c)) orelse .default else .default;
 +        } else if (kind == .down) {
 +            // A click outside every surface takes the keyboard back.
 +            if (hotty_host_focused(h)) |name| hotty_host_blur(h, name, &fx);
@@ -861,6 +870,14 @@ index 00000000..ad115dc1
 +        const consumed = hotty_host_key(h, code, text, mods, &fx);
 +        self.render(t);
 +        return consumed;
++    }
++
++    /// The pointer's shape to show, when it changed since the last call: the
++    /// surface's, or the terminal's own (`own`) once the pointer left them.
++    fn shapeChange(self: *Hotty, own: terminal.MouseShape) ?terminal.MouseShape {
++        if (std.meta.eql(self.shape, self.shown_shape)) return null;
++        self.shown_shape = self.shape;
++        return self.shape orelse own;
 +    }
 +
 +    fn hasKeyboard(self: *Hotty) bool {
@@ -898,11 +915,17 @@ index 00000000..ad115dc1
 +fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.Mods) bool {
 +    const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = pos.x, .y = pos.y } };
 +    const tp = coord.convert(.terminal, s.size).terminal;
++    var shape: ?terminal.MouseShape = null;
 +    const took = took: {
 +        s.renderer_state.mutex.lockUncancelable(global.io());
 +        defer s.renderer_state.mutex.unlock(global.io());
-+        break :took s.io.terminal_stream.handler.hotty.pointer(&s.io.terminal, kind, tp.x, tp.y, hostMods(mods));
++        const hs = &s.io.terminal_stream.handler.hotty;
++        const took = hs.pointer(&s.io.terminal, kind, tp.x, tp.y, hostMods(mods));
++        shape = hs.shapeChange(s.io.terminal.mouse_shape);
++        break :took took;
 +    };
++    // The pointer shows what the surface under it asks for (SPEC §9).
++    if (shape) |v| _ = s.rt_app.performAction(.{ .surface = s }, .mouse_shape, v) catch {};
 +    deliver(s, took);
 +    return took;
 +}
