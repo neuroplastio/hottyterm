@@ -7,7 +7,7 @@ check: apply build smoke   ## the gate
 fork:
 	@scripts/fork.sh
 
-apply:   ## the patches apply cleanly to ghostty-ref
+apply: fork   ## the patches apply cleanly to ghostty-ref
 	@scripts/canary.sh $$(grep -v '^#' ghostty-ref | head -1)
 
 brand:   ## regenerate the branding commit on top of the fork (brand/)
@@ -22,7 +22,7 @@ debug: fork
 smoke:   ## a surface renders natively, on a private headless display
 	@scripts/smoke.sh
 
-canary:   ## do the patches still apply to upstream's latest main?
+canary: fork   ## do the patches still apply to upstream's latest main?
 	@scripts/canary.sh
 
 export:   ## the fork's commits back into patches/

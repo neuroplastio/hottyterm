@@ -1,0 +1,50 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 17:40:52 +0200
+Subject: [PATCH 2/2] hottyterm: build hotty-blitz into release builds
+
+- macOS: hotty-blitz's static library (HOTTY_BLITZ_STATIC) joins the
+  combined archive in GhosttyKit, which the macOS app links.
+- Linux: an rpath of $ORIGIN/../lib, so a packaged build finds
+  libhotty_blitz.so next to bin/.
+
+Upstream files: 10 lines in two files (GhosttyLib, GhosttyExe).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/build/GhosttyExe.zig | 2 ++
+ src/build/GhosttyLib.zig | 8 ++++++++
+ 2 files changed, 10 insertions(+)
+
+diff --git a/src/build/GhosttyExe.zig b/src/build/GhosttyExe.zig
+index 790f4af4..d60ab456 100644
+--- a/src/build/GhosttyExe.zig
++++ b/src/build/GhosttyExe.zig
+@@ -41,6 +41,8 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
+         exe.root_module.addLibraryPath(.{ .cwd_relative = dir });
+         exe.root_module.addRPathSpecial(dir);
+     }
++    // A packaged build keeps the library in lib/ next to bin/.
++    if (cfg.target.result.os.tag == .linux) exe.root_module.addRPathSpecial("$ORIGIN/../lib");
+     exe.root_module.linkSystemLibrary("hotty_blitz", .{});
+ 
+     // Check for possible issues
+diff --git a/src/build/GhosttyLib.zig b/src/build/GhosttyLib.zig
+index 529bb282..5f65f70e 100644
+--- a/src/build/GhosttyLib.zig
++++ b/src/build/GhosttyLib.zig
+@@ -54,6 +54,14 @@ pub fn initStatic(
+     var lib_list = try deps.add(lib);
+     try lib_list.append(b.allocator, lib.getEmittedBin());
+ 
++    // hottyterm: hotty-blitz's static library (HOTTY_BLITZ_STATIC, built for
++    // this machine) joins the combined archive that the macOS app links.
++    if (b.graph.environ_map.get("HOTTY_BLITZ_STATIC")) |a| {
++        const t = deps.config.target.result;
++        if (t.os.tag == .macos and t.cpu.arch == builtin.cpu.arch)
++            try lib_list.append(b.allocator, .{ .cwd_relative = a });
++    }
++
+     // Combine all archives into a single fat static library so
+     // consumers only need to link one file.
+     const combined = CombineArchivesStep.create(b, deps.config.target, "ghostty-internal", lib_list.items);

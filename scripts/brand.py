@@ -41,6 +41,10 @@ def fill(s, ident):
 def files(fork, globs):
     out = set()
     for pattern in globs:
+        if not any(ch in pattern for ch in "*?["):
+            if os.path.isfile(os.path.join(fork, pattern)):
+                out.add(pattern)
+            continue
         for root, dirs, names in os.walk(fork):
             dirs[:] = [d for d in dirs if d not in (".git", ".zig-cache", "zig-out")]
             for n in names:
@@ -76,17 +80,19 @@ def apply(fork, cfg):
     ident = cfg["identity"]
     changed = set()
 
-    # Icons.
-    icons = cfg.get("icons", {})
-    for n in icons.get("sizes", []):
-        src = os.path.join(BRAND, "icons", f"{n}.png")
-        if not os.path.exists(src):
-            fail(f"missing {src}: run scripts/brand-icons.sh")
-        for t in icons.get("targets", []):
-            dst = os.path.join(fork, t.format(n=n))
-            if os.path.exists(os.path.dirname(dst)):
-                shutil.copyfile(src, dst)
-                changed.add(t.format(n=n))
+    # Images.
+    for c in cfg.get("copy", []):
+        for n in c.get("sizes", [None]):
+            src = os.path.join(BRAND, c["from"].format(n=n))
+            if not os.path.exists(src):
+                fail(f"missing {src}: run scripts/brand-icons.sh")
+            for pattern in c["to"]:
+                targets = files(fork, [pattern.format(n=n)])
+                if not targets:
+                    fail(f"{pattern.format(n=n)}: matches nothing; upstream moved or removed it")
+                for rel in targets:
+                    shutil.copyfile(src, os.path.join(fork, rel))
+                    changed.add(rel)
 
     # Overlays.
     overlay = os.path.join(BRAND, "overlay")
@@ -111,15 +117,14 @@ def apply(fork, cfg):
         open(path, "w", encoding="utf-8").write(text.replace(rule["from"], fill(rule["to"], ident)))
         changed.add(rule["file"])
 
-    # Translatable strings in the source.
-    tr = cfg.get("translatable")
-    if tr:
-        word = re.compile(rf"\b{re.escape(tr['word'])}\b")
-        call = re.compile(r'((?:\bi18n\.N_|\bi18n\._|(?<![\w.])_)\(")((?:[^"\\\n]|\\.)*)(")')
-        for rel in files(fork, tr["globs"]):
+    # User-facing strings, without anchors.
+    for st in cfg.get("strings", []):
+        literal = re.compile(st["literal"])
+        word = re.compile(st.get("word", r"\bGhostty\b"))
+        for rel in files(fork, st["globs"]):
             path = os.path.join(fork, rel)
             text = open(path, encoding="utf-8").read()
-            new = call.sub(lambda m: m.group(1) + word.sub(ident["name"], m.group(2)) + m.group(3), text)
+            new = literal.sub(lambda m: m.group(1) + word.sub(ident["name"], m.group(2)) + m.group(3), text)
             if new != text:
                 open(path, "w", encoding="utf-8").write(new)
                 changed.add(rel)
@@ -139,14 +144,23 @@ def apply(fork, cfg):
 
 
 def check(fork, cfg):
-    c = cfg["check"]
+    left = []
+    for c in cfg["check"]:
+        left += check_one(fork, c)
+    return left
+
+
+def check_one(fork, c):
     pats = [re.compile(p, re.M) for p in c["patterns"]]
     allow = [re.compile(a) for a in c["allow"]]
+    exts = tuple(c.get("exts", ()))
     left = []
     for p in c["paths"]:
         full = os.path.join(fork, p)
         paths = [full] if os.path.isfile(full) else [os.path.join(r, n) for r, _, ns in os.walk(full) for n in ns]
         for path in sorted(paths):
+            if exts and not path.endswith(exts):
+                continue
             try:
                 lines = open(path, encoding="utf-8").read().split("\n")
             except UnicodeDecodeError:

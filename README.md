@@ -30,9 +30,9 @@ tree here, and no GitHub fork (a fork of a public repository would be public).
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | one: `0001-hottyterm-HOTTY-surfaces-over-hotty-blitz.patch` |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` hotty-blitz in release builds (the macOS framework, a relocatable Linux rpath) |
 | new code | `src/termio/hotty.zig`, 702 lines: all of the logic |
-| upstream files touched | 4 files, 41 lines, hooks only |
+| upstream files touched | 6 files, 51 lines, hooks only |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
@@ -107,6 +107,33 @@ own, so it runs next to an installed Ghostty.
 0.16 needs LLVM and LLD to link CachyOS's `crt1.o`, and a cached
 blueprint-compiler 0.16 whose warnings on upstream's UI files are hidden unless
 it fails.
+
+### macOS
+
+`scripts/build-macos.sh` builds `out/hottyterm.app` for Apple silicon on a
+Mac with Xcode 26: hotty-blitz as a static library inside GhosttyKit (the
+framework the app links), then the app in Xcode's `ReleaseLocal`
+configuration, signed ad hoc. macOS asks to confirm the first launch
+(right-click, Open). The branding covers the macOS app too: bundle id
+`io.github.neuroplastio.hottyterm`, name, icon (Icon Composer bundle and
+image sets), menus, AppleScript dictionary and Swift strings. It never looks
+for updates: Ghostty's update feed would replace it with Ghostty. Still
+Ghostty's: the executable inside the bundle (`Contents/MacOS/Ghostty`), and
+the parts the "custom icon" setting composes an icon from.
+
+## CI
+
+| workflow | when | what |
+| --- | --- | --- |
+| `linux` | every push | in an Arch Linux container: the patches apply, the branding finds its anchors, the fork builds; artifact `hottyterm-linux-x86_64` (`bin/`, `share/`, and `lib/libhotty_blitz.so`) |
+| `macos` | a push to main that changes the fork's inputs (`ghostty-ref`, `patches/`, `brand/`, the scripts), or on demand | `macos-26`, Xcode 26.6, `scripts/build-macos.sh`; artifact `hottyterm-macos-arm64` |
+| `canary` | daily | the patches and the branding against upstream's latest main |
+
+hotty-blitz is private; CI reads it with a read-only deploy key
+(`HOTTY_BLITZ_DEPLOY_KEY`). macOS minutes count several times over against
+a private repository's allowance, hence the narrow trigger; run it by hand
+with `gh workflow run macos`. Artifacts are kept for 7 days. The smoke test
+needs a display and a GPU and stays local.
 
 ## Changing the fork
 

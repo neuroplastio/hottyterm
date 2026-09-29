@@ -4,11 +4,13 @@
 # brand.py says which one, and the fix is a line in this file.
 #
 # What changes is what a user sees as the product: the name, the icon, the
-# application id (window class, D-Bus name, desktop entry, notifications),
-# the executable, the About dialog, and user-facing strings. What stays is
-# what programs and configs rely on to work with Ghostty: TERM=xterm-ghostty,
-# TERM_PROGRAM, GHOSTTY_* variables, the config file and the resources
-# directory (share/ghostty).
+# application id (Linux: window class, D-Bus name, desktop entry,
+# notifications; macOS: bundle id), the executable, the About dialog, and
+# user-facing strings, on Linux and macOS. The macOS app also stops looking
+# for updates: Ghostty's update feed would replace it with Ghostty. What stays
+# is what programs and configs rely on to work with Ghostty: TERM=xterm-ghostty,
+# TERM_PROGRAM, GHOSTTY_* variables, the config file, the resources directory
+# (share/ghostty), and internal identifiers (notification names, keys).
 #
 # Placeholders in `to`: @name@, @app_id@, @exe@, @url@.
 
@@ -18,10 +20,31 @@ app_id = "io.github.neuroplastio.hottyterm"
 exe = "hottyterm"
 url = "https://github.com/neuroplastio/hottyterm"
 
-# brand/icons/<n>.png (scripts/brand-icons.sh) replaces each target.
-[icons]
+# Images from brand/icons (scripts/brand-icons.sh) replace upstream's. `to`
+# entries are globs; each must match at least one file. {n} is each size.
+[[copy]]
+from = "icons/{n}.png"
 sizes = [16, 32, 64, 128, 256, 512, 1024, 2048]
-targets = ["images/gnome/{n}.png", "images/gnome/nightly-{n}.png"]
+to = ["images/gnome/{n}.png", "images/gnome/nightly-{n}.png"]
+
+[[copy]]
+from = "icons/1024.png"
+to = ["macos/Assets.xcassets/AppIconImage.imageset/macOS-AppIcon-1024px.png",
+      "macos/Assets.xcassets/Alternate Icons/*.imageset/macOS-AppIcon-1024px.png"]
+
+[[copy]]
+from = "icons/512.png"
+to = ["macos/Assets.xcassets/AppIconImage.imageset/macOS-AppIcon-512px.png"]
+
+[[copy]]
+from = "icons/256.png"
+to = ["macos/Assets.xcassets/AppIconImage.imageset/macOS-AppIcon-256px-128pt@2x.png"]
+
+# The macOS app icon is an Icon Composer bundle; its layer becomes the mark
+# (the overlay's icon.json draws it on the dark ground).
+[[copy]]
+from = "icons/mark-824.png"
+to = ["images/Ghostty.icon/Assets/Ghostty.png"]
 
 # Every file under brand/overlay/ replaces the file at the same path.
 
@@ -213,31 +236,141 @@ file = "dist/linux/ghostty_nautilus.py"
 from = "icon='com.mitchellh.ghostty'"
 to = "icon='@app_id@'"
 
-# --- translatable strings -------------------------------------------------
+# --- the macOS app --------------------------------------------------------
 
-# Inside translatable strings (_("…"), i18n._("…"), i18n.N_("…")), the
-# name becomes ours. No anchors: new strings upstream adds are covered.
-[translatable]
+[[replace]]
+file = "macos/Ghostty.xcodeproj/project.pbxproj"
+from = 'PRODUCT_BUNDLE_IDENTIFIER = com.mitchellh.ghostty;'
+to = 'PRODUCT_BUNDLE_IDENTIFIER = @app_id@;'
+count = 2
+
+[[replace]]
+file = "macos/Ghostty.xcodeproj/project.pbxproj"
+from = 'PRODUCT_BUNDLE_IDENTIFIER = com.mitchellh.ghostty.debug;'
+to = 'PRODUCT_BUNDLE_IDENTIFIER = @app_id@.debug;'
+
+[[replace]]
+file = "macos/Ghostty.xcodeproj/project.pbxproj"
+from = 'PRODUCT_BUNDLE_IDENTIFIER = "com.mitchellh.ghostty-dock-tile";'
+to = 'PRODUCT_BUNDLE_IDENTIFIER = "@app_id@-dock-tile";'
+count = 3
+
+[[replace]]
+file = "macos/Ghostty.xcodeproj/project.pbxproj"
+from = 'INFOPLIST_KEY_CFBundleDisplayName = Ghostty;'
+to = 'INFOPLIST_KEY_CFBundleDisplayName = @name@;'
+count = 2
+
+[[replace]]
+file = "macos/Ghostty.xcodeproj/project.pbxproj"
+from = 'INFOPLIST_KEY_CFBundleDisplayName = "Ghostty[DEBUG]";'
+to = 'INFOPLIST_KEY_CFBundleDisplayName = "@name@[DEBUG]";'
+
+[[replace]]
+file = "macos/Ghostty.xcodeproj/project.pbxproj"
+from = 'INFOPLIST_KEY_CFBundleDisplayName = "Ghostty Dock Tile Plugin";'
+to = 'INFOPLIST_KEY_CFBundleDisplayName = "@name@ Dock Tile Plugin";'
+count = 3
+
+# The menu bar shows CFBundleName, which would otherwise be the target's name.
+[[replace]]
+file = "macos/Ghostty-Info.plist"
+from = '<key>GhosttyBuild</key>'
+to = "<key>CFBundleName</key>\n\t<string>@name@</string>\n\t<key>GhosttyBuild</key>"
+
+[[replace]]
+file = "macos/Ghostty-Info.plist"
+from = '<string>Ghostty Surface Identifier</string>'
+to = '<string>@name@ Surface Identifier</string>'
+
+# The Dock tile plugin reads the app's defaults, found by its bundle id.
+[[replace]]
+file = "macos/Sources/Features/Custom App Icon/DockTilePlugin.swift"
+from = 'UserDefaults(suiteName: "com.mitchellh.ghostty.debug")'
+to = 'UserDefaults(suiteName: "@app_id@.debug")'
+
+[[replace]]
+file = "macos/Sources/Features/Custom App Icon/DockTilePlugin.swift"
+from = 'UserDefaults(suiteName: "com.mitchellh.ghostty")'
+to = 'UserDefaults(suiteName: "@app_id@")'
+
+# No updates: Ghostty's feed would replace hottyterm with Ghostty.
+[[replace]]
+file = "macos/Sources/Features/Update/UpdateDelegate.swift"
+from = 'case .tip: return "https://tip.files.ghostty.org/appcast.xml"'
+to = 'case .tip: return nil'
+
+[[replace]]
+file = "macos/Sources/Features/Update/UpdateDelegate.swift"
+from = 'case .stable: return "https://release.files.ghostty.org/appcast.xml"'
+to = 'case .stable: return nil'
+
+# --- user-facing strings, without anchors ---------------------------------
+
+# Inside each string `literal` matches (group 2 is its content), `word`
+# (default: the word Ghostty) becomes the name. New strings upstream adds are
+# covered without a rule. The price: a string that names Ghostty and is
+# really a key or an asset name would be renamed too. None exist at
+# ghostty-ref; a Swift one would show up as a missing asset or setting.
+
+# Translatable strings: _("…"), i18n._("…"), i18n.N_("…").
+[[strings]]
 globs = ["src/**/*.zig", "src/**/*.blp"]
-word = "Ghostty"
+literal = '((?:\bi18n\.N_|\bi18n\._|(?<![\w.])_)\(")((?:[^"\\\n]|\\.)*)(")'
+
+# Swift string literals. `Ghostty.` followed by a letter is code or a file
+# name (\(Ghostty.Shell…), Ghostty.icns), not the product.
+[[strings]]
+globs = ["macos/Sources/**/*.swift"]
+literal = '(")((?:[^"\\\n]|\\.)*)(")'
+word = '(?<!\()\bGhostty\b(?!\.\w)'
+
+# Menu titles (and Interface Builder's own labels) in .xib files.
+[[strings]]
+globs = ["macos/**/*.xib"]
+literal = '((?:title|userLabel)=")([^"]*)(")'
+
+# The AppleScript dictionary's names and descriptions.
+[[strings]]
+globs = ["macos/*.sdef"]
+literal = '((?:title|name|description)=")([^"]*)(")'
 
 # The same in the translations, so the translated strings still match.
 [po]
 globs = ["po/*.po", "po/*.pot"]
 word = "Ghostty"
 
-# --- the check ------------------------------------------------------------
+# --- the checks -----------------------------------------------------------
 
 # After branding, no user-facing string in these places may name Ghostty or
 # use its application id. Upstream adding one fails brand.py; add a rule.
-[check]
+# `allow` lists lines that may match anyway.
+
+# Linux: the GTK app, the CLI, the build's identity, desktop files.
+[[check]]
 paths = ["src/apprt/gtk", "src/input/command.zig", "src/cli/version.zig",
          "src/build_config.zig", "src/build/GhosttyExe.zig",
          "src/build/GhosttyResources.zig", "src/build/GhosttyI18n.zig",
          "dist/linux"]
-patterns = ['"[^"\n]*\bGhostty\b[^"\n]*"', "'[^'\n]*\bGhostty\b[^'\n]*'",
+patterns = ['"[^"\n]*\bGhostty\b(?!\.\w)[^"\n]*"', "'[^'\n]*\bGhostty\b[^'\n]*'",
             'com\.mitchellh\.ghostty', '^Name=.*\bGhostty\b', '^Exec=ghostty\b']
-# Lines that may match anyway: comments, logs, and saying where we come from.
 allow = ['^\s*(//|#|\*)', 'log\.(debug|info|warn|err)', 'a fork of Ghostty',
          'based on Ghostty', 'dist/linux/com\.mitchellh\.ghostty\.metainfo\.xml\.in',
          '--copyright-holder=']   # xgettext's attribution of the strings: theirs
+
+# macOS: strings in the app, its menus, AppleScript dictionary and Info.plist.
+[[check]]
+paths = ["macos/Sources", "macos/Ghostty.sdef", "macos/Ghostty-Info.plist"]
+exts = [".swift", ".xib", ".sdef", ".plist"]
+patterns = ['"[^"\n]*(?<!\()\bGhostty\b(?!\.\w)[^"\n]*"', '>[^<]*\bGhostty\b[^<]*<']
+allow = ['^\s*(//|/\*|\*)', 'Logger\(', '<key>Ghostty', '<string>Ghostty\.sdef</string>',
+         'customModule="Ghostty"']
+
+# macOS: the app's identity in the Xcode project, and its update feed.
+[[check]]
+paths = ["macos/Ghostty.xcodeproj/project.pbxproj", "macos/Sources/Features/Update",
+         "macos/Sources/Features/Custom App Icon/DockTilePlugin.swift"]
+patterns = ['PRODUCT_BUNDLE_IDENTIFIER = "?com\.mitchellh\.ghostty\b',
+            'CFBundleDisplayName = "?Ghostty', 'files\.ghostty\.org/appcast',
+            'suiteName: "com\.mitchellh\.ghostty']
+allow = []

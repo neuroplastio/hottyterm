@@ -1,0 +1,104 @@
+# Builds hottyterm on Linux: the patches apply to ghostty-ref, the branding
+# finds its anchors, and the fork builds against hotty-blitz. In an Arch Linux
+# container, the distribution hottyterm is developed on. The smoke test needs
+# a display and a GPU and stays local (make smoke).
+#
+# hotty-blitz is private: HOTTY_BLITZ_DEPLOY_KEY is a read-only deploy key on
+# neuroplastio/hotty-blitz.
+name: linux
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # fork.sh commits the patches and the branding in the fork.
+  GIT_AUTHOR_NAME: hottyterm CI
+  GIT_AUTHOR_EMAIL: noreply@github.com
+  GIT_COMMITTER_NAME: hottyterm CI
+  GIT_COMMITTER_EMAIL: noreply@github.com
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Packages
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git openssh curl unzip \
+            gtk4 libadwaita python-gobject gettext
+
+      - uses: actions/checkout@v7
+        with:
+          path: hottyterm/main
+
+      - uses: actions/checkout@v7
+        with:
+          repository: neuroplastio/hotty-blitz
+          path: hotty-blitz/main
+          ssh-key: ${{ secrets.HOTTY_BLITZ_DEPLOY_KEY }}
+
+      - name: mise
+        run: |
+          curl -fsSL https://mise.run | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Toolchains
+        run: |
+          mise trust hottyterm/main/mise.toml hotty-blitz/main/mise.toml
+          (cd hottyterm/main && mise install)
+          (cd hotty-blitz/main && mise install rust)
+
+      # Restored and saved as two steps, the save unconditional, so a build
+      # that fails late still keeps what it compiled.
+      - name: Restore caches
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            hotty-blitz/main/target/release
+            ~/.cargo/registry
+            ~/.cache/zig
+          key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-${{ github.sha }}
+          restore-keys: |
+            linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-
+            linux-
+
+      - name: Build
+        run: make -C hottyterm/main apply build
+
+      - name: Save caches
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            hotty-blitz/main/target/release
+            ~/.cargo/registry
+            ~/.cache/zig
+          key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-${{ github.sha }}
+
+      # bin/hottyterm finds lib/libhotty_blitz.so through its $ORIGIN rpath.
+      - name: Package
+        run: |
+          mkdir -p dist/hottyterm/lib
+          cp -R hottyterm/ghostty/zig-out/. dist/hottyterm/
+          cp hotty-blitz/main/target/release/libhotty_blitz.so dist/hottyterm/lib/
+          tar -C dist -czf hottyterm-linux-x86_64.tar.gz hottyterm
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hottyterm-linux-x86_64
+          path: hottyterm-linux-x86_64.tar.gz
+          retention-days: 7
