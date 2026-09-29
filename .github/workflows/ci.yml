@@ -103,8 +103,9 @@ jobs:
           (cd hottyterm/main && mise install)
           (cd hotty-blitz/main && mise install rust)
 
-      # Restored and saved as two steps, the save unconditional, so a build
-      # that fails late still keeps what it compiled.
+      # Restored and saved as two steps, the save also after a failure, so a
+      # build that fails late still keeps what it compiled. Not after a
+      # cancel: that would hold up the run that replaced this one.
       - name: Restore caches
         uses: actions/cache/restore@v5
         with:
@@ -121,7 +122,7 @@ jobs:
         run: make -C hottyterm/main apply build
 
       - name: Save caches
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/cache/save@v5
         with:
           path: |
@@ -202,7 +203,7 @@ jobs:
         run: hottyterm/main/scripts/build-macos.sh
 
       - name: Save caches
-        if: always()
+        if: ${{ !cancelled() }}
         uses: actions/cache/save@v5
         with:
           path: |
