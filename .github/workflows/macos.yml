@@ -62,7 +62,8 @@ jobs:
 
       - name: Toolchains
         run: |
-          mise trust hottyterm/main/mise.toml hotty-blitz/main/mise.toml
+          mise trust hottyterm/main/mise.toml
+          mise trust hotty-blitz/main/mise.toml
           (cd hottyterm/main && mise install)
           (cd hotty-blitz/main && mise install rust)
 
