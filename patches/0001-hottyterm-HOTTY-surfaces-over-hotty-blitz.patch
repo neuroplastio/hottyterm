@@ -21,9 +21,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  src/Surface.zig               |  10 +
  src/build/GhosttyExe.zig      |  10 +
  src/termio/Termio.zig         |  11 +
- src/termio/hotty.zig          | 702 ++++++++++++++++++++++++++++++++++
+ src/termio/hotty.zig          | 705 ++++++++++++++++++++++++++++++++++
  src/termio/stream_handler.zig |  10 +-
- 5 files changed, 742 insertions(+), 1 deletion(-)
+ 5 files changed, 745 insertions(+), 1 deletion(-)
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
@@ -155,10 +155,10 @@ index d08f2e5f..918f9a0a 100644
      if (self.terminal_stream.handler.termio_messaged) {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
 new file mode 100644
-index 00000000..0e3ebebf
+index 00000000..84515147
 --- /dev/null
 +++ b/src/termio/hotty.zig
-@@ -0,0 +1,702 @@
+@@ -0,0 +1,705 @@
 +//! hottyterm: HOTTY surfaces (HTML over the TTY), rendered by the terminal.
 +//!
 +//! A program sends HOTTY commands on OSC 7279 (SPEC.md in neuroplastio/hotty).
@@ -453,10 +453,13 @@ index 00000000..0e3ebebf
 +
 +    /// Forgets placements whose image is gone: scrolled out of the
 +    /// scrollback, erased, or left behind on the alternate screen. The
-+    /// document stays, except on the alternate screen, where SPEC §5.4 says
-+    /// the surface goes with it.
++    /// document stays, so the program can place it again (SPEC §5.4),
++    /// except when the terminal left the alternate screen the surface was
++    /// placed on: then the surface goes with it. An erase on the alternate
++    /// screen (a full-screen program repainting) only takes the placement.
 +    fn prune(self: *Hotty, t: *terminal.Terminal) void {
-+        var gone: [16][]const u8 = undefined;
++        const Gone = struct { name: []const u8, left_alt: bool };
++        var gone: [16]Gone = undefined;
 +        var n: usize = 0;
 +        var it = self.placed.iterator();
 +        while (it.next()) |e| {
@@ -464,14 +467,14 @@ index 00000000..0e3ebebf
 +            const left_alt = p.screen == .alternate and t.screens.active_key != .alternate;
 +            const alive = if (t.screens.get(p.screen)) |s| s.kitty_images.images.contains(p.image_id) else false;
 +            if (alive and !left_alt) continue;
-+            gone[n] = e.key_ptr.*;
++            gone[n] = .{ .name = e.key_ptr.*, .left_alt = left_alt };
 +            n += 1;
 +            if (n == gone.len) break;
 +        }
-+        for (gone[0..n]) |name| {
-+            const kv = self.placed.fetchRemove(name) orelse continue;
++        for (gone[0..n]) |g| {
++            const kv = self.placed.fetchRemove(g.name) orelse continue;
 +            defer self.alloc.free(kv.key);
-+            if (kv.value.screen != .alternate) continue;
++            if (!g.left_alt) continue;
 +            self.deleteImage(t, kv.value);
 +            self.deleteSurface(kv.key);
 +        }
