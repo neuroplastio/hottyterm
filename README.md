@@ -130,6 +130,13 @@ One workflow, `.github/workflows/ci.yml`:
 | `linux` | every push and pull request | in an Arch Linux container: the patches apply, the branding finds its anchors, the fork builds; artifact `hottyterm-linux-x86_64` (`bin/`, `share/`, and `lib/libhotty_blitz.so`) |
 | `macos` | a push to main that changes the fork's inputs (`ghostty-ref`, `patches/`, `brand/`, the scripts, the workflow), or on demand | `macos-26`, Xcode 26.6, `scripts/build-macos.sh`; artifact `hottyterm-macos-arm64` |
 | `canary` | daily, or on demand | the patches and the branding against upstream's latest main |
+| `release` | on main, when both builds ran and passed | a GitHub prerelease with both artifacts and `SHA256SUMS` |
+
+Releases are versioned like the other neuroplastio projects: CalVer from the
+commit's UTC date, then the short commit, e.g. `26.09.29-dev.1e81d70`. The
+tag is the version; the notes name the Ghostty and hotty-blitz commits the
+build used. A docs-only push builds on Linux but makes no release; run the
+workflow by hand for one.
 
 A small `changes` job decides whether a push touches the fork's inputs, so
 a Mac is not started only to skip. `gh workflow run ci` runs everything by

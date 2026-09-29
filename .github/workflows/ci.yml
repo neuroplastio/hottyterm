@@ -10,6 +10,9 @@
 #   demand, not on every push.
 # - canary: daily, and on demand. Do the patches still apply to upstream
 #   Ghostty's main, and does the branding still find its anchors?
+# - release: on main, when both builds ran and passed, a GitHub prerelease
+#   of the artifacts. Versions are CalVer like the other neuroplastio
+#   projects: the commit's UTC date and short commit, 26.09.29-dev.1e81d70.
 #
 # hotty-blitz is private: HOTTY_BLITZ_DEPLOY_KEY is a read-only deploy key on
 # neuroplastio/hotty-blitz.
@@ -68,6 +71,8 @@ jobs:
     runs-on: ubuntu-latest
     container: archlinux:latest
     timeout-minutes: 90
+    outputs:
+      blitz: ${{ steps.blitz.outputs.sha }}
     defaults:
       run:
         shell: bash
@@ -87,6 +92,9 @@ jobs:
           repository: neuroplastio/hotty-blitz
           path: hotty-blitz/main
           ssh-key: ${{ secrets.HOTTY_BLITZ_DEPLOY_KEY }}
+
+      - id: blitz
+        run: echo "sha=$(git -C hotty-blitz/main rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       # mise-action installs mise and caches what it installs. The tools
       # come from each repository's mise.toml (Zig here, Rust in
@@ -151,6 +159,8 @@ jobs:
     if: always() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.fork == 'true')
     runs-on: macos-26
     timeout-minutes: 120
+    outputs:
+      blitz: ${{ steps.blitz.outputs.sha }}
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/zig-cache/local
@@ -165,6 +175,9 @@ jobs:
           repository: neuroplastio/hotty-blitz
           path: hotty-blitz/main
           ssh-key: ${{ secrets.HOTTY_BLITZ_DEPLOY_KEY }}
+
+      - id: blitz
+        run: echo "sha=$(git -C hotty-blitz/main rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Xcode
         run: xcodebuild -version
@@ -222,6 +235,68 @@ jobs:
           name: hottyterm-macos-arm64
           path: hottyterm-macos-arm64.zip
           retention-days: 7
+
+  # A GitHub prerelease of both builds. Created as a draft and published
+  # last, so a run cancelled halfway leaves no half-uploaded release.
+  release:
+    needs: [changes, linux, macos]
+    if: >-
+      always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+      && needs.linux.result == 'success' && needs.macos.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Version
+        id: version
+        run: |
+          echo "version=$(TZ=UTC git show -s --date=format-local:%y.%m.%d --format=%cd HEAD)-dev.$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+          echo "ghostty=$(grep -v '^#' ghostty-ref | head -1)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v7
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Assets
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          cd dist
+          mv hottyterm-linux-x86_64.tar.gz "hottyterm-$VERSION-linux-x86_64.tar.gz"
+          mv hottyterm-macos-arm64.zip "hottyterm-$VERSION-macos-arm64.zip"
+          sha256sum hottyterm-* > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          GHOSTTY: ${{ steps.version.outputs.ghostty }}
+          BLITZ_LINUX: ${{ needs.linux.outputs.blitz }}
+          BLITZ_MACOS: ${{ needs.macos.outputs.blitz }}
+        run: |
+          blitz="neuroplastio/hotty-blitz@${BLITZ_LINUX:0:7}"
+          [ "$BLITZ_LINUX" = "$BLITZ_MACOS" ] || blitz="$blitz (Linux), @${BLITZ_MACOS:0:7} (macOS)"
+          cat > notes.md <<NOTES
+          hottyterm is a fork of Ghostty with native HOTTY (HTML over the TTY), a proof of concept of the protocol. It is not affiliated with Ghostty.
+
+          Built from:
+          - hottyterm ${GITHUB_SHA:0:7}
+          - Ghostty ${GHOSTTY:0:8}, plus \`patches/\` and the generated branding
+          - $blitz
+
+          Assets:
+          - \`hottyterm-$VERSION-linux-x86_64.tar.gz\`: \`bin/\`, \`share/\` and \`lib/libhotty_blitz.so\`. Needs GTK 4, libadwaita and gtk4-layer-shell.
+          - \`hottyterm-$VERSION-macos-arm64.zip\`: \`hottyterm.app\` for Apple silicon, signed ad hoc: the first launch needs right-click, Open.
+          - \`SHA256SUMS\`
+          NOTES
+          gh release create "$VERSION" --draft --prerelease --target "$GITHUB_SHA" \
+            --title "hottyterm $VERSION" --notes-file notes.md dist/*
+          gh release edit "$VERSION" --draft=false
 
   # A failure here is the early warning that moving ghostty-ref will need
   # work (README, "Changing the fork").
