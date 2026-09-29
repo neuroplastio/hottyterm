@@ -123,16 +123,19 @@ the parts the "custom icon" setting composes an icon from.
 
 ## CI
 
-| workflow | when | what |
-| --- | --- | --- |
-| `linux` | every push | in an Arch Linux container: the patches apply, the branding finds its anchors, the fork builds; artifact `hottyterm-linux-x86_64` (`bin/`, `share/`, and `lib/libhotty_blitz.so`) |
-| `macos` | a push to main that changes the fork's inputs (`ghostty-ref`, `patches/`, `brand/`, the scripts), or on demand | `macos-26`, Xcode 26.6, `scripts/build-macos.sh`; artifact `hottyterm-macos-arm64` |
-| `canary` | daily | the patches and the branding against upstream's latest main |
+One workflow, `.github/workflows/ci.yml`:
 
-hotty-blitz is private; CI reads it with a read-only deploy key
-(`HOTTY_BLITZ_DEPLOY_KEY`). macOS minutes count several times over against
-a private repository's allowance, hence the narrow trigger; run it by hand
-with `gh workflow run macos`. Artifacts are kept for 7 days. The smoke test
+| job | when | what |
+| --- | --- | --- |
+| `linux` | every push and pull request | in an Arch Linux container: the patches apply, the branding finds its anchors, the fork builds; artifact `hottyterm-linux-x86_64` (`bin/`, `share/`, and `lib/libhotty_blitz.so`) |
+| `macos` | a push to main that changes the fork's inputs (`ghostty-ref`, `patches/`, `brand/`, the scripts, the workflow), or on demand | `macos-26`, Xcode 26.6, `scripts/build-macos.sh`; artifact `hottyterm-macos-arm64` |
+| `canary` | daily, or on demand | the patches and the branding against upstream's latest main |
+
+A small `changes` job decides whether a push touches the fork's inputs, so
+a Mac is not started only to skip. `gh workflow run ci` runs everything by
+hand. hotty-blitz is private; CI reads it with a read-only deploy key
+(`HOTTY_BLITZ_DEPLOY_KEY`). macOS minutes count several times over against a
+private repository's allowance. Artifacts are kept for 7 days. The smoke test
 needs a display and a GPU and stays local.
 
 ## Changing the fork

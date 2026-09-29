@@ -1,0 +1,229 @@
+# hottyterm's CI, one workflow:
+#
+# - linux: every push and pull request. In an Arch Linux container (the
+#   distribution hottyterm is developed on): the patches apply to
+#   ghostty-ref, the branding finds its anchors, and the fork builds against
+#   hotty-blitz. The smoke test needs a display and a GPU and stays local.
+# - macos: hottyterm.app for Apple silicon (scripts/build-macos.sh). macOS
+#   minutes are expensive on a private repository, so it runs when a push
+#   to main changes the fork's inputs (the `changes` job decides), and on
+#   demand, not on every push.
+# - canary: daily, and on demand. Do the patches still apply to upstream
+#   Ghostty's main, and does the branding still find its anchors?
+#
+# hotty-blitz is private: HOTTY_BLITZ_DEPLOY_KEY is a read-only deploy key on
+# neuroplastio/hotty-blitz.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * *"
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # fork.sh commits the patches and the branding in the fork.
+  GIT_AUTHOR_NAME: hottyterm CI
+  GIT_AUTHOR_EMAIL: noreply@github.com
+  GIT_COMMITTER_NAME: hottyterm CI
+  GIT_COMMITTER_EMAIL: noreply@github.com
+
+jobs:
+  # Does this push change what the macOS app is built from?
+  changes:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      fork: ${{ steps.diff.outputs.fork }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          inputs='^(ghostty-ref|patches/|brand/|scripts/(brand\.py|fork\.sh|build-macos\.sh)|\.github/workflows/ci\.yml)'
+          if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            fork=true   # a new branch, or history rewritten: build
+          elif git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -qE "$inputs"; then
+            fork=true
+          else
+            fork=false
+          fi
+          echo "fork=$fork" >> "$GITHUB_OUTPUT"
+
+  linux:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    container: archlinux:latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Packages
+        run: |
+          pacman -Syu --noconfirm --needed base-devel git openssh curl unzip \
+            gtk4 gtk4-layer-shell libadwaita wayland libx11 fontconfig \
+            python-gobject gettext
+
+      - uses: actions/checkout@v7
+        with:
+          path: hottyterm/main
+
+      - uses: actions/checkout@v7
+        with:
+          repository: neuroplastio/hotty-blitz
+          path: hotty-blitz/main
+          ssh-key: ${{ secrets.HOTTY_BLITZ_DEPLOY_KEY }}
+
+      - name: mise
+        run: |
+          curl -fsSL https://mise.run | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Toolchains
+        run: |
+          mise trust hottyterm/main/mise.toml
+          mise trust hotty-blitz/main/mise.toml
+          (cd hottyterm/main && mise install)
+          (cd hotty-blitz/main && mise install rust)
+
+      # Restored and saved as two steps, the save unconditional, so a build
+      # that fails late still keeps what it compiled.
+      - name: Restore caches
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            hotty-blitz/main/target/release
+            ~/.cargo/registry
+            ~/.cache/zig
+          key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-${{ github.sha }}
+          restore-keys: |
+            linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-
+            linux-
+
+      - name: Build
+        run: make -C hottyterm/main apply build
+
+      - name: Save caches
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            hotty-blitz/main/target/release
+            ~/.cargo/registry
+            ~/.cache/zig
+          key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-${{ github.sha }}
+
+      # bin/hottyterm finds lib/libhotty_blitz.so through its $ORIGIN rpath.
+      - name: Package
+        run: |
+          mkdir -p dist/hottyterm/lib
+          cp -R hottyterm/ghostty/zig-out/. dist/hottyterm/
+          cp hotty-blitz/main/target/release/libhotty_blitz.so dist/hottyterm/lib/
+          tar -C dist -czf hottyterm-linux-x86_64.tar.gz hottyterm
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hottyterm-linux-x86_64
+          path: hottyterm-linux-x86_64.tar.gz
+          retention-days: 7
+
+  macos:
+    needs: changes
+    # always(): `changes` is skipped on workflow_dispatch.
+    if: always() && (github.event_name == 'workflow_dispatch' || needs.changes.outputs.fork == 'true')
+    runs-on: macos-26
+    timeout-minutes: 120
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      ZIG_LOCAL_CACHE_DIR: ${{ github.workspace }}/zig-cache/local
+      ZIG_GLOBAL_CACHE_DIR: ${{ github.workspace }}/zig-cache/global
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: hottyterm/main
+
+      - uses: actions/checkout@v7
+        with:
+          repository: neuroplastio/hotty-blitz
+          path: hotty-blitz/main
+          ssh-key: ${{ secrets.HOTTY_BLITZ_DEPLOY_KEY }}
+
+      - name: Xcode
+        run: xcodebuild -version
+
+      - name: mise
+        run: |
+          curl -fsSL https://mise.run | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Toolchains
+        run: |
+          mise trust hottyterm/main/mise.toml
+          mise trust hotty-blitz/main/mise.toml
+          (cd hottyterm/main && mise install)
+          (cd hotty-blitz/main && mise install rust)
+
+      - name: Restore caches
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            hotty-blitz/main/target/release
+            ~/.cargo/registry
+            zig-cache
+          key: macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-${{ github.sha }}
+          restore-keys: |
+            macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-
+            macos-
+
+      - name: Fork
+        run: hottyterm/main/scripts/fork.sh
+
+      - name: Build
+        run: hottyterm/main/scripts/build-macos.sh
+
+      - name: Save caches
+        if: always()
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            hotty-blitz/main/target/release
+            ~/.cargo/registry
+            zig-cache
+          key: macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-${{ github.sha }}
+
+      # Signed ad hoc: macOS asks to confirm the first launch (right-click,
+      # Open).
+      - name: Package
+        run: ditto -c -k --keepParent hottyterm/main/out/hottyterm.app hottyterm-macos-arm64.zip
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: hottyterm-macos-arm64
+          path: hottyterm-macos-arm64.zip
+          retention-days: 7
+
+  # A failure here is the early warning that moving ghostty-ref will need
+  # work (README, "Changing the fork").
+  canary:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: hottyterm/main
+      - run: make -C hottyterm/main canary
