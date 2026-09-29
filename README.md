@@ -30,9 +30,9 @@ tree here, and no GitHub fork (a fork of a public repository would be public).
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` hotty-blitz in release builds (the macOS framework, a relocatable Linux rpath) |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds |
 | new code | `src/termio/hotty.zig`, 702 lines: all of the logic |
-| upstream files touched | 6 files, 51 lines, hooks only |
+| upstream files touched | 4 files, 43 lines, hooks only |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
@@ -111,9 +111,9 @@ it fails.
 ### macOS
 
 `scripts/build-macos.sh` builds `out/hottyterm.app` for Apple silicon on a
-Mac with Xcode 26: hotty-blitz as a static library inside GhosttyKit (the
-framework the app links), then the app in Xcode's `ReleaseLocal`
-configuration, signed ad hoc. macOS asks to confirm the first launch
+Mac with Xcode 26: GhosttyKit (the framework the app links) as upstream
+builds it, then the app in Xcode's `ReleaseLocal` configuration, signed ad
+hoc, with hotty-blitz's static library added to its link. macOS asks to confirm the first launch
 (right-click, Open). The branding covers the macOS app too: bundle id
 `io.github.neuroplastio.hottyterm`, name, icon (Icon Composer bundle and
 image sets), menus, AppleScript dictionary and Swift strings. It never looks

@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
+Date: Tue, 29 Sep 2026 17:40:52 +0200
+Subject: [PATCH 2/2] hottyterm: a relocatable rpath for packaged Linux builds
+
+An rpath of $ORIGIN/../lib, so a packaged build finds
+libhotty_blitz.so next to bin/. (On macOS, scripts/build-macos.sh links
+hotty-blitz's static library into the app directly; no hook needed.)
+
+Upstream files: 2 lines in GhosttyExe.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/build/GhosttyExe.zig | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/build/GhosttyExe.zig b/src/build/GhosttyExe.zig
+index 790f4af4..d60ab456 100644
+--- a/src/build/GhosttyExe.zig
++++ b/src/build/GhosttyExe.zig
+@@ -41,6 +41,8 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
+         exe.root_module.addLibraryPath(.{ .cwd_relative = dir });
+         exe.root_module.addRPathSpecial(dir);
+     }
++    // A packaged build keeps the library in lib/ next to bin/.
++    if (cfg.target.result.os.tag == .linux) exe.root_module.addRPathSpecial("$ORIGIN/../lib");
+     exe.root_module.linkSystemLibrary("hotty_blitz", .{});
+ 
+     // Check for possible issues

@@ -4,10 +4,10 @@
 #   scripts/build-macos.sh              # out/hottyterm.app
 #
 # 1. hotty-blitz as a static library;
-# 2. GhosttyKit, the framework the app links, with hotty-blitz inside
-#    (patches/0002: HOTTY_BLITZ_STATIC);
+# 2. GhosttyKit, the framework the app links (upstream's build; the HOTTY
+#    code in it calls hotty-blitz's C ABI);
 # 3. the app with Xcode, in the ReleaseLocal configuration, which signs ad
-#    hoc and needs no developer team.
+#    hoc and needs no developer team, linking hotty-blitz's static library.
 #
 # Needs Xcode 26 (xcode-select), mise (Zig here, Rust in hotty-blitz), the
 # fork at ../ghostty (scripts/fork.sh) and hotty-blitz next to this
@@ -31,15 +31,16 @@ echo "== hotty-blitz"
 
 echo "== GhosttyKit"
 cd "$FORK"
-HOTTY_BLITZ_STATIC="$LIB/libhotty_blitz.a" HOTTY_BLITZ_LIB="$LIB" \
-  "$ZIG" build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target=native
+HOTTY_BLITZ_LIB="$LIB" "$ZIG" build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target=native
 
 echo "== the app"
-# hotty-blitz's Rust standard library links libiconv, which the app does not
-# link otherwise.
+# hotty-blitz goes into the app's own link, not into GhosttyKit's archive:
+# no upstream build change, and libtool's warnings about Rust's empty
+# objects would fail zig build. Its Rust standard library also wants
+# libiconv, which the app does not link otherwise.
 cd "$FORK/macos"
 xcodebuild -target Ghostty -configuration ReleaseLocal \
-  OTHER_LDFLAGS='$(inherited) -liconv'
+  OTHER_LDFLAGS="\$(inherited) -liconv $LIB/libhotty_blitz.a"
 
 mkdir -p "$HERE/out"
 rm -rf "$HERE/out/hottyterm.app"
