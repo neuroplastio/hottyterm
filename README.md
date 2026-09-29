@@ -10,6 +10,17 @@ hottyterm is not affiliated with Ghostty. "Ghostty" and its icon are
 trademarks of Ghostty's non-profit; hottyterm uses neither. Its icon for now
 is the neuroplastio mark.
 
+## A proof of concept, meant to end
+
+hottyterm is a proof of concept of the HOTTY protocol: it shows what native
+support looks like in a real terminal, and keeps the protocol honest against
+one. It is not meant to be a terminal of its own. If the stars align and
+Ghostty gains HOTTY support, hottyterm has done its job and stops existing.
+
+That is why it carries HOTTY and nothing else, keeps its changes to upstream
+files down to hooks, and shares Ghostty's config file, `TERM` and resources:
+anyone using it can go back to Ghostty with nothing to migrate.
+
 ## What the fork is
 
 A soft fork: upstream Ghostty at the commit in [`ghostty-ref`](ghostty-ref),

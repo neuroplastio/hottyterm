@@ -12,6 +12,10 @@ neuroplastio/hotty) through hotty-blitz's C ABI, and nothing else.
   internals from hotty.zig is fine: upstream changes then fail to compile
   there, which is easier to fix than a rebase conflict. Count the lines a
   change adds to upstream files, and say so in the commit message.
+- **A proof of concept, meant to end.** hottyterm exists to prove HOTTY in a
+  real terminal. If Ghostty gains HOTTY support, it stops existing. Never
+  make that harder: no settings, files or behaviour of its own that users
+  would have to migrate away from.
 - **HOTTY only.** A feature that is not HOTTY belongs upstream, in plexos, or
   nowhere. A change that would help any kitty graphics user (like partial
   texture uploads) is written as its own patch, in upstream's style, so the
