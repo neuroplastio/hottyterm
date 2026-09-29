@@ -210,11 +210,19 @@ def main():
             c["files"] = [os.path.join(NOTICES, f) for f in o["files"]]
             c["license"], c["source"] = c["license"] or o.get("license", ""), c["source"] or o.get("source", "")
             continue
-        ids = [t for t in re.findall(r"[A-Za-z0-9.+-]+", c["license"]) if t not in ("OR", "AND", "WITH")]
-        texts_for = [next((p for p in (os.path.join(NOTICES, "texts", f"{i}.txt"), os.path.join(rust_texts, f"{i}.txt"))
-                           if os.path.exists(p)), None) for i in ids]
-        if ids and all(texts_for):
-            c["files"], c["standard"] = texts_for, True
+        # "A OR B": one alternative is enough, the first one with texts for
+        # all its ids ("A AND B" needs both).
+        def text(i):
+            return next((p for p in (os.path.join(NOTICES, "texts", f"{i}.txt"), os.path.join(rust_texts, f"{i}.txt"))
+                         if os.path.exists(p)), None)
+        chosen = None
+        for alt in re.split(r"\s+OR\s+", c["license"].replace("(", " ").replace(")", " ").strip()):
+            ids = [t for t in re.findall(r"[A-Za-z0-9.+-]+", alt) if t not in ("AND", "WITH")]
+            if ids and all(text(i) for i in ids):
+                chosen = [text(i) for i in ids]
+                break
+        if chosen:
+            c["files"], c["standard"] = chosen, True
         else:
             missing.append(c)
     for c in missing:
