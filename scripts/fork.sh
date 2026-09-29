@@ -1,7 +1,8 @@
 #!/bin/sh
 # Sets up the Ghostty fork at ../ghostty: upstream at ghostty-ref, branch
-# `hottyterm`, with patches/*.patch applied. It stays local; a GitHub fork of
-# a public repository would be public.
+# `hottyterm`, with patches/*.patch applied and the branding generated on top
+# (scripts/brand.py). It stays local; a GitHub fork of a public repository
+# would be public.
 #
 #   scripts/fork.sh
 set -eu
@@ -22,4 +23,5 @@ git -C "$FORK" remote add origin https://github.com/ghostty-org/ghostty
 git -C "$FORK" fetch -q --depth 200 origin "$REV"
 git -C "$FORK" checkout -q -b hottyterm "$REV"
 git -C "$FORK" am -q "$HERE"/patches/*.patch
+"$HERE/scripts/brand.py" "$FORK"
 echo "ghostty fork ready at $FORK"

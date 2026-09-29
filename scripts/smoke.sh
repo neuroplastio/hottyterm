@@ -22,7 +22,7 @@ find_dir() {  # find_dir <file inside> <candidates...>
 }
 BLITZ="$(find_dir crates/hotty-blitz/include/hotty_blitz.h "${HOTTY_BLITZ_DIR:-}" "$(dirname "$HERE")/../hotty-blitz/main")" || { echo "no hotty-blitz checkout: set HOTTY_BLITZ_DIR" >&2; exit 1; }
 HOTTY="$(find_dir SPEC.md "${HOTTY_DIR:-}" "$(dirname "$HERE")/../hotty/main")" || { echo "no hotty checkout: set HOTTY_DIR" >&2; exit 1; }
-BIN="$FORK/zig-out/bin/ghostty"
+BIN="$FORK/zig-out/bin/hottyterm"
 [ -x "$BIN" ] || { echo "not built: make build" >&2; exit 1; }
 
 OUT="$HERE/out"; mkdir -p "$OUT"
@@ -36,7 +36,7 @@ unset DISPLAY HYPRLAND_INSTANCE_SIGNATURE
 
 frames="$OUT/smoke-$EX.frames.tsv"; log="$OUT/smoke-$EX.log"; shot="$OUT/smoke-$EX.png"
 rm -f "$frames" "$log" "$shot"
-HOTTY_FRAME_LOG="$frames" "$BIN" --class=io.github.neuroplastio.hottyterm --gtk-single-instance=false \
+HOTTY_FRAME_LOG="$frames" "$BIN" --gtk-single-instance=false \
   --window-decoration=false -e python3 "$HOTTY/examples/$EX.py" 2>"$log" &
 pid=$!
 sleep "$SECS"

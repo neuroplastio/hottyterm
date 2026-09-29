@@ -7,7 +7,8 @@ HTML/CSS surfaces in the terminal, and hottyterm renders them itself through
 Ghostty.
 
 hottyterm is not affiliated with Ghostty. "Ghostty" and its icon are
-trademarks of Ghostty's non-profit; hottyterm uses neither.
+trademarks of Ghostty's non-profit; hottyterm uses neither. Its icon for now
+is the neuroplastio mark.
 
 ## What the fork is
 
@@ -21,6 +22,7 @@ tree here, and no GitHub fork (a fork of a public repository would be public).
 | patches | one: `0001-hottyterm-HOTTY-surfaces-over-hotty-blitz.patch` |
 | new code | `src/termio/hotty.zig`, 702 lines: all of the logic |
 | upstream files touched | 4 files, 41 lines, hooks only |
+| branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
 
@@ -45,6 +47,36 @@ How it works:
 - **Input:** a surface that holds the keyboard gets keys first; clicks and
   hover on a surface go to it and are not reported to the program.
 
+## Branding
+
+The fork is branded by a generated commit on top of the patches:
+`scripts/brand.py` applies [`brand/brand.toml`](brand/brand.toml), the icons in
+`brand/icons` and the files in `brand/overlay`, checks, and commits. It
+drops the previous branding commit first, so the branding is regenerated,
+never rebased, and pulling in upstream costs nothing here unless an anchor
+moved.
+
+- **Anchored rules** replace exact strings (the application id, the About
+  dialog, the executable name, desktop files), each with an expected count.
+  If upstream moves one, brand.py names the file and the string.
+- **Translatable strings** (`_("…")`, `i18n._("…")`, `i18n.N_("…")`) and the
+  translations in `po/` have the name replaced wherever it appears, so new
+  strings upstream adds are covered without a rule.
+- **Overlays** replace whole files: the icons and the AppStream metadata.
+- **The check** fails if a user-facing string in the GTK app, the CLI's
+  version, or the desktop files still names Ghostty or uses its application
+  id. Comments, logs, "a fork of Ghostty" and the translations' copyright
+  holder are allowed.
+
+What changes: the name, the icon, the application id
+(`io.github.neuroplastio.hottyterm`: window class, D-Bus name, desktop
+entry, notifications), the executable (`hottyterm`), the About dialog and
+user-facing strings. What stays, because programs and configs rely on it to
+work with Ghostty: `TERM=xterm-ghostty`, `TERM_PROGRAM`, the `GHOSTTY_*`
+variables, the config file (`~/.config/ghostty/config`) and the resources
+directory (`share/ghostty`). The man pages and shell completions are still
+Ghostty's and name `ghostty`; they matter only for an install.
+
 ## Build and run
 
 Needs a checkout of [hotty-blitz](https://github.com/neuroplastio/hotty-blitz)
@@ -58,8 +90,8 @@ scripts/run.sh -e python3 ../../hotty/main/examples/dash.py
 make check                    # patches apply, build, smoke test
 ```
 
-`scripts/run.sh` gives hottyterm its own application id
-(`io.github.neuroplastio.hottyterm`), so it runs next to an installed Ghostty.
+The binary is `../ghostty/zig-out/bin/hottyterm`. Its application id is its
+own, so it runs next to an installed Ghostty.
 `scripts/build.sh` carries two workarounds for this machine: Zig
 0.16 needs LLVM and LLD to link CachyOS's `crt1.o`, and a cached
 blueprint-compiler 0.16 whose warnings on upstream's UI files are hidden unless
@@ -67,13 +99,21 @@ it fails.
 
 ## Changing the fork
 
-1. `scripts/fork.sh` sets up `../ghostty` (branch `hottyterm`) if missing.
-2. Change it there, commit, and run `scripts/export.sh`.
+1. `scripts/fork.sh` sets up `../ghostty` (branch `hottyterm`: the patches,
+   then the branding) if missing.
+2. Change it there and commit. Run `scripts/brand.py`, which moves the
+   branding back to the top, then `scripts/export.sh`, which exports
+   everything but the branding.
 3. Commit `patches/` here.
 
+To change the branding, edit `brand/` and run `scripts/brand.py`; never edit
+the branding commit.
+
 `scripts/canary.sh` applies the patches to upstream's latest `main` in a
-throwaway worktree and reports conflicts. Moving `ghostty-ref` is a deliberate
-step: canary, rebase, build, smoke test, then commit `ghostty-ref` and
+throwaway worktree, dry-runs the branding on it, and reports conflicts and
+moved anchors. Moving `ghostty-ref` is a deliberate step: canary; in the
+fork, `git reset --hard HEAD~1` (the branding) and `git rebase <new ref>`;
+`scripts/brand.py`; build, smoke test; export; then commit `ghostty-ref` and
 `patches/` together.
 
 ## Verified (2026-09-29)

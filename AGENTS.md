@@ -22,9 +22,15 @@ neuroplastio/hotty) through hotty-blitz's C ABI, and nothing else.
 - **Not Ghostty.** Ghostty's name and icon are its non-profit's trademarks.
   Say "a fork of Ghostty", never call hottyterm Ghostty, and do not publish a
   build under Ghostty's name or icon.
+- **Branding is generated, not patched.** `scripts/brand.py` applies
+  `brand/` as one commit on top of the patches and regenerates it every time.
+  Never edit that commit or export it; change `brand/brand.toml` (or the
+  icons and overlays) and rerun. When its check fails after an upstream
+  change, add or fix a rule; do not widen the allowlist to make it pass.
 - **Moving `ghostty-ref`** is one deliberate step: `scripts/canary.sh` first,
   then rebase the fork onto the new commit, fix, export, build, smoke test,
   and commit `ghostty-ref` and `patches/` together.
-- **The gate is `make check`:** the patches apply cleanly to `ghostty-ref`,
-  the fork builds against hotty-blitz, and the smoke test renders a surface.
+- **The gate is `make check`:** the patches apply cleanly to `ghostty-ref`
+  and the branding finds its anchors, the fork builds against hotty-blitz,
+  and the smoke test renders a surface.
   `cargo` and `zig` come from mise (`mise x --`).

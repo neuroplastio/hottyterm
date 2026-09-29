@@ -1,6 +1,6 @@
 # hottyterm: the Ghostty fork is ../ghostty (scripts/fork.sh); hotty-blitz is
 # HOTTY_BLITZ_DIR or next to this repository.
-.PHONY: check fork apply build debug smoke canary export
+.PHONY: check fork apply brand build debug smoke canary export
 
 check: apply build smoke   ## the gate
 
@@ -9,6 +9,9 @@ fork:
 
 apply:   ## the patches apply cleanly to ghostty-ref
 	@scripts/canary.sh $$(grep -v '^#' ghostty-ref | head -1)
+
+brand:   ## regenerate the branding commit on top of the fork (brand/)
+	@scripts/brand.py
 
 build: fork
 	@scripts/build.sh ReleaseFast

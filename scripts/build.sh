@@ -62,4 +62,4 @@ chmod +x "$BIN/blueprint-compiler"
 cd "$FORK"
 HOTTY_BLITZ_LIB="$BLITZ/target/release" PATH="$BIN:$PATH" \
   "$ZIG" build --zig-lib-dir "$LIB" -Doptimize="$OPT" "$@"
-echo "built $FORK/zig-out/bin/ghostty against $BLITZ"
+echo "built $FORK/zig-out/bin/hottyterm against $BLITZ"

@@ -1,0 +1,243 @@
+# hottyterm's branding, applied to the fork by scripts/brand.py as one
+# generated commit on top of patches/. It is regenerated, never rebased, so
+# pulling in upstream costs nothing here unless an anchor below moved; then
+# brand.py says which one, and the fix is a line in this file.
+#
+# What changes is what a user sees as the product: the name, the icon, the
+# application id (window class, D-Bus name, desktop entry, notifications),
+# the executable, the About dialog, and user-facing strings. What stays is
+# what programs and configs rely on to work with Ghostty: TERM=xterm-ghostty,
+# TERM_PROGRAM, GHOSTTY_* variables, the config file and the resources
+# directory (share/ghostty).
+#
+# Placeholders in `to`: @name@, @app_id@, @exe@, @url@.
+
+[identity]
+name = "hottyterm"
+app_id = "io.github.neuroplastio.hottyterm"
+exe = "hottyterm"
+url = "https://github.com/neuroplastio/hottyterm"
+
+# brand/icons/<n>.png (scripts/brand-icons.sh) replaces each target.
+[icons]
+sizes = [16, 32, 64, 128, 256, 512, 1024, 2048]
+targets = ["images/gnome/{n}.png", "images/gnome/nightly-{n}.png"]
+
+# Every file under brand/overlay/ replaces the file at the same path.
+
+# --- identity in the build ------------------------------------------------
+
+[[replace]]
+file = "src/build_config.zig"
+from = 'pub const bundle_id = "com.mitchellh.ghostty";'
+to = 'pub const bundle_id = "@app_id@";'
+
+[[replace]]
+file = "src/apprt/gtk/build/info.zig"
+from = 'pub const base_application_id = "com.mitchellh.ghostty";'
+to = 'pub const base_application_id = "@app_id@";'
+
+[[replace]]
+file = "src/build/GhosttyI18n.zig"
+from = 'const domain = "com.mitchellh.ghostty";'
+to = 'const domain = "@app_id@";'
+
+[[replace]]
+file = "src/build/GhosttyExe.zig"
+from = '.name = "ghostty",'
+to = '.name = "@exe@",'
+
+[[replace]]
+file = "src/build/GhosttyResources.zig"
+from = 'b.fmt("Ghostty{s}"'
+to = 'b.fmt("@name@{s}"'
+
+[[replace]]
+file = "src/build/GhosttyResources.zig"
+from = 'b.fmt("com.mitchellh.ghostty{s}"'
+to = 'b.fmt("@app_id@{s}"'
+
+[[replace]]
+file = "src/build/GhosttyResources.zig"
+from = '"{s}/bin/ghostty"'
+to = '"{s}/bin/@exe@"'
+
+[[replace]]
+file = "src/build/GhosttyResources.zig"
+from = 'apps/com.mitchellh.ghostty.png'
+to = 'apps/@app_id@.png'
+count = "any"
+
+[[replace]]
+file = "src/build/GhosttyResources.zig"
+from = 'servicemenus/com.mitchellh.ghostty.desktop'
+to = 'servicemenus/@app_id@.desktop'
+
+# --- the GTK app ----------------------------------------------------------
+
+[[replace]]
+file = "src/apprt/gtk/class/window.zig"
+from = 'return glib.ext.dupeZ(u8, "Ghostty");'
+to = 'return glib.ext.dupeZ(u8, "@name@");'
+
+[[replace]]
+file = "src/apprt/gtk/class/window.zig"
+from = 'const name = "Ghostty";'
+to = 'const name = "@name@";'
+
+[[replace]]
+file = "src/apprt/gtk/class/window.zig"
+from = 'const icon = "com.mitchellh.ghostty";'
+to = 'const icon = "@app_id@";'
+
+[[replace]]
+file = "src/apprt/gtk/class/window.zig"
+from = 'const website = "https://ghostty.org";'
+to = 'const website = "@url@";'
+
+[[replace]]
+file = "src/apprt/gtk/class/window.zig"
+from = '"https://github.com/ghostty-org/ghostty/issues"'
+to = '"@url@/issues"'
+
+[[replace]]
+file = "src/apprt/gtk/class/window.zig"
+from = 'i18n._("Ghostty Developers")'
+to = 'i18n._("The @name@ authors, based on Ghostty")'
+
+[[replace]]
+file = "src/apprt/gtk/class/tab.zig"
+from = 'const default = "Ghostty";'
+to = 'const default = "@name@";'
+
+[[replace]]
+file = "src/apprt/gtk/class/application.zig"
+from = '0 => "Ghostty",'
+to = '0 => "@name@",'
+
+[[replace]]
+file = "src/apprt/gtk/class/application.zig"
+from = 'gio.ThemedIcon.new("com.mitchellh.ghostty")'
+to = 'gio.ThemedIcon.new("@app_id@")'
+
+[[replace]]
+file = "src/apprt/gtk/class/surface.zig"
+from = 'gio.ThemedIcon.new("com.mitchellh.ghostty")'
+to = 'gio.ThemedIcon.new("@app_id@")'
+
+[[replace]]
+file = "src/apprt/gtk/class/surface.zig"
+from = '0 => "Ghostty",'
+to = '0 => "@name@",'
+
+[[replace]]
+file = "src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp"
+from = 'there is a bug in Ghostty. Please report it.'
+to = 'there is a bug in @name@. Please report it.'
+
+[[replace]]
+file = "src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp"
+from = 'there is a bug in Ghostty. Please report it.'
+to = 'there is a bug in @name@. Please report it.'
+
+[[replace]]
+file = "src/apprt/gtk/ui/1.5/inspector-window.blp"
+from = 'icon-name: "com.mitchellh.ghostty";'
+to = 'icon-name: "@app_id@";'
+
+[[replace]]
+file = "src/apprt/gtk/class/surface_child_exited.zig"
+from = '"This is a bug in Ghostty. Please report it."'
+to = '"This is a bug in @name@. Please report it."'
+
+[[replace]]
+file = "src/apprt/gtk/ui/1.3/surface-child-exited.blp"
+from = 'title: "This is a bug in Ghostty. Please report it.";'
+to = 'title: "This is a bug in @name@. Please report it.";'
+
+# The palette command that types a ghost keeps the ghost, not the name.
+[[replace]]
+file = "src/input/command.zig"
+from = 'i18n.N_("Put a little Ghostty in your terminal.")'
+to = 'i18n.N_("Put a little ghost in your terminal.")'
+
+[[replace]]
+file = "src/input/command.zig"
+from = '.title = i18n.N_("Ghostty"),'
+to = '.title = i18n.N_("Ghost"),'
+
+[[replace]]
+file = "src/cli/version.zig"
+from = 'try stdout.print("Ghostty {s}\n\n"'
+to = 'try stdout.print("@name@ {s}, a fork of Ghostty\n\n"'
+
+# --- desktop integration --------------------------------------------------
+
+[[replace]]
+file = "dist/linux/app.desktop.in"
+from = 'Icon=com.mitchellh.ghostty'
+to = 'Icon=@app_id@'
+
+[[replace]]
+file = "dist/linux/ghostty_dolphin.desktop"
+from = 'Name=Open Ghostty Here'
+to = 'Name=Open @name@ Here'
+
+[[replace]]
+file = "dist/linux/ghostty_dolphin.desktop"
+from = 'Icon=com.mitchellh.ghostty'
+to = 'Icon=@app_id@'
+
+[[replace]]
+file = "dist/linux/ghostty_dolphin.desktop"
+from = 'Exec=ghostty '
+to = 'Exec=@exe@ '
+
+[[replace]]
+file = "dist/linux/ghostty_nautilus.py"
+from = 'DOMAIN = "com.mitchellh.ghostty"'
+to = 'DOMAIN = "@app_id@"'
+
+[[replace]]
+file = "dist/linux/ghostty_nautilus.py"
+from = "cmd = ['ghostty',"
+to = "cmd = ['@exe@',"
+
+[[replace]]
+file = "dist/linux/ghostty_nautilus.py"
+from = "_('Open in Ghostty')"
+to = "_('Open in @name@')"
+
+[[replace]]
+file = "dist/linux/ghostty_nautilus.py"
+from = "icon='com.mitchellh.ghostty'"
+to = "icon='@app_id@'"
+
+# --- translatable strings -------------------------------------------------
+
+# Inside translatable strings (_("…"), i18n._("…"), i18n.N_("…")), the
+# name becomes ours. No anchors: new strings upstream adds are covered.
+[translatable]
+globs = ["src/**/*.zig", "src/**/*.blp"]
+word = "Ghostty"
+
+# The same in the translations, so the translated strings still match.
+[po]
+globs = ["po/*.po", "po/*.pot"]
+word = "Ghostty"
+
+# --- the check ------------------------------------------------------------
+
+# After branding, no user-facing string in these places may name Ghostty or
+# use its application id. Upstream adding one fails brand.py; add a rule.
+[check]
+paths = ["src/apprt/gtk", "src/input/command.zig", "src/cli/version.zig",
+         "src/build_config.zig", "src/build/GhosttyExe.zig",
+         "src/build/GhosttyResources.zig", "src/build/GhosttyI18n.zig",
+         "dist/linux"]
+patterns = ['"[^"\n]*\bGhostty\b[^"\n]*"', "'[^'\n]*\bGhostty\b[^'\n]*'",
+            'com\.mitchellh\.ghostty', '^Name=.*\bGhostty\b', '^Exec=ghostty\b']
+# Lines that may match anyway: comments, logs, and saying where we come from.
+allow = ['^\s*(//|#|\*)', 'log\.(debug|info|warn|err)', 'a fork of Ghostty',
+         'based on Ghostty', 'dist/linux/com\.mitchellh\.ghostty\.metainfo\.xml\.in',
+         '--copyright-holder=']   # xgettext's attribution of the strings: theirs

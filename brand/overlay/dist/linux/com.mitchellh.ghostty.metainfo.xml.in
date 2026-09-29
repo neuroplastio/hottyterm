@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- hottyterm's AppStream metadata. Replaces upstream's template of the same
+     path (brand/brand.toml); @APPID@ and @NAME@ are filled in by the build. -->
+<component type="desktop-application">
+  <id>@APPID@</id>
+  <launchable type="desktop-id">@APPID@.desktop</launchable>
+  <name>@NAME@</name>
+  <url type="homepage">https://github.com/neuroplastio/hottyterm</url>
+  <url type="bugtracker">https://github.com/neuroplastio/hottyterm/issues</url>
+  <url type="vcs-browser">https://github.com/neuroplastio/hottyterm</url>
+  <summary>A terminal that renders HTML surfaces (HOTTY), based on Ghostty</summary>
+  <metadata_license>MIT</metadata_license>
+  <project_license>MIT</project_license>
+  <content_rating type="oars-1.1" />
+  <developer id="io.github.neuroplastio">
+    <name>The hottyterm authors</name>
+  </developer>
+  <description>
+    <p>
+      hottyterm is a fork of the Ghostty terminal emulator. Programs that speak
+      HOTTY (HTML Over The TTY) can show HTML and CSS surfaces in it, which the
+      terminal lays out and draws itself. It is not affiliated with Ghostty.
+    </p>
+  </description>
+  <recommends>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </recommends>
+  <requires>
+    <display_length compare="ge">360</display_length>
+  </requires>
+  <translation type="gettext">io.github.neuroplastio.hottyterm</translation>
+</component>
