@@ -21,9 +21,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  src/Surface.zig               |   13 +
  src/build/GhosttyExe.zig      |   10 +
  src/termio/Termio.zig         |   11 +
- src/termio/hotty.zig          | 1000 +++++++++++++++++++++++++++++++++
+ src/termio/hotty.zig          | 1028 +++++++++++++++++++++++++++++++++
  src/termio/stream_handler.zig |   10 +-
- 5 files changed, 1043 insertions(+), 1 deletion(-)
+ 5 files changed, 1071 insertions(+), 1 deletion(-)
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
@@ -165,10 +165,10 @@ index d08f2e5f..918f9a0a 100644
      if (self.terminal_stream.handler.termio_messaged) {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
 new file mode 100644
-index 00000000..b53c52c2
+index 00000000..95a3be3d
 --- /dev/null
 +++ b/src/termio/hotty.zig
-@@ -0,0 +1,1000 @@
+@@ -0,0 +1,1028 @@
 +//! hottyterm: HOTTY surfaces (HTML over the TTY), rendered by the terminal.
 +//!
 +//! A program sends HOTTY commands on OSC 7279 (SPEC.md in neuroplastio/hotty).
@@ -226,8 +226,8 @@ index 00000000..b53c52c2
 +pub const Effects = extern struct {
 +    ctx: ?*anyopaque,
 +    reply: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void,
-+    /// (surface, cols, rows, window x, y, w, h, move_cursor)
-+    place: ?*const fn (?*anyopaque, [*:0]const u8, u16, u16, u16, u16, u16, u16, bool) callconv(.c) void,
++    /// (surface, cols, rows, window x, y, w, h, z, created, move_cursor)
++    place: ?*const fn (?*anyopaque, [*:0]const u8, u16, u16, u16, u16, u16, u16, i32, u32, bool) callconv(.c) void,
 +    remove: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) void,
 +    hide: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) void,
 +};
@@ -289,12 +289,14 @@ index 00000000..b53c52c2
 +const Window = struct { x: u16, y: u16, w: u16, h: u16 };
 +
 +/// One placed surface, as the terminal sees it: its image, the whole
-+/// surface, and the window of it on screen.
++/// surface, the window of it on screen, and its place in the stack.
 +const Placed = struct {
 +    image_id: u32,
 +    cols: u16,
 +    rows: u16,
 +    win: Window,
++    z: i32,
++    created: u32,
 +    /// Hidden (SPEC §5.4): no placement, and the image kept to show again.
 +    hidden: bool = false,
 +    /// The screen whose image storage holds it.
@@ -347,6 +349,10 @@ index 00000000..b53c52c2
 +        cols: u16,
 +        rows: u16,
 +        win: Window,
++        /// The stack (SPEC §5.2): z, then the order the surfaces were
++        /// created in.
++        z: i32,
++        created: u32,
 +        move_cursor: bool,
 +        /// Shown at once from the image the terminal has: no frame needed.
 +        shown: bool = false,
@@ -395,7 +401,7 @@ index 00000000..b53c52c2
 +            log.warn("hotty: reply dropped, out of memory", .{});
 +    }
 +
-+    fn onPlace(ctx: ?*anyopaque, surface: [*:0]const u8, cols: u16, rows: u16, x: u16, y: u16, w: u16, h: u16, move_cursor: bool) callconv(.c) void {
++    fn onPlace(ctx: ?*anyopaque, surface: [*:0]const u8, cols: u16, rows: u16, x: u16, y: u16, w: u16, h: u16, z: i32, created: u32, move_cursor: bool) callconv(.c) void {
 +        const self: *Hotty = @ptrCast(@alignCast(ctx.?));
 +        const name = self.alloc.dupeZ(u8, std.mem.span(surface)) catch return;
 +        self.places.append(self.alloc, .{
@@ -403,6 +409,8 @@ index 00000000..b53c52c2
 +            .cols = cols,
 +            .rows = rows,
 +            .win = .{ .x = x, .y = y, .w = w, .h = h },
++            .z = z,
++            .created = created,
 +            .move_cursor = move_cursor,
 +        }) catch self.alloc.free(name);
 +    }
@@ -556,13 +564,16 @@ index 00000000..b53c52c2
 +        };
 +        if (!self.exec(t, &cmd)) return false;
 +        e.win = p.win;
++        e.z = p.z;
++        e.created = p.created;
 +        e.hidden = false;
 +        if (p.move_cursor) moveCursor(t, p.win.h);
 +        return true;
 +    }
 +
 +    /// The kitty display of `p`'s window of image `id`, at the cursor: the
-+    /// window is the image's source rectangle, over the window's cells.
++    /// window is the image's source rectangle, over the window's cells,
++    /// stacked by the placement's z and the surface's creation.
 +    fn display(self: *Hotty, id: u32, p: Place) KittyDisplay {
 +        return .{
 +            .image_id = id,
@@ -573,8 +584,17 @@ index 00000000..b53c52c2
 +            .height = @as(u32, p.win.h) * self.cell_h,
 +            .columns = p.win.w,
 +            .rows = p.win.h,
++            .z = stackZ(p.z, p.created),
 +            .cursor_movement = .none,
 +        };
++    }
++
++    /// The kitty z of a placement (SPEC §5.2): its z, from -1000 to 1000,
++    /// then the order its surface was created in, all above the text (a
++    /// kitty z of 0 or more). Creation wraps after a million surfaces.
++    fn stackZ(z: i32, created: u32) i32 {
++        const band: i32 = std.math.clamp(z, -1000, 1000) + 1000;
++        return (band << 20) | @as(i32, @intCast(created & 0xFFFFF));
 +    }
 +
 +    /// The cursor goes to the start of the line below a placement `rows`
@@ -823,6 +843,8 @@ index 00000000..b53c52c2
 +            .cols = p.cols,
 +            .rows = p.rows,
 +            .win = p.win,
++            .z = p.z,
++            .created = p.created,
 +            .screen = t.screens.active_key,
 +        });
 +        if (p.move_cursor) moveCursor(t, p.win.h);
@@ -858,20 +880,26 @@ index 00000000..b53c52c2
 +        };
 +    }
 +
-+    /// The surface under viewport pixel (`px`, `py`), and the pixel inside
-+    /// it, found from the active screen's kitty placements.
++    /// The surface under viewport pixel (`px`, `py`), the topmost where
++    /// placements overlap (SPEC §5.2), and the pixel inside it, found from
++    /// the active screen's kitty placements.
 +    fn hit(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64) ?Target {
 +        if (self.cell_w == 0 or self.cell_h == 0) return null;
++        var top: ?Target = null;
++        var top_z: i32 = std.math.minInt(i32);
 +        var it = self.placed.iterator();
 +        while (it.next()) |e| {
-+            const b = self.onScreen(t, e.value_ptr.*) orelse continue;
-+            if (px >= b.x0 and px < b.x0 + b.w and py >= b.y0 and py < b.y0 + b.h) {
++            const p = e.value_ptr.*;
++            const b = self.onScreen(t, p) orelse continue;
++            const z = stackZ(p.z, p.created);
++            if (px >= b.x0 and px < b.x0 + b.w and py >= b.y0 and py < b.y0 + b.h and (top == null or z > top_z)) {
 +                // The placement shows the window; the surface's pixel is
 +                // offset by where the window starts.
-+                return .{ .name = e.key_ptr.*, .x = @floatCast(px - b.x0 + b.dx), .y = @floatCast(py - b.y0 + b.dy) };
++                top = .{ .name = e.key_ptr.*, .x = @floatCast(px - b.x0 + b.dx), .y = @floatCast(py - b.y0 + b.dy) };
++                top_z = z;
 +            }
 +        }
-+        return null;
++        return top;
 +    }
 +
 +    /// Viewport pixel (`px`, `py`) in surface `name`, inside it or not.
