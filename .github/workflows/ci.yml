@@ -4,18 +4,15 @@
 #   distribution hottyterm is developed on): the patches apply to
 #   ghostty-ref, the branding finds its anchors, and the fork builds against
 #   hotty-blitz. The smoke test needs a display and a GPU and stays local.
-# - macos: hottyterm.app for Apple silicon (scripts/build-macos.sh). macOS
-#   minutes are expensive on a private repository, so it runs when a push
-#   to main changes the fork's inputs (the `changes` job decides), and on
-#   demand, not on every push.
+# - macos: hottyterm.app for Apple silicon (scripts/build-macos.sh). Macs
+#   are the scarcest runners, so it runs when a push to main changes the
+#   fork's inputs (the `changes` job decides), and on demand, not on every
+#   push.
 # - canary: daily, and on demand. Do the patches still apply to upstream
 #   Ghostty's main, and does the branding still find its anchors?
 # - release: on main, when both builds ran and passed, a GitHub prerelease
 #   of the artifacts. Versions are CalVer like the other neuroplastio
 #   projects: the commit's UTC date and short commit, 26.09.29-dev.1e81d70.
-#
-# hotty-blitz is private: HOTTY_BLITZ_DEPLOY_KEY is a read-only deploy key on
-# neuroplastio/hotty-blitz.
 name: ci
 
 on:
@@ -91,7 +88,6 @@ jobs:
         with:
           repository: neuroplastio/hotty-blitz
           path: hotty-blitz/main
-          ssh-key: ${{ secrets.HOTTY_BLITZ_DEPLOY_KEY }}
 
       - id: blitz
         run: echo "sha=$(git -C hotty-blitz/main rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -179,7 +175,6 @@ jobs:
         with:
           repository: neuroplastio/hotty-blitz
           path: hotty-blitz/main
-          ssh-key: ${{ secrets.HOTTY_BLITZ_DEPLOY_KEY }}
 
       - id: blitz
         run: echo "sha=$(git -C hotty-blitz/main rev-parse HEAD)" >> "$GITHUB_OUTPUT"

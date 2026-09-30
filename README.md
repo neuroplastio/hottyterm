@@ -25,7 +25,7 @@ anyone using it can go back to Ghostty with nothing to migrate.
 
 A soft fork: upstream Ghostty at the commit in [`ghostty-ref`](ghostty-ref),
 plus the patches in [`patches/`](patches/). There is no copy of Ghostty's
-tree here, and no GitHub fork (a fork of a public repository would be public).
+tree here, and no GitHub fork.
 
 | | |
 | --- | --- |
@@ -150,9 +150,7 @@ workflow by hand for one.
 
 A small `changes` job decides whether a push touches the fork's inputs, so
 a Mac is not started only to skip. `gh workflow run ci` runs everything by
-hand. hotty-blitz is private; CI reads it with a read-only deploy key
-(`HOTTY_BLITZ_DEPLOY_KEY`). macOS minutes count several times over against a
-private repository's allowance. Artifacts are kept for 7 days. The smoke test
+hand. Artifacts are kept for 7 days. The smoke test
 needs a display and a GPU and stays local.
 
 ## Changing the fork
@@ -195,5 +193,6 @@ has no keyboard unless `wtype` is running.
 
 ## Licence
 
-MIT ([LICENSE](LICENSE)), like Ghostty. hotty-blitz, which it links, is
-Apache-2.0.
+MIT ([LICENSE](LICENSE)), like Ghostty, whose source the patches change
+([LICENSE.ghostty](LICENSE.ghostty)). hotty-blitz, which it links, is
+Apache-2.0. Releases carry every third-party notice (`scripts/notices.py`).
