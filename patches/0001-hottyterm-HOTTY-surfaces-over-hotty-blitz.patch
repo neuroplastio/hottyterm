@@ -18,16 +18,16 @@ hooks only, 41 lines in four files:
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- src/Surface.zig               |  10 +
- src/build/GhosttyExe.zig      |  10 +
- src/termio/Termio.zig         |  11 +
- src/termio/hotty.zig          | 888 ++++++++++++++++++++++++++++++++++
- src/termio/stream_handler.zig |  10 +-
- 5 files changed, 928 insertions(+), 1 deletion(-)
+ src/Surface.zig               |   13 +
+ src/build/GhosttyExe.zig      |   10 +
+ src/termio/Termio.zig         |   11 +
+ src/termio/hotty.zig          | 1000 +++++++++++++++++++++++++++++++++
+ src/termio/stream_handler.zig |   10 +-
+ 5 files changed, 1043 insertions(+), 1 deletion(-)
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 1342e41c..3e48b176 100644
+index 1342e41c..f978fb8e 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -27,6 +27,7 @@ const crash = @import("crash/main.zig");
@@ -48,7 +48,17 @@ index 1342e41c..3e48b176 100644
      // If this input event has text, then we hide the mouse if configured.
      // We only do this on pressed events to avoid hiding the mouse when we
      // change focus due to a keybinding (i.e. switching tabs).
-@@ -3902,6 +3906,9 @@ pub fn mouseButtonCallback(
+@@ -2873,6 +2877,9 @@ pub fn keyCallback(
+         shape,
+     );
+ 
++    // hottyterm: a surface's pointer and hyperlink preview, for these keys.
++    hotty.surfaceMods(self);
++
+     // We've processed a key event that produced some data so we want to
+     // track the last pressed key.
+     self.pressed_key = event: {
+@@ -3902,6 +3909,9 @@ pub fn mouseButtonCallback(
      // Update our modifiers if they changed
      self.modsChanged(mods);
  
@@ -58,7 +68,7 @@ index 1342e41c..3e48b176 100644
      // This is set to true if the terminal is allowed to capture the shift
      // modifier. Note we can do this more efficiently probably with less
      // locking/unlocking but clicking isn't that frequent enough to be a
-@@ -4629,6 +4636,9 @@ pub fn cursorPosCallback(
+@@ -4629,6 +4639,9 @@ pub fn cursorPosCallback(
  
      // log.debug("cursor pos x={} y={} mods={?}", .{ pos.x, pos.y, mods });
  
@@ -155,10 +165,10 @@ index d08f2e5f..918f9a0a 100644
      if (self.terminal_stream.handler.termio_messaged) {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
 new file mode 100644
-index 00000000..c1bf7288
+index 00000000..b53c52c2
 --- /dev/null
 +++ b/src/termio/hotty.zig
-@@ -0,0 +1,888 @@
+@@ -0,0 +1,1000 @@
 +//! hottyterm: HOTTY surfaces (HTML over the TTY), rendered by the terminal.
 +//!
 +//! A program sends HOTTY commands on OSC 7279 (SPEC.md in neuroplastio/hotty).
@@ -193,6 +203,7 @@ index 00000000..c1bf7288
 +const rendererpkg = @import("../renderer.zig");
 +const termio = @import("../termio.zig");
 +const Surface = @import("../Surface.zig");
++const internal_os = @import("../os/main.zig");
 +const kitty = terminal.kitty;
 +
 +const log = std.log.scoped(.hotty);
@@ -240,6 +251,7 @@ index 00000000..c1bf7288
 +extern fn hotty_host_blur(h: *Host, surface: [*:0]const u8, fx: *const Effects) void;
 +extern fn hotty_host_focused(h: *Host) ?[*:0]const u8;
 +extern fn hotty_host_cursor(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
++extern fn hotty_host_hyperlink(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
 +
 +// --- wiring ------------------------------------------------------------------
 +
@@ -321,6 +333,14 @@ index 00000000..c1bf7288
 +    /// A pointer event or a key drew a frame: the renderer must show it,
 +    /// whether or not a surface took the event (a leave repaints too).
 +    drew: bool = false,
++    /// The hyperlink under the pointer (SPEC §9: a link with
++    /// target="_blank"), owned: it is the terminal's, as an OSC 8 one is.
++    link: ?[:0]u8 = null,
++    /// The address in the link preview, owned; null for none.
++    shown_url: ?[:0]u8 = null,
++    /// A press on a hyperlink with the OSC 8 gesture: it and its release
++    /// are the terminal's, never the surface's.
++    link_press: bool = false,
 +
 +    const Place = struct {
 +        surface: [:0]u8,
@@ -335,6 +355,9 @@ index 00000000..c1bf7288
 +    pub fn deinit(self: *Hotty) void {
 +        if (self.host) |h| hotty_host_free(h);
 +        self.host = null;
++        self.setLink(null);
++        if (self.shown_url) |o| self.alloc.free(o);
++        self.shown_url = null;
 +        var it = self.placed.keyIterator();
 +        while (it.next()) |k| self.alloc.free(k.*);
 +        self.placed.deinit(self.alloc);
@@ -475,6 +498,7 @@ index 00000000..c1bf7288
 +        self.placed.clearRetainingCapacity();
 +        self.hover_len = 0;
 +        self.capture_len = 0;
++        self.setLink(null);
 +    }
 +
 +    /// Carries out what the host asked for: deletions, then placements (which
@@ -863,6 +887,7 @@ index 00000000..c1bf7288
 +    /// it; replies for the program stay in `replies`.
 +    fn pointer(self: *Hotty, t: *terminal.Terminal, kind: PointerKind, px: f64, py: f64, mods: u32) bool {
 +        self.shape = null;
++        self.setLink(null);
 +        const h = self.host orelse return false;
 +        if (self.placed.count() == 0) {
 +            self.capture_len = 0;
@@ -892,6 +917,7 @@ index 00000000..c1bf7288
 +            hotty_host_pointer(h, name.ptr, @intFromEnum(kind), tg.x, tg.y, mods, &fx);
 +            const css = hotty_host_cursor(h, name.ptr);
 +            self.shape = if (css) |c| terminal.MouseShape.fromString(std.mem.span(c)) orelse .default else .default;
++            self.setLink(if (hotty_host_hyperlink(h, name.ptr)) |u| std.mem.span(u) else null);
 +            switch (kind) {
 +                .down => if (tg.name.len <= self.capture.len) {
 +                    @memcpy(self.capture[0..tg.name.len], tg.name);
@@ -926,12 +952,40 @@ index 00000000..c1bf7288
 +        return consumed;
 +    }
 +
-+    /// The pointer's shape to show, when it changed since the last call: the
-+    /// surface's, or the terminal's own (`own`) once the pointer left them.
-+    fn shapeChange(self: *Hotty, own: terminal.MouseShape) ?terminal.MouseShape {
-+        if (std.meta.eql(self.shape, self.shown_shape)) return null;
-+        self.shown_shape = self.shape;
-+        return self.shape orelse own;
++    fn setLink(self: *Hotty, url: ?[]const u8) void {
++        if (self.link) |old| {
++            if (url != null and std.mem.eql(u8, old, url.?)) return;
++            self.alloc.free(old);
++        }
++        self.link = if (url) |u| self.alloc.dupeZ(u8, u) catch null else null;
++    }
++
++    /// The pointer's shape to show, when it changed since the last call (or
++    /// always, with `force`): over a hyperlink, what the terminal shows
++    /// over an OSC 8 one (a pointer with the gesture's keys held, text
++    /// without); else the surface's; else the terminal's own (`own`).
++    fn shapeChange(self: *Hotty, own: terminal.MouseShape, osc8: bool, force: bool) ?terminal.MouseShape {
++        const want: ?terminal.MouseShape = if (self.link != null)
++            (if (osc8) .pointer else .text)
++        else
++            self.shape;
++        if (!force and std.meta.eql(want, self.shown_shape)) return null;
++        self.shown_shape = want;
++        return want orelse own;
++    }
++
++    /// The link preview to show, when it changed (or always, with `force`):
++    /// the hyperlink's address, or "" to clear it.
++    fn previewChange(self: *Hotty, visible: bool, force: bool) ?[:0]const u8 {
++        const url: ?[:0]u8 = if (visible) self.link else null;
++        const same = if (url) |u|
++            (if (self.shown_url) |o| std.mem.eql(u8, u, o) else false)
++        else
++            self.shown_url == null;
++        if (!force and same) return null;
++        if (self.shown_url) |o| self.alloc.free(o);
++        self.shown_url = if (url) |u| self.alloc.dupeZ(u8, u) catch null else null;
++        return if (url) |u| u else "";
 +    }
 +
 +    fn hasKeyboard(self: *Hotty) bool {
@@ -970,22 +1024,90 @@ index 00000000..c1bf7288
 +fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.Mods) bool {
 +    const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = pos.x, .y = pos.y } };
 +    const tp = coord.convert(.terminal, s.size).terminal;
++    const osc8 = osc8Gesture(s, mods);
 +    var shape: ?terminal.MouseShape = null;
++    var preview: ?[:0]u8 = null;
++    defer if (preview) |p| s.alloc.free(p);
++    var open: ?[]u8 = null;
++    defer if (open) |u| s.alloc.free(u);
 +    var drew = false;
 +    const took = took: {
 +        s.renderer_state.mutex.lockUncancelable(global.io());
 +        defer s.renderer_state.mutex.unlock(global.io());
 +        const hs = &s.io.terminal_stream.handler.hotty;
++        // A hyperlink (SPEC §9) is the terminal's: with the OSC 8 gesture,
++        // its press and release never reach the surface, and the release
++        // opens it, as Ghostty opens an OSC 8 link.
++        switch (kind) {
++            .down => if (osc8 and hs.link != null) {
++                hs.link_press = true;
++                break :took true;
++            },
++            .up => if (hs.link_press) {
++                hs.link_press = false;
++                if (osc8) if (hs.link) |u| {
++                    open = s.alloc.dupe(u8, u) catch null;
++                };
++                break :took true;
++            },
++            else => {},
++        }
 +        const took = hs.pointer(&s.io.terminal, kind, tp.x, tp.y, hostMods(mods));
-+        shape = hs.shapeChange(s.io.terminal.mouse_shape);
++        shape = hs.shapeChange(s.io.terminal.mouse_shape, osc8, false);
++        if (hs.previewChange(osc8 and s.config.link_previews != .false, false)) |p| preview = s.alloc.dupeZ(u8, p) catch null;
 +        drew = hs.drew;
 +        hs.drew = false;
 +        break :took took;
 +    };
-+    // The pointer shows what the surface under it asks for (SPEC §9).
-+    if (shape) |v| _ = s.rt_app.performAction(.{ .surface = s }, .mouse_shape, v) catch {};
++    apply(s, shape, preview);
++    if (open) |u| openLink(s, u);
 +    deliver(s, took or drew);
 +    return took;
++}
++
++/// The OSC 8 gesture: Ctrl (Cmd on macOS) held, and Ghostty's link-osc8
++/// on. Shift may be held too: a surface never reports the mouse, so shift
++/// has nothing to override (with mouse reporting on, Ghostty takes it as
++/// the way past it).
++fn osc8Gesture(s: *Surface, mods: input.Mods) bool {
++    var m = mods;
++    m.shift = false;
++    return s.config.link_osc8 and m.equal(input.ctrlOrSuper(.{}));
++}
++
++/// Shows the pointer's shape and the link preview that changed.
++fn apply(s: *Surface, shape: ?terminal.MouseShape, preview: ?[:0]const u8) void {
++    // The pointer shows what the surface under it asks for (SPEC §9).
++    if (shape) |v| _ = s.rt_app.performAction(.{ .surface = s }, .mouse_shape, v) catch {};
++    if (preview) |url| _ = s.rt_app.performAction(.{ .surface = s }, .mouse_over_link, .{ .url = url }) catch {};
++}
++
++/// Opens a hyperlink as Surface.openUrl opens an OSC 8 one: the apprt
++/// first, with its policies (on macOS its allowlist and confirmation), then
++/// the fallback opener, which refuses OSC 8 targets where it must.
++fn openLink(s: *Surface, url: []const u8) void {
++    const action: apprt.action.OpenUrl = .{ .kind = .osc8, .url = url };
++    if (s.rt_app.performAction(.{ .surface = s }, .open_url, action) catch false) return;
++    internal_os.open(action.kind, action.url) catch |err| log.warn("hotty: could not open a hyperlink: {}", .{err});
++}
++
++/// Surface.keyCallback, after a change of modifiers: Ghostty resets the
++/// pointer for its cells, so a surface's shape and a hyperlink's preview
++/// are shown again, for the keys now held.
++pub fn surfaceMods(s: *Surface) void {
++    const osc8 = osc8Gesture(s, s.mouse.mods);
++    var shape: ?terminal.MouseShape = null;
++    var preview: ?[:0]u8 = null;
++    defer if (preview) |p| s.alloc.free(p);
++    {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const hs = &s.io.terminal_stream.handler.hotty;
++        if (hs.hover_len == 0) return; // not over a surface: the cells' business
++        shape = hs.shapeChange(s.io.terminal.mouse_shape, osc8, true);
++        if (hs.previewChange(osc8 and s.config.link_previews != .false, true)) |p| preview = s.alloc.dupeZ(u8, p) catch null;
++    }
++    apply(s, shape, preview);
 +}
 +
 +/// Surface.mouseButtonCallback: a left click on a surface belongs to it, and
