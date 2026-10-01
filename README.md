@@ -56,7 +56,9 @@ How it works:
   the same edits the polyfill sends to a terminal. After a font size change,
   surfaces re-render at the new cell size and replace their pixels in place.
 - **Input:** a surface that holds the keyboard gets keys first; clicks and
-  hover on a surface go to it and are not reported to the program. A press
+  hover on a surface go to it and are not reported to the program as mouse
+  input. A program that placed the surface with `p=1` hears each press on
+  it as a HOTTY `press` event instead (SPEC §9, from hotty-blitz). A press
   holds the pointer until its release: one on a surface keeps it for that
   surface, one on the cells keeps it for the program, so a drag that starts
   on cells is reported whole, even over a surface.
