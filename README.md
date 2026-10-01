@@ -32,7 +32,7 @@ tree here, and no GitHub fork.
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
 | patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds |
 | new code | `src/termio/hotty.zig`, 1091 lines: all of the logic |
-| upstream files touched | 4 files, 43 lines, hooks only |
+| upstream files touched | 4 files, 45 lines, hooks only |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
@@ -41,7 +41,7 @@ The hooks:
 | --- | --- |
 | `src/termio/Termio.zig` | settings from the config; `osc_unknown_max_bytes`; flush once per read; re-render on resize |
 | `src/termio/stream_handler.zig` | the `osc_unknown` action (upstream #14452) goes to hotty.zig; full reset |
-| `src/Surface.zig` | keys, clicks and hover go to the surfaces first |
+| `src/Surface.zig` | keys, clicks and hover go to the surfaces first; the font size, for the CSS px |
 | `src/build/GhosttyExe.zig` | links `libhotty_blitz` (`HOTTY_BLITZ_LIB`) |
 
 How it works:
@@ -55,6 +55,12 @@ How it works:
 - **Updates are kitty frame edits** (`a=f`, `r=1`) of the damaged rectangles,
   the same edits the polyfill sends to a terminal. After a font size change,
   surfaces re-render at the new cell size and replace their pixels in place.
+- **A CSS px is a logical pixel,** as in a browser: the scale (device px per
+  CSS px) is the display's content scale, from the DPI Ghostty loads the
+  font at (2 on a Retina Mac, 1.25 on a Linux display scaled to 125%). The
+  host stylesheet's root font-size is the terminal's font in CSS px (14px
+  for `font-size = 14` on macOS, 16px for 12 on Linux). `HOTTY_SCALE`
+  overrides the scale.
 - **Input:** a surface that holds the keyboard gets keys first; clicks and
   hover on a surface go to it and are not reported to the program as mouse
   input. A program that placed the surface with `p=1` hears each press on

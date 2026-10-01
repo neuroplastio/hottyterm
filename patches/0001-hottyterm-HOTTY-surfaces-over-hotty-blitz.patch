@@ -9,25 +9,25 @@ kitty image placed at the cursor. Updates are kitty frame edits (a=f,
 r=1) of the damaged rectangles, the way the polyfill sends them.
 
 All of the logic is in the new src/termio/hotty.zig. Upstream files get
-hooks only, 41 lines in four files:
+hooks only, 43 lines in four files:
 
 - Termio: the settings, osc_unknown_max_bytes, flush per read, resize
 - stream_handler: the osc_unknown action (upstream #14452), full reset
-- Surface: keys, clicks and hover
+- Surface: keys, clicks and hover; the font size, for the CSS px
 - GhosttyExe: link libhotty_blitz (HOTTY_BLITZ_LIB)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- src/Surface.zig               |   13 +
+ src/Surface.zig               |   15 +
  src/build/GhosttyExe.zig      |   10 +
  src/termio/Termio.zig         |   11 +
- src/termio/hotty.zig          | 1091 +++++++++++++++++++++++++++++++++
+ src/termio/hotty.zig          | 1147 +++++++++++++++++++++++++++++++++
  src/termio/stream_handler.zig |   10 +-
- 5 files changed, 1134 insertions(+), 1 deletion(-)
+ 5 files changed, 1192 insertions(+), 1 deletion(-)
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 1342e41c..f978fb8e 100644
+index 1342e41c..672210ab 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -27,6 +27,7 @@ const crash = @import("crash/main.zig");
@@ -38,7 +38,23 @@ index 1342e41c..f978fb8e 100644
  const font = @import("font/main.zig");
  const Command = @import("Command.zig");
  const terminal = @import("terminal/main.zig");
-@@ -2806,6 +2807,9 @@ pub fn keyCallback(
+@@ -695,6 +696,7 @@ pub fn init(
+     // Outside the block, IO has now taken ownership of our temporary state
+     // so we can just defer this and not the subcomponents.
+     errdefer self.io.deinit();
++    hotty.surfaceFont(self); // hottyterm: the font's DPI is the CSS px's
+ 
+     // Report initial cell size on surface creation
+     _ = try rt_app.performAction(
+@@ -2499,6 +2501,7 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
+ 
+     // Update our font size so future changes work
+     self.font_size = size;
++    hotty.surfaceFont(self); // hottyterm: the font's DPI is the CSS px's
+ 
+     // We need to build up a new font stack for this font size.
+     const font_grid_key, const font_grid = try self.app.font_grid_set.ref(
+@@ -2806,6 +2809,9 @@ pub fn keyCallback(
          if (self.io.terminal.modes.get(.disable_keyboard)) return .consumed;
      }
  
@@ -48,7 +64,7 @@ index 1342e41c..f978fb8e 100644
      // If this input event has text, then we hide the mouse if configured.
      // We only do this on pressed events to avoid hiding the mouse when we
      // change focus due to a keybinding (i.e. switching tabs).
-@@ -2873,6 +2877,9 @@ pub fn keyCallback(
+@@ -2873,6 +2879,9 @@ pub fn keyCallback(
          shape,
      );
  
@@ -58,7 +74,7 @@ index 1342e41c..f978fb8e 100644
      // We've processed a key event that produced some data so we want to
      // track the last pressed key.
      self.pressed_key = event: {
-@@ -3902,6 +3909,9 @@ pub fn mouseButtonCallback(
+@@ -3902,6 +3911,9 @@ pub fn mouseButtonCallback(
      // Update our modifiers if they changed
      self.modsChanged(mods);
  
@@ -68,7 +84,7 @@ index 1342e41c..f978fb8e 100644
      // This is set to true if the terminal is allowed to capture the shift
      // modifier. Note we can do this more efficiently probably with less
      // locking/unlocking but clicking isn't that frequent enough to be a
-@@ -4629,6 +4639,9 @@ pub fn cursorPosCallback(
+@@ -4629,6 +4641,9 @@ pub fn cursorPosCallback(
  
      // log.debug("cursor pos x={} y={} mods={?}", .{ pos.x, pos.y, mods });
  
@@ -165,10 +181,10 @@ index d08f2e5f..918f9a0a 100644
      if (self.terminal_stream.handler.termio_messaged) {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
 new file mode 100644
-index 00000000..9ea3aaee
+index 00000000..1873f95a
 --- /dev/null
 +++ b/src/termio/hotty.zig
-@@ -0,0 +1,1091 @@
+@@ -0,0 +1,1147 @@
 +//! hottyterm: HOTTY surfaces (HTML over the TTY), rendered by the terminal.
 +//!
 +//! A program sends HOTTY commands on OSC 7279 (SPEC.md in neuroplastio/hotty).
@@ -204,6 +220,7 @@ index 00000000..9ea3aaee
 +const termio = @import("../termio.zig");
 +const Surface = @import("../Surface.zig");
 +const internal_os = @import("../os/main.zig");
++const font = @import("../font/main.zig");
 +const kitty = terminal.kitty;
 +
 +const log = std.log.scoped(.hotty);
@@ -221,6 +238,8 @@ index 00000000..9ea3aaee
 +    palette: [16]u32,
 +    dark: bool,
 +    font_family: ?[*:0]const u8,
++    /// The root font size in CSS px; 0 lets hotty-blitz derive it.
++    font_size: f32,
 +};
 +
 +pub const Effects = extern struct {
@@ -269,16 +288,56 @@ index 00000000..9ea3aaee
 +/// Termio's DerivedConfig, so it is allocated in that config's arena.
 +pub const Settings = struct {
 +    font_family: [:0]const u8 = "",
-+    font_size: f32 = 12,
 +
 +    pub fn init(alloc: Allocator, config: *const configpkg.Config) Allocator.Error!Settings {
 +        const families = config.@"font-family".list.items;
 +        return .{
 +            .font_family = try alloc.dupeZ(u8, if (families.len > 0) families[0] else ""),
-+            .font_size = config.@"font-size",
 +        };
 +    }
 +};
++
++/// A CSS px, as a browser defines it: one logical pixel. `scale` (device px
++/// per CSS px, SPEC §2) is the display's content scale, a browser's
++/// devicePixelRatio: 2 on a Retina Mac, 1 on a 1x Linux display, 1.25 on
++/// one scaled to 125%. It is the one Ghostty sizes the font with: the DPI
++/// it loads the font at over the platform's base (`font.face.default_dpi`:
++/// 72 on macOS, where a point is a logical pixel, 96 elsewhere).
++/// `font_size` is the terminal's font in CSS px, the root font size of the
++/// host stylesheet (SPEC §8). `override` (HOTTY_SCALE) replaces the scale;
++/// the font stays the size it is on screen.
++const CssPx = struct { scale: f32, font_size: f32 };
++
++fn cssPx(size: font.face.DesiredSize, base_dpi: f32, override: ?f32) CssPx {
++    const dpi: f32 = @floatFromInt(@max(size.ydpi, 1));
++    const scale = @max(override orelse dpi / base_dpi, 0.5);
++    return .{ .scale = scale, .font_size = size.pixels() / scale };
++}
++
++test cssPx {
++    const t = std.testing;
++    // A Retina Mac, font-size = 14: 144 dpi on macOS's 72, so 2 device px
++    // per CSS px, and the root font is 14px. (The old guess from the cell
++    // height, 34 / (14 * 4/3 * 1.25), made it 1.46.)
++    const mac = cssPx(.{ .points = 14, .xdpi = 144, .ydpi = 144 }, 72, null);
++    try t.expectEqual(@as(f32, 2), mac.scale);
++    try t.expectApproxEqAbs(@as(f32, 14), mac.font_size, 0.001);
++    // A 1x Linux display: 96 dpi, a CSS px is a device px, and 14pt is
++    // 18.67px, as before.
++    const linux = cssPx(.{ .points = 14, .xdpi = 96, .ydpi = 96 }, 96, null);
++    try t.expectEqual(@as(f32, 1), linux.scale);
++    try t.expectApproxEqAbs(@as(f32, 18.667), linux.font_size, 0.001);
++    // Scaled to 125%: 120 dpi, the font as large in CSS px as at 1x.
++    const scaled = cssPx(.{ .points = 14, .xdpi = 120, .ydpi = 120 }, 96, null);
++    try t.expectEqual(@as(f32, 1.25), scaled.scale);
++    try t.expectApproxEqAbs(@as(f32, 18.667), scaled.font_size, 0.001);
++    // HOTTY_SCALE wins, and the font keeps its device size.
++    const forced = cssPx(.{ .points = 14, .xdpi = 144, .ydpi = 144 }, 72, 1);
++    try t.expectEqual(@as(f32, 1), forced.scale);
++    try t.expectApproxEqAbs(@as(f32, 28), forced.font_size, 0.001);
++    // Nothing below half a device px per CSS px.
++    try t.expectEqual(@as(f32, 0.5), cssPx(.{ .points = 14 }, 96, 0.1).scale);
++}
 +
 +pub const PointerKind = enum(u32) { move = 0, down = 1, up = 2, leave = 3 };
 +
@@ -312,6 +371,10 @@ index 00000000..9ea3aaee
 +    next_id: u32 = id_base,
 +    cell_w: u32 = 0,
 +    cell_h: u32 = 0,
++    /// The size Ghostty loads the terminal's font at: points, and the DPI
++    /// that holds the display's content scale (Surface.font_size). The
++    /// Surface sets it (`surfaceFont`); a resize follows every change.
++    font_size: font.face.DesiredSize = .{ .points = 12 },
 +
 +    // Collected while one call into the host runs.
 +    replies: std.ArrayListUnmanaged(u8) = .empty,
@@ -450,21 +513,21 @@ index 00000000..9ea3aaee
 +        const r: f32 = @floatFromInt((bg >> 16) & 0xff);
 +        const g: f32 = @floatFromInt((bg >> 8) & 0xff);
 +        const b: f32 = @floatFromInt(bg & 0xff);
-+        // Device px per CSS px: the configured font size, in CSS px, makes
-+        // rows about 1.25 font sizes tall; the cell height says how many
-+        // device pixels that is. `HOTTY_SCALE` overrides.
-+        const css_row = @max(self.settings.font_size * 4.0 / 3.0 * 1.25, 1.0);
-+        var scale: f32 = @as(f32, @floatFromInt(cell_h)) / css_row;
-+        if (std.posix.system.getenv("HOTTY_SCALE")) |s| scale = std.fmt.parseFloat(f32, std.mem.span(s)) catch scale;
++        const override: ?f32 = if (std.posix.system.getenv("HOTTY_SCALE")) |s|
++            std.fmt.parseFloat(f32, std.mem.span(s)) catch null
++        else
++            null;
++        const css = cssPx(self.font_size, font.face.default_dpi, override);
 +        return .{
 +            .cell_w = cell_w,
 +            .cell_h = cell_h,
-+            .scale = @max(scale, 0.5),
++            .scale = css.scale,
 +            .fg = fg,
 +            .bg = bg,
 +            .palette = palette,
 +            .dark = 0.2126 * r + 0.7152 * g + 0.0722 * b < 128,
 +            .font_family = if (self.settings.font_family.len > 0) self.settings.font_family.ptr else null,
++            .font_size = css.font_size,
 +        };
 +    }
 +
@@ -1136,6 +1199,15 @@ index 00000000..9ea3aaee
 +    const action: apprt.action.OpenUrl = .{ .kind = .osc8, .url = url };
 +    if (s.rt_app.performAction(.{ .surface = s }, .open_url, action) catch false) return;
 +    internal_os.open(action.kind, action.url) catch |err| log.warn("hotty: could not open a hyperlink: {}", .{err});
++}
++
++/// Surface.init and Surface.setFontSize: the size the terminal's font is
++/// loaded at, for the CSS px (`cssPx`). The resize that follows a change
++/// re-renders the surfaces with it.
++pub fn surfaceFont(s: *Surface) void {
++    s.renderer_state.mutex.lockUncancelable(global.io());
++    defer s.renderer_state.mutex.unlock(global.io());
++    s.io.terminal_stream.handler.hotty.font_size = s.font_size;
 +}
 +
 +/// Surface.keyCallback, after a change of modifiers: Ghostty resets the
