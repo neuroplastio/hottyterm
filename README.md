@@ -31,7 +31,7 @@ tree here, and no GitHub fork.
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
 | patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds |
-| new code | `src/termio/hotty.zig`, 702 lines: all of the logic |
+| new code | `src/termio/hotty.zig`, 1091 lines: all of the logic |
 | upstream files touched | 4 files, 43 lines, hooks only |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
@@ -56,7 +56,10 @@ How it works:
   the same edits the polyfill sends to a terminal. After a font size change,
   surfaces re-render at the new cell size and replace their pixels in place.
 - **Input:** a surface that holds the keyboard gets keys first; clicks and
-  hover on a surface go to it and are not reported to the program.
+  hover on a surface go to it and are not reported to the program. A press
+  holds the pointer until its release: one on a surface keeps it for that
+  surface, one on the cells keeps it for the program, so a drag that starts
+  on cells is reported whole, even over a surface.
 
 ## Branding
 

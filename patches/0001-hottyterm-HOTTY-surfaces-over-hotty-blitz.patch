@@ -21,9 +21,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  src/Surface.zig               |   13 +
  src/build/GhosttyExe.zig      |   10 +
  src/termio/Termio.zig         |   11 +
- src/termio/hotty.zig          | 1028 +++++++++++++++++++++++++++++++++
+ src/termio/hotty.zig          | 1091 +++++++++++++++++++++++++++++++++
  src/termio/stream_handler.zig |   10 +-
- 5 files changed, 1071 insertions(+), 1 deletion(-)
+ 5 files changed, 1134 insertions(+), 1 deletion(-)
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
@@ -165,10 +165,10 @@ index d08f2e5f..918f9a0a 100644
      if (self.terminal_stream.handler.termio_messaged) {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
 new file mode 100644
-index 00000000..95a3be3d
+index 00000000..9ea3aaee
 --- /dev/null
 +++ b/src/termio/hotty.zig
-@@ -0,0 +1,1028 @@
+@@ -0,0 +1,1091 @@
 +//! hottyterm: HOTTY surfaces (HTML over the TTY), rendered by the terminal.
 +//!
 +//! A program sends HOTTY commands on OSC 7279 (SPEC.md in neuroplastio/hotty).
@@ -332,6 +332,12 @@ index 00000000..95a3be3d
 +    /// reaches it.
 +    capture: [72]u8 = undefined,
 +    capture_len: usize = 0,
++    /// A press on the cells holds the pointer for the program until its
++    /// last button is released (`programHolds`): every event of the
++    /// gesture is the program's, even over a surface, so a drag that starts
++    /// on cells (a divider between two surfaces, say) reaches it whole.
++    /// Only the Surface entry points touch it, on the apprt thread.
++    program_hold: bool = false,
 +    /// A pointer event or a key drew a frame: the renderer must show it,
 +    /// whether or not a surface took the event (a leave repaints too).
 +    drew: bool = false,
@@ -921,6 +927,19 @@ index 00000000..95a3be3d
 +            self.capture_len = 0;
 +            return false;
 +        }
++        // While a press on the cells holds the pointer, the program gets
++        // every event, and no surface is hovered.
++        if (self.program_hold) {
++            if (self.hover_len > 0) {
++                var buf: [73]u8 = undefined;
++                const old = std.fmt.bufPrintZ(&buf, "{s}", .{self.hover[0..self.hover_len]}) catch "";
++                const fx = self.effects();
++                hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
++                self.hover_len = 0;
++                if (self.render(t)) self.drew = true;
++            }
++            return false;
++        }
 +        // While a press holds the pointer, its surface gets every event.
 +        const held: ?Target = if (self.capture_len > 0) self.at(t, self.capture[0..self.capture_len], px, py) else null;
 +        if (self.capture_len > 0 and held == null) self.capture_len = 0; // it went away
@@ -1138,12 +1157,56 @@ index 00000000..95a3be3d
 +    apply(s, shape, preview);
 +}
 +
++/// Whether the program holds the pointer after a button event: the first
++/// press of a gesture (no other button down) decides, and holds it for the
++/// program unless a surface (or a hyperlink) took it; the hold lasts until
++/// no button is down. A press while a gesture goes on changes nothing, so a
++/// surface's drag stays the surface's and the program's the program's.
++fn programHolds(held: bool, first_press: bool, taken: bool, any_down: bool) bool {
++    if (!any_down) return false;
++    if (first_press) return !taken;
++    return held;
++}
++
++test programHolds {
++    const t = std.testing;
++    // A press on the cells holds the pointer for the program...
++    try t.expect(programHolds(false, true, false, true));
++    // ...through a second button pressed and released...
++    try t.expect(programHolds(true, false, false, true));
++    try t.expect(programHolds(true, false, true, true));
++    // ...until the last release, after which the pointer is free again.
++    try t.expect(!programHolds(true, false, false, false));
++    // A press a surface (or a hyperlink) takes is not the program's, and
++    // neither is a button pressed during it.
++    try t.expect(!programHolds(false, true, true, true));
++    try t.expect(!programHolds(false, false, false, true));
++    try t.expect(!programHolds(false, false, false, false));
++}
++
 +/// Surface.mouseButtonCallback: a left click on a surface belongs to it, and
-+/// is neither reported to the program nor used for selection.
++/// is neither reported to the program nor used for selection. A press on
++/// the cells, or of any other button, is the program's, and holds the
++/// pointer for it until the release (`programHolds`).
 +pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.MouseButton, mods: input.Mods) bool {
-+    if (button != .left) return false;
-+    const pos = s.rt_surface.getCursorPos() catch return false;
-+    return pointerAt(s, if (action == .press) .down else .up, pos, mods);
++    const hs = &s.io.terminal_stream.handler.hotty;
++    // Ghostty has already recorded this event in click_state.
++    var others = false;
++    for (s.mouse.click_state, 0..) |state, i| {
++        if (i != @intFromEnum(button) and state == .press) others = true;
++    }
++    const first = action == .press and !others;
++    const any_down = action == .press or others;
++    const pos = s.rt_surface.getCursorPos() catch {
++        hs.program_hold = programHolds(hs.program_hold, first, false, any_down);
++        return false;
++    };
++    const was = hs.program_hold;
++    const took = button == .left and pointerAt(s, if (action == .press) .down else .up, pos, mods);
++    hs.program_hold = programHolds(was, first, took, any_down);
++    // A gesture the program now holds leaves the surface under the pointer.
++    if (hs.program_hold and !was) _ = pointerAt(s, .move, pos, mods);
++    return took;
 +}
 +
 +/// Surface.cursorPosCallback: hovering a surface restyles it and is not
