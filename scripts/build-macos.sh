@@ -31,7 +31,7 @@ echo "== hotty-blitz"
 
 echo "== GhosttyKit"
 cd "$FORK"
-HOTTY_BLITZ_LIB="$LIB" "$ZIG" build -Doptimize=ReleaseFast -Demit-macos-app=false -Dxcframework-target=native
+HOTTY_BLITZ_LIB="$LIB" "$ZIG" build -Doptimize=ReleaseFast -Dcpu=baseline -Demit-macos-app=false -Dxcframework-target=native
 
 echo "== the app"
 # hotty-blitz goes into the app's own link, not into GhosttyKit's archive:

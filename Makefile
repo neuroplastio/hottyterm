@@ -13,8 +13,10 @@ apply: fork   ## the patches apply cleanly to ghostty-ref
 brand:   ## regenerate the branding commit on top of the fork (brand/)
 	@scripts/brand.py
 
+# ZIG_ARGS go to zig build: CI's release builds pass -Dcpu=baseline, so the
+# binary runs on any x86-64, not only on CPUs like the runner's.
 build: fork
-	@scripts/build.sh ReleaseFast
+	@scripts/build.sh ReleaseFast $(ZIG_ARGS)
 
 debug: fork
 	@scripts/build.sh Debug

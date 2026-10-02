@@ -122,8 +122,12 @@ jobs:
             linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-
             linux-
 
+      # -Dcpu=baseline (Ghostty's PACKAGING.md): zig build targets the
+      # machine it runs on by default, and a runner's CPU can have what the
+      # user's lacks. 26.10.02-dev.5abc98b was built with AVX512-FP16 and
+      # died with SIGILL on a Zen 5 laptop.
       - name: Build
-        run: make -C hottyterm/main apply build
+        run: make -C hottyterm/main apply build ZIG_ARGS=-Dcpu=baseline
 
       - name: Save caches
         if: ${{ !cancelled() }}
