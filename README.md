@@ -30,8 +30,8 @@ tree here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play |
-| new code | `src/termio/hotty.zig`, 1292 lines: all of the logic |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program |
+| new code | `src/termio/hotty.zig`, 1316 lines: all of the logic |
 | upstream files touched | 4 files, 48 lines, hooks only |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
@@ -58,6 +58,9 @@ How it works:
 - **Animated images play** (GIF, APNG, WebP): hotty-blitz says when the next
   frame is due, and a timer on the IO thread's loop renders it then, as a
   frame edit of the image's box. Nothing plays, no timer.
+- **`fit`** (SPEC §5.2): hotty-blitz finds it as it renders a placement made
+  with `f=1`; hotty.zig sends it to the program with the replies, from
+  whichever path drew the frame.
 - **A CSS px is a logical pixel,** as in a browser: the scale (device px per
   CSS px) is the display's content scale, from the DPI Ghostty loads the
   font at (2 on a Retina Mac, 1.25 on a Linux display scaled to 125%). The

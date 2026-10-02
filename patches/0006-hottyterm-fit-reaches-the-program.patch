@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
+Date: Fri, 2 Oct 2026 18:36:34 +0200
+Subject: [PATCH 6/6] hottyterm: fit reaches the program
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+SPEC §5.2: a placement with f=1 hears `fit` with the rows its document
+needs when they change. hotty-blitz finds it as it renders and hands it
+over with hotty_host_events, which render() calls after every render, so
+the event joins the replies whichever path drew the frame. The paths on
+the IO thread that rendered without sending replies (flush, resized,
+the animation timer) now send them as osc does; the timer wakes the
+mailbox itself.
+
+Upstream files: none touched.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig | 24 ++++++++++++++++++++++++
+ 1 file changed, 24 insertions(+)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 784a5214..8f7aa0b7 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -82,6 +82,7 @@ extern fn hotty_host_has_dirty(h: *const Host) bool;
+ extern fn hotty_host_next_frame(h: *Host) i64;
+ extern fn hotty_host_redeliver(h: *Host, surface: [*:0]const u8) void;
+ extern fn hotty_host_render(h: *Host, ctx: ?*anyopaque, cb: FrameFn) void;
++extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;
+ extern fn hotty_host_reset(h: *Host, fx: ?*const Effects) void;
+ extern fn hotty_host_pointer(h: *Host, surface: [*:0]const u8, kind: u32, x: f32, y: f32, mods: u32, fx: *const Effects) void;
+ extern fn hotty_host_key(h: *Host, key: u32, text: ?[*:0]const u8, mods: u32, fx: *const Effects) bool;
+@@ -521,6 +522,19 @@ pub const Hotty = struct {
+         if (t.modes.get(.synchronized_output)) return;
+         if (!hotty_host_has_dirty(h)) return;
+         _ = self.render(t);
++        self.sendReplies();
++    }
++
++    /// Sends what is collected for the program (a `fit` a render found)
++    /// from the IO thread, as `osc` does. Termio wakes the mailbox after a
++    /// batch of output or a message; `onTimer` wakes it itself.
++    fn sendReplies(self: *Hotty) void {
++        if (self.replies.items.len == 0) return;
++        defer self.replies.clearRetainingCapacity();
++        const handler: *StreamHandler = @fieldParentPtr("hotty", self);
++        const msg = termio.Message.writeReq(self.alloc, self.replies.items) catch return;
++        handler.termio_mailbox.send(msg, handler.renderer_state.mutex);
++        handler.termio_messaged = true;
+     }
+ 
+     /// Termio.threadEnter: the IO thread's loop, for the timer.
+@@ -568,6 +582,11 @@ pub const Hotty = struct {
+             if (!t.modes.get(.synchronized_output) and hotty_host_has_dirty(h) and self.render(t))
+                 handler.queueRender() catch {};
+         }
++        if (self.replies.items.len > 0) {
++            self.sendReplies();
++            handler.termio_messaged = false;
++            handler.termio_mailbox.notify();
++        }
+         self.schedule(t);
+         return .disarm;
+     }
+@@ -619,6 +638,7 @@ pub const Hotty = struct {
+         const cfg = self.config(t);
+         hotty_host_configure(h, &cfg);
+         _ = self.render(t);
++        self.sendReplies();
+         self.schedule(t);
+     }
+ 
+@@ -632,6 +652,10 @@ pub const Hotty = struct {
+         const h = self.host orelse return false;
+         var ctx: RenderCtx = .{ .self = self, .t = t };
+         hotty_host_render(h, &ctx, onFrame);
++        // What drawing told the program (`fit`, SPEC §5.2): with the
++        // replies, which every caller sends on.
++        const fx = self.effects();
++        hotty_host_events(h, &fx);
+         return ctx.drew;
+     }
+ 
