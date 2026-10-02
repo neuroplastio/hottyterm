@@ -1,0 +1,233 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
+Date: Fri, 2 Oct 2026 19:43:17 +0200
+Subject: [PATCH 7/7] hottyterm: surfaces fetch what hotty-net allows
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+SPEC §7.2: a surface fetches from the network only what both halves of
+the policy allow, the terminal's and the document's. The terminal's half
+is the new `hotty-net` setting, in CSP syntax (`img-src https:`), empty
+by default: nothing is fetched until the user grants it. It reaches
+hotty-blitz when the host starts and whenever the configuration changes
+(Hotty.configure), and the capabilities report it as `net`.
+
+hotty-blitz fetches on threads of its own. When something arrives it
+calls `wake`, which only notifies an xev.Async on the IO thread's loop;
+`onWake` then draws as the animation timer does (`tick`, shared by both):
+under the terminal lock, not while the program holds its output, and
+with the replies a render found (a `fit` when the fetched image changed
+the height). The host is freed before the Async, and once it is freed
+hotty-blitz never calls `wake` again.
+
+Upstream files: Config.zig gains the `hotty-net` field (17 lines);
+stream_handler.zig's hottyterm line now calls Hotty.configure.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/config/Config.zig         | 17 ++++++++
+ src/termio/hotty.zig          | 76 +++++++++++++++++++++++++++++++----
+ src/termio/stream_handler.zig |  2 +-
+ 3 files changed, 86 insertions(+), 9 deletions(-)
+
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index 754cf479..d178e550 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -3878,6 +3878,23 @@ term: []const u8 = "xterm-ghostty",
+ /// running. Defaults to an empty string if not set.
+ @"enquiry-response": []const u8 = "",
+ 
++// hottyterm: the network policy of HOTTY surfaces.
++/// What HOTTY surfaces may fetch from the network, in the syntax of a
++/// Content Security Policy: directives separated by `;`, each followed
++/// by its sources. A source is an origin (`https://example.com`,
++/// `http://localhost:8080`) or `https:`, every HTTPS origin. The directives
++/// are `img-src` (images, CSS images included), `style-src` (stylesheets),
++/// `font-src` (`@font-face`) and `media-src`. For example:
++///
++///     hotty-net = img-src https:; font-src https://fonts.example
++///
++/// A document fetches a URL only if it asks for it too, with
++/// `<meta name="hotty-network" content="...">`, and a source in both matches
++/// it. Every fetch tells a server that the document is being shown, and
++/// where from, so the default is empty: surfaces fetch nothing, and show
++/// only what the program sent them. (HOTTY SPEC §7.2.)
++@"hotty-net": []const u8 = "",
++
+ /// Configures the low-level API to use for async IO, eventing, etc.
+ ///
+ /// Most users should leave this set to `auto`. This will automatically detect
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 8f7aa0b7..46599fb0 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -21,8 +21,10 @@
+ //!
+ //! Everything runs on the IO thread with the terminal lock held, like the rest
+ //! of the stream handler, except the Surface entry points, which take the lock,
+-//! and the timer that plays animated images (`onTimer`), which runs on the IO
+-//! thread's loop and takes it.
++//! and the timer that plays animated images (`onTimer`) and the wakeup for what
++//! surfaces fetched from the network (`onWake`), which run on the IO thread's
++//! loop and take it. hotty-blitz fetches on threads of its own, and only
++//! `wake` runs on them.
+ 
+ const std = @import("std");
+ const Allocator = std.mem.Allocator;
+@@ -92,6 +94,8 @@ extern fn hotty_host_cursor(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
+ extern fn hotty_host_hyperlink(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
+ extern fn hotty_host_takes_pointer(h: *Host, surface: [*:0]const u8, x: f32, y: f32) bool;
+ extern fn hotty_host_set_passthrough(h: *Host, on: bool) void;
++extern fn hotty_host_set_network(h: *Host, policy: ?[*:0]const u8) void;
++extern fn hotty_host_set_waker(h: *Host, wake: ?*const fn (?*anyopaque) callconv(.c) void, ctx: ?*anyopaque) void;
+ 
+ // --- wiring ------------------------------------------------------------------
+ 
+@@ -112,11 +116,14 @@ const id_span: u32 = 0x1_0000;
+ /// Termio's DerivedConfig, so it is allocated in that config's arena.
+ pub const Settings = struct {
+     font_family: [:0]const u8 = "",
++    /// What surfaces may fetch from the network (`hotty-net`, SPEC §7.2).
++    net: [:0]const u8 = "",
+ 
+     pub fn init(alloc: Allocator, config: *const configpkg.Config) Allocator.Error!Settings {
+         const families = config.@"font-family".list.items;
+         return .{
+             .font_family = try alloc.dupeZ(u8, if (families.len > 0) families[0] else ""),
++            .net = try alloc.dupeZ(u8, config.@"hotty-net"),
+         };
+     }
+ };
+@@ -243,6 +250,10 @@ pub const Hotty = struct {
+     timer_cancel_c: xev.Completion = .{},
+     /// When the timer fires, on the awake clock, while it is set.
+     timer_at: i96 = 0,
++    /// Notified by hotty-blitz's fetching threads (`wake`) when something
++    /// a surface fetched arrives: `onWake` draws it on the IO thread.
++    wakeup: ?xev.Async = null,
++    wakeup_c: xev.Completion = .{},
+     /// A press on a hyperlink with the OSC 8 gesture: it and its release
+     /// are the terminal's, never the surface's.
+     link_press: bool = false,
+@@ -264,8 +275,11 @@ pub const Hotty = struct {
+     pub fn deinit(self: *Hotty) void {
+         if (self.timer) |*t| t.deinit();
+         self.timer = null;
++        // The host first: once it is freed, no fetching thread calls `wake`.
+         if (self.host) |h| hotty_host_free(h);
+         self.host = null;
++        if (self.wakeup) |*w| w.deinit();
++        self.wakeup = null;
+         self.setLink(null);
+         if (self.shown_url) |o| self.alloc.free(o);
+         self.shown_url = null;
+@@ -371,13 +385,23 @@ pub const Hotty = struct {
+         if (self.host) |h| return h;
+         const cfg = self.config(t);
+         self.host = hotty_host_new(&cfg);
+-        // The pointer passes through what a surface does not take (SPEC
+-        // §9.3): `hit` asks the surface.
+-        if (self.host) |h| hotty_host_set_passthrough(h, true);
+-        if (self.host == null) log.warn("hotty-blitz failed to start", .{});
++        if (self.host) |h| {
++            // The pointer passes through what a surface does not take
++            // (SPEC §9.3): `hit` asks the surface.
++            hotty_host_set_passthrough(h, true);
++            hotty_host_set_network(h, self.settings.net.ptr);
++            if (self.wakeup != null) hotty_host_set_waker(h, wake, self);
++        } else log.warn("hotty-blitz failed to start", .{});
+         return self.host;
+     }
+ 
++    /// The configuration changed: a new network policy reaches the host
++    /// (surfaces shown keep what they fetched).
++    pub fn configure(self: *Hotty, settings: Settings) void {
++        self.settings = settings;
++        if (self.host) |h| hotty_host_set_network(h, settings.net.ptr);
++    }
++
+     // --- from the stream handler ---------------------------------------------
+ 
+     /// The stream handler's `osc_unknown` action: OSC 7279 is ours, and the
+@@ -537,13 +561,42 @@ pub const Hotty = struct {
+         handler.termio_messaged = true;
+     }
+ 
+-    /// Termio.threadEnter: the IO thread's loop, for the timer.
++    /// Termio.threadEnter: the IO thread's loop, for the timer and the
++    /// wakeup.
+     pub fn threadEnter(self: *Hotty, loop: *xev.Loop) void {
+         self.loop = loop;
+         if (self.timer == null) self.timer = xev.Timer.init() catch |err| t: {
+             log.warn("hotty: no timer, animated images stay still: {}", .{err});
+             break :t null;
+         };
++        if (self.wakeup == null) {
++            self.wakeup = xev.Async.init() catch |err| w: {
++                log.warn("hotty: no wakeup, what surfaces fetch shows with their next frame: {}", .{err});
++                break :w null;
++            };
++            if (self.wakeup) |*w| w.wait(loop, &self.wakeup_c, Hotty, self, onWake);
++        }
++    }
++
++    /// On a fetching thread of hotty-blitz: something a surface fetched
++    /// arrived. Only wakes the IO thread.
++    fn wake(ctx: ?*anyopaque) callconv(.c) void {
++        const self: *Hotty = @ptrCast(@alignCast(ctx.?));
++        if (self.wakeup) |*w| w.notify() catch {};
++    }
++
++    /// What a surface fetched arrived: draw it, and tell the program what
++    /// drawing it changed (`fit`), as the timer does.
++    fn onWake(
++        self_: ?*Hotty,
++        _: *xev.Loop,
++        _: *xev.Completion,
++        r: xev.Async.WaitError!void,
++    ) xev.CallbackAction {
++        _ = r catch return .rearm;
++        const self = self_ orelse return .rearm;
++        self.tick();
++        return .rearm;
+     }
+ 
+     /// Sets the timer for the next frame of an animated image, if one
+@@ -574,6 +627,14 @@ pub const Hotty = struct {
+     ) xev.CallbackAction {
+         _ = r catch return .disarm;
+         const self = self_ orelse return .disarm;
++        self.tick();
++        return .disarm;
++    }
++
++    /// From the loop, not the stream: render what is due, show it, tell
++    /// the program, and set the timer again. While the program holds its
++    /// output (mode 2026), the end of its batch renders instead.
++    fn tick(self: *Hotty) void {
+         const handler: *StreamHandler = @fieldParentPtr("hotty", self);
+         handler.renderer_state.mutex.lockUncancelable(global.io());
+         defer handler.renderer_state.mutex.unlock(global.io());
+@@ -588,7 +649,6 @@ pub const Hotty = struct {
+             handler.termio_mailbox.notify();
+         }
+         self.schedule(t);
+-        return .disarm;
+     }
+ 
+     /// Forgets placements whose image is gone: scrolled out of the
+diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
+index 2e6796d1..949fb4c8 100644
+--- a/src/termio/stream_handler.zig
++++ b/src/termio/stream_handler.zig
+@@ -125,7 +125,7 @@ pub const StreamHandler = struct {
+         self.clipboard_write = config.clipboard_write;
+         self.clipboard_write_limit = config.clipboard_write_limit;
+         self.enquiry_response = config.enquiry_response;
+-        self.hotty.settings = config.hotty;
++        self.hotty.configure(config.hotty);
+         self.terminal.setDefaultCursorStyle(config.cursor_style);
+         self.terminal.setDefaultCursorBlink(config.cursor_blink);
+ 

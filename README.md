@@ -30,17 +30,18 @@ tree here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program |
-| new code | `src/termio/hotty.zig`, 1316 lines: all of the logic |
-| upstream files touched | 4 files, 48 lines, hooks only |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows |
+| new code | `src/termio/hotty.zig`, 1376 lines: all of the logic |
+| upstream files touched | 5 files, 65 lines, hooks and one setting |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
 
 | file | hook |
 | --- | --- |
-| `src/termio/Termio.zig` | settings from the config; `osc_unknown_max_bytes`; flush once per read; re-render on resize; the IO thread's loop, for the timer that plays animated images |
-| `src/termio/stream_handler.zig` | the `osc_unknown` action (upstream #14452) goes to hotty.zig; full reset |
+| `src/termio/Termio.zig` | settings from the config; `osc_unknown_max_bytes`; flush once per read; re-render on resize; the IO thread's loop, for the timer that plays animated images and the wakeup for what surfaces fetch |
+| `src/termio/stream_handler.zig` | the `osc_unknown` action (upstream #14452) goes to hotty.zig; full reset; a changed config |
+| `src/config/Config.zig` | the `hotty-net` setting |
 | `src/Surface.zig` | keys, clicks and hover go to the surfaces first; the font size, for the CSS px |
 | `src/build/GhosttyExe.zig` | links `libhotty_blitz` (`HOTTY_BLITZ_LIB`) |
 
@@ -61,6 +62,13 @@ How it works:
 - **`fit`** (SPEC §5.2): hotty-blitz finds it as it renders a placement made
   with `f=1`; hotty.zig sends it to the program with the replies, from
   whichever path drew the frame.
+- **The network** (SPEC §7.2): surfaces fetch nothing until the user grants
+  it with `hotty-net`, in CSP syntax (`hotty-net = img-src https:`), and then
+  only what a document also asks for with `<meta name="hotty-network">`.
+  The capabilities report the grant as `net`. hotty-blitz fetches on threads
+  of its own (8 MiB and 10 s at most each, no referrer or cookies); what
+  arrives wakes the IO thread through an `xev.Async`, which draws it as the
+  animation timer does, and sends `fit` if it changed the height.
 - **A CSS px is a logical pixel,** as in a browser: the scale (device px per
   CSS px) is the display's content scale, from the DPI Ghostty loads the
   font at (2 on a Retina Mac, 1.25 on a Linux display scaled to 125%). The
