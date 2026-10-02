@@ -1,0 +1,93 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
+Date: Fri, 2 Oct 2026 14:03:10 +0200
+Subject: [PATCH 4/4] hottyterm: the pointer passes through what a surface does
+ not take
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+SPEC §9.3: a surface takes the pointer only where CSS hit testing finds
+an element (hotty-blitz's hotty_host_takes_pointer, which skips
+pointer-events: none). hit() now walks the windows under the pointer from
+the top down and returns the first that takes it there; past them all,
+the pointer is the cells': presses, motion and releases are reported to
+the program as on any cell, and the shape is the one it set with OSC 22.
+The host announces passthrough in its capabilities.
+
+Upstream files: none touched.
+---
+ src/termio/hotty.zig | 44 +++++++++++++++++++++++++++++++-------------
+ 1 file changed, 31 insertions(+), 13 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 1cb01100..bfe84eb6 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -84,6 +84,8 @@ extern fn hotty_host_blur(h: *Host, surface: [*:0]const u8, fx: *const Effects)
+ extern fn hotty_host_focused(h: *Host) ?[*:0]const u8;
+ extern fn hotty_host_cursor(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
+ extern fn hotty_host_hyperlink(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
++extern fn hotty_host_takes_pointer(h: *Host, surface: [*:0]const u8, x: f32, y: f32) bool;
++extern fn hotty_host_set_passthrough(h: *Host, on: bool) void;
+ 
+ // --- wiring ------------------------------------------------------------------
+ 
+@@ -351,6 +353,9 @@ pub const Hotty = struct {
+         if (self.host) |h| return h;
+         const cfg = self.config(t);
+         self.host = hotty_host_new(&cfg);
++        // The pointer passes through what a surface does not take (SPEC
++        // §9.3): `hit` asks the surface.
++        if (self.host) |h| hotty_host_set_passthrough(h, true);
+         if (self.host == null) log.warn("hotty-blitz failed to start", .{});
+         return self.host;
+     }
+@@ -793,21 +798,34 @@ pub const Hotty = struct {
+     /// the active screen's kitty placements.
+     fn hit(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64) ?Target {
+         if (self.cell_w == 0 or self.cell_h == 0) return null;
+-        var top: ?Target = null;
+-        var top_z: i32 = std.math.minInt(i32);
+-        var it = self.placed.iterator();
+-        while (it.next()) |e| {
+-            const p = e.value_ptr.*;
+-            const b = self.onScreen(t, p) orelse continue;
+-            const z = stackZ(p.z, p.created);
+-            if (px >= b.x0 and px < b.x0 + b.w and py >= b.y0 and py < b.y0 + b.h and (top == null or z > top_z)) {
+-                // The placement shows the window; the surface's pixel is
+-                // offset by where the window starts.
+-                top = .{ .name = e.key_ptr.*, .x = @floatCast(px - b.x0 + b.dx), .y = @floatCast(py - b.y0 + b.dy) };
+-                top_z = z;
++        const h = self.host orelse return null;
++        // From the top down, the first window under the pointer that takes
++        // it there: where a surface's elements have `pointer-events: none`
++        // the pointer passes through to what is below, a window or the
++        // cells (SPEC §9.3).
++        var below: i32 = std.math.maxInt(i32);
++        while (true) {
++            var top: ?Target = null;
++            var top_z: i32 = std.math.minInt(i32);
++            var it = self.placed.iterator();
++            while (it.next()) |e| {
++                const p = e.value_ptr.*;
++                const b = self.onScreen(t, p) orelse continue;
++                const z = stackZ(p.z, p.created);
++                if (z >= below) continue;
++                if (px >= b.x0 and px < b.x0 + b.w and py >= b.y0 and py < b.y0 + b.h and (top == null or z > top_z)) {
++                    // The placement shows the window; the surface's pixel is
++                    // offset by where the window starts.
++                    top = .{ .name = e.key_ptr.*, .x = @floatCast(px - b.x0 + b.dx), .y = @floatCast(py - b.y0 + b.dy) };
++                    top_z = z;
++                }
+             }
++            const tg = top orelse return null;
++            var buf: [73]u8 = undefined;
++            const name = std.fmt.bufPrintZ(&buf, "{s}", .{tg.name}) catch return tg;
++            if (hotty_host_takes_pointer(h, name.ptr, tg.x, tg.y)) return tg;
++            below = top_z;
+         }
+-        return top;
+     }
+ 
+     /// Viewport pixel (`px`, `py`) in surface `name`, inside it or not.

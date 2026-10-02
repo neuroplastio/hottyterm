@@ -30,8 +30,8 @@ tree here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide |
-| new code | `src/termio/hotty.zig`, 1206 lines: all of the logic |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take |
+| new code | `src/termio/hotty.zig`, 1224 lines: all of the logic |
 | upstream files touched | 4 files, 45 lines, hooks only |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
@@ -63,7 +63,9 @@ How it works:
   overrides the scale.
 - **Input:** a surface that holds the keyboard gets keys first; clicks and
   hover on a surface go to it and are not reported to the program as mouse
-  input. A program that placed the surface with `p=1` hears each press on
+  input, except where it takes no pointer (`pointer-events: none`, SPEC
+  §9.3): there they pass through to the window below or to the cells, and
+  the program hears them as over any cell. A program that placed the surface with `p=1` hears each press on
   it as a HOTTY `press` event instead (SPEC §9, from hotty-blitz). A press
   holds the pointer until its release: one on a surface keeps it for that
   surface, one on the cells keeps it for the program, so a drag that starts
