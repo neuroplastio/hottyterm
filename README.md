@@ -89,6 +89,46 @@ How it works:
   input with Alt set, and it holds the pointer for the program, so an
   alt+drag that starts over a surface (plx moving a tool or a pane) works.
 
+## Settings
+
+hottyterm reads Ghostty's config file (`~/.config/ghostty/config`) and adds
+one setting to it.
+
+### `hotty-net`: what surfaces may fetch
+
+The terminal's half of the network policy (SPEC §7.2), in the syntax of a
+Content Security Policy: directives separated by `;`, each followed by its
+sources. **The default is empty: surfaces fetch nothing** and show only what
+the program sent them. HOTTY leaves the network to the user: every fetch
+tells a server that a document is being shown, and where from, so a
+terminal starts with nothing granted (§7.2).
+
+| `hotty-net =` | surfaces may fetch |
+| --- | --- |
+| (no line, or empty) | nothing: the default |
+| `img-src https:` | images from any HTTPS origin |
+| `img-src https://example.com` | images from that origin only |
+| `img-src https:; font-src https:; style-src https:` | images, fonts and stylesheets over HTTPS |
+| `img-src http://localhost:8080` | images from a local server, over plain HTTP |
+
+- **Directives:** `img-src` (`<img>`, `srcset`, `<picture>`, images in SVG
+  and in CSS), `style-src` (stylesheets, `@import`), `font-src`
+  (`@font-face`); `media-src` is accepted, and nothing plays.
+- **Sources:** an origin (`https://example.com`, `http://localhost:8080`)
+  or `https:`, every HTTPS origin. Plain `http` only where an origin names
+  it.
+- **The document asks too:** a URL is fetched only when the document's
+  `<meta name="hotty-network" content="img-src https:">` also allows it.
+  A program that does not ask fetches nothing, whatever this grants.
+- **Never:** files, documents (`<iframe>`), referrers, cookies or
+  credentials. A redirect is followed only where the policy allows its
+  target. At most 8 MiB and 10 seconds per fetch.
+- **Turning it off or narrowing it:** delete the line, empty it, or list
+  fewer sources, and reload the config (`reload_config`). Documents shown
+  already are held to the new policy from their next request.
+- Programs see the grant in the capabilities, as `net` (SPEC §4).
+- Ghostty does not know the key: going back to Ghostty, delete the line.
+
 ## Branding
 
 The fork is branded by a generated commit on top of the patches:
