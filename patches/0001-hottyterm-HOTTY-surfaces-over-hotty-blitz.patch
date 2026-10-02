@@ -21,9 +21,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  src/Surface.zig               |   15 +
  src/build/GhosttyExe.zig      |   10 +
  src/termio/Termio.zig         |   11 +
- src/termio/hotty.zig          | 1147 +++++++++++++++++++++++++++++++++
+ src/termio/hotty.zig          | 1180 +++++++++++++++++++++++++++++++++
  src/termio/stream_handler.zig |   10 +-
- 5 files changed, 1192 insertions(+), 1 deletion(-)
+ 5 files changed, 1225 insertions(+), 1 deletion(-)
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
@@ -181,10 +181,10 @@ index d08f2e5f..918f9a0a 100644
      if (self.terminal_stream.handler.termio_messaged) {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
 new file mode 100644
-index 00000000..1873f95a
+index 00000000..483a5153
 --- /dev/null
 +++ b/src/termio/hotty.zig
-@@ -0,0 +1,1147 @@
+@@ -0,0 +1,1180 @@
 +//! hottyterm: HOTTY surfaces (HTML over the TTY), rendered by the terminal.
 +//!
 +//! A program sends HOTTY commands on OSC 7279 (SPEC.md in neuroplastio/hotty).
@@ -991,16 +991,20 @@ index 00000000..1873f95a
 +            return false;
 +        }
 +        // While a press on the cells holds the pointer, the program gets
-+        // every event, and no surface is hovered.
++        // every event, and no surface is hovered. A press then is one on
++        // the cells: it takes the keyboard back (SPEC §10.1).
 +        if (self.program_hold) {
++            const fx = self.effects();
 +            if (self.hover_len > 0) {
 +                var buf: [73]u8 = undefined;
 +                const old = std.fmt.bufPrintZ(&buf, "{s}", .{self.hover[0..self.hover_len]}) catch "";
-+                const fx = self.effects();
 +                hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
 +                self.hover_len = 0;
-+                if (self.render(t)) self.drew = true;
 +            }
++            if (kind == .down) {
++                if (hotty_host_focused(h)) |name| hotty_host_blur(h, name, &fx);
++            }
++            if (self.render(t)) self.drew = true;
 +            return false;
 +        }
 +        // While a press holds the pointer, its surface gets every event.
@@ -1256,10 +1260,36 @@ index 00000000..1873f95a
 +    try t.expect(!programHolds(false, false, false, false));
 +}
 +
++/// Whether a button event is the program's whatever lies under it: the
++/// first press of a gesture with Alt held (Option on macOS, which Ghostty
++/// reports as Alt whatever `macos-option-as-alt` says). SPEC §9.2: it is a
++/// press on the cells, so no surface (nor a hyperlink in one) gets it, and
++/// the gesture it begins is the program's until the release
++/// (`programHolds`).
++fn altPress(action: input.MouseButtonState, first_press: bool, mods: input.Mods) bool {
++    return action == .press and first_press and mods.alt;
++}
++
++test altPress {
++    const t = std.testing;
++    // An Alt press that begins a gesture is the program's, with other keys
++    // held too...
++    try t.expect(altPress(.press, true, .{ .alt = true }));
++    try t.expect(altPress(.press, true, .{ .alt = true, .shift = true, .ctrl = true }));
++    // ...and a press without Alt is not: a surface may take it.
++    try t.expect(!altPress(.press, true, .{}));
++    try t.expect(!altPress(.press, true, .{ .shift = true }));
++    // The press decides: Alt held at a release, or at a press while a
++    // gesture goes on, changes nothing.
++    try t.expect(!altPress(.release, false, .{ .alt = true }));
++    try t.expect(!altPress(.press, false, .{ .alt = true }));
++}
++
 +/// Surface.mouseButtonCallback: a left click on a surface belongs to it, and
 +/// is neither reported to the program nor used for selection. A press on
-+/// the cells, or of any other button, is the program's, and holds the
-+/// pointer for it until the release (`programHolds`).
++/// the cells, of any other button, or with Alt held (`altPress`) is the
++/// program's, and holds the pointer for it until the release
++/// (`programHolds`).
 +pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.MouseButton, mods: input.Mods) bool {
 +    const hs = &s.io.terminal_stream.handler.hotty;
 +    // Ghostty has already recorded this event in click_state.
@@ -1274,10 +1304,13 @@ index 00000000..1873f95a
 +        return false;
 +    };
 +    const was = hs.program_hold;
-+    const took = button == .left and pointerAt(s, if (action == .press) .down else .up, pos, mods);
++    const alt = altPress(action, first, mods);
++    const took = button == .left and !alt and pointerAt(s, if (action == .press) .down else .up, pos, mods);
 +    hs.program_hold = programHolds(was, first, took, any_down);
 +    // A gesture the program now holds leaves the surface under the pointer.
-+    if (hs.program_hold and !was) _ = pointerAt(s, .move, pos, mods);
++    // A left press kept from the surfaces by Alt is one on the cells, and
++    // takes the keyboard back as one does.
++    if (hs.program_hold and !was) _ = pointerAt(s, if (alt and button == .left) .down else .move, pos, mods);
 +    return took;
 +}
 +

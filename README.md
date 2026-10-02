@@ -67,7 +67,11 @@ How it works:
   it as a HOTTY `press` event instead (SPEC §9, from hotty-blitz). A press
   holds the pointer until its release: one on a surface keeps it for that
   surface, one on the cells keeps it for the program, so a drag that starts
-  on cells is reported whole, even over a surface.
+  on cells is reported whole, even over a surface. A press with Alt held
+  (Option on macOS, whatever `macos-option-as-alt` says) is the program's
+  wherever it lands (SPEC §9.2): no surface gets it, it is reported as mouse
+  input with Alt set, and it holds the pointer for the program, so an
+  alt+drag that starts over a surface (plx moving a tool or a pane) works.
 
 ## Branding
 
