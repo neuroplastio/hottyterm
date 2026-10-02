@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 17:40:52 +0200
-Subject: [PATCH 2/4] hottyterm: a relocatable rpath for packaged Linux builds
+Subject: [PATCH 2/5] hottyterm: a relocatable rpath for packaged Linux builds
 
 An rpath of $ORIGIN/../lib, so a packaged build finds
 libhotty_blitz.so next to bin/. (On macOS, scripts/build-macos.sh links

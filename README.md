@@ -30,16 +30,16 @@ tree here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take |
-| new code | `src/termio/hotty.zig`, 1224 lines: all of the logic |
-| upstream files touched | 4 files, 45 lines, hooks only |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play |
+| new code | `src/termio/hotty.zig`, 1292 lines: all of the logic |
+| upstream files touched | 4 files, 48 lines, hooks only |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
 
 | file | hook |
 | --- | --- |
-| `src/termio/Termio.zig` | settings from the config; `osc_unknown_max_bytes`; flush once per read; re-render on resize |
+| `src/termio/Termio.zig` | settings from the config; `osc_unknown_max_bytes`; flush once per read; re-render on resize; the IO thread's loop, for the timer that plays animated images |
 | `src/termio/stream_handler.zig` | the `osc_unknown` action (upstream #14452) goes to hotty.zig; full reset |
 | `src/Surface.zig` | keys, clicks and hover go to the surfaces first; the font size, for the CSS px |
 | `src/build/GhosttyExe.zig` | links `libhotty_blitz` (`HOTTY_BLITZ_LIB`) |
@@ -55,6 +55,9 @@ How it works:
 - **Updates are kitty frame edits** (`a=f`, `r=1`) of the damaged rectangles,
   the same edits the polyfill sends to a terminal. After a font size change,
   surfaces re-render at the new cell size and replace their pixels in place.
+- **Animated images play** (GIF, APNG, WebP): hotty-blitz says when the next
+  frame is due, and a timer on the IO thread's loop renders it then, as a
+  frame edit of the image's box. Nothing plays, no timer.
 - **A CSS px is a logical pixel,** as in a browser: the scale (device px per
   CSS px) is the display's content scale, from the DPI Ghostty loads the
   font at (2 on a Retina Mac, 1.25 on a Linux display scaled to 125%). The

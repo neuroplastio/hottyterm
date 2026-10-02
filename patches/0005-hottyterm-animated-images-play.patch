@@ -1,0 +1,165 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
+Date: Fri, 2 Oct 2026 18:04:57 +0200
+Subject: [PATCH 5/5] hottyterm: animated images play
+
+hotty-blitz plays animated GIFs, APNGs and WebPs and says when the next
+frame is due (hotty_host_next_frame). A timer on the IO thread's loop
+fires then: it takes the terminal lock, renders the frame (a kitty frame
+edit of the image's box) and wakes the renderer, then sets itself for
+the frame after. flush and resized set it too, for the earliest frame
+due, and leave it alone when it is already set for then or sooner. With
+nothing playing it is not set; while the program holds its output (mode
+2026) it looks again in a tenth of a second, so the program's batch
+still shows whole.
+
+Upstream files: src/termio/Termio.zig, 1 line (threadEnter hands
+hotty.zig the loop).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/Termio.zig |  1 +
+ src/termio/hotty.zig  | 70 ++++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 70 insertions(+), 1 deletion(-)
+
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index 918f9a0a..ae38ce57 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -379,6 +379,7 @@ pub fn threadEnter(
+         .mailbox = &self.mailbox,
+         .backend = undefined, // Backend must replace this on threadEnter
+     };
++    self.terminal_stream.handler.hotty.threadEnter(&thread.loop); // hottyterm: animated images
+ 
+     // Setup our backend
+     try self.backend.threadEnter(self.alloc, self, data);
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index bfe84eb6..784a5214 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -20,7 +20,9 @@
+ //! compile error here instead of a rebase conflict.
+ //!
+ //! Everything runs on the IO thread with the terminal lock held, like the rest
+-//! of the stream handler, except the Surface entry points, which take the lock.
++//! of the stream handler, except the Surface entry points, which take the lock,
++//! and the timer that plays animated images (`onTimer`), which runs on the IO
++//! thread's loop and takes it.
+ 
+ const std = @import("std");
+ const Allocator = std.mem.Allocator;
+@@ -34,7 +36,9 @@ const termio = @import("../termio.zig");
+ const Surface = @import("../Surface.zig");
+ const internal_os = @import("../os/main.zig");
+ const font = @import("../font/main.zig");
++const StreamHandler = @import("stream_handler.zig").StreamHandler;
+ const kitty = terminal.kitty;
++const xev = global.xev;
+ 
+ const log = std.log.scoped(.hotty);
+ 
+@@ -75,6 +79,7 @@ extern fn hotty_host_free(h: *Host) void;
+ extern fn hotty_host_configure(h: *Host, cfg: *const Config) void;
+ extern fn hotty_host_osc(h: *Host, body: [*]const u8, len: usize, fx: *const Effects) void;
+ extern fn hotty_host_has_dirty(h: *const Host) bool;
++extern fn hotty_host_next_frame(h: *Host) i64;
+ extern fn hotty_host_redeliver(h: *Host, surface: [*:0]const u8) void;
+ extern fn hotty_host_render(h: *Host, ctx: ?*anyopaque, cb: FrameFn) void;
+ extern fn hotty_host_reset(h: *Host, fx: ?*const Effects) void;
+@@ -227,6 +232,16 @@ pub const Hotty = struct {
+     link: ?[:0]u8 = null,
+     /// The address in the link preview, owned; null for none.
+     shown_url: ?[:0]u8 = null,
++
++    /// Animated images (GIF, APNG, WebP) show their next frame on a timer
++    /// on the IO thread's loop (`threadEnter`), set for the earliest frame
++    /// due (`schedule`). IO thread only.
++    loop: ?*xev.Loop = null,
++    timer: ?xev.Timer = null,
++    timer_c: xev.Completion = .{},
++    timer_cancel_c: xev.Completion = .{},
++    /// When the timer fires, on the awake clock, while it is set.
++    timer_at: i96 = 0,
+     /// A press on a hyperlink with the OSC 8 gesture: it and its release
+     /// are the terminal's, never the surface's.
+     link_press: bool = false,
+@@ -246,6 +261,8 @@ pub const Hotty = struct {
+     };
+ 
+     pub fn deinit(self: *Hotty) void {
++        if (self.timer) |*t| t.deinit();
++        self.timer = null;
+         if (self.host) |h| hotty_host_free(h);
+         self.host = null;
+         self.setLink(null);
+@@ -500,11 +517,61 @@ pub const Hotty = struct {
+     pub fn flush(self: *Hotty, t: *terminal.Terminal) void {
+         const h = self.host orelse return;
+         self.prune(t);
++        defer self.schedule(t);
+         if (t.modes.get(.synchronized_output)) return;
+         if (!hotty_host_has_dirty(h)) return;
+         _ = self.render(t);
+     }
+ 
++    /// Termio.threadEnter: the IO thread's loop, for the timer.
++    pub fn threadEnter(self: *Hotty, loop: *xev.Loop) void {
++        self.loop = loop;
++        if (self.timer == null) self.timer = xev.Timer.init() catch |err| t: {
++            log.warn("hotty: no timer, animated images stay still: {}", .{err});
++            break :t null;
++        };
++    }
++
++    /// Sets the timer for the next frame of an animated image, if one
++    /// plays and the timer is not already set for then or sooner. While
++    /// the program holds its output (mode 2026), it looks again in a
++    /// tenth of a second instead: the end of the batch renders anyway.
++    fn schedule(self: *Hotty, t: *terminal.Terminal) void {
++        const h = self.host orelse return;
++        const loop = self.loop orelse return;
++        const timer = self.timer orelse return;
++        var ms = hotty_host_next_frame(h);
++        if (ms < 0) return; // nothing plays: a timer set before finds nothing and stops
++        if (t.modes.get(.synchronized_output)) ms = @max(ms, 100);
++        const now = std.Io.Timestamp.now(global.io(), .awake).nanoseconds;
++        const due = now + @as(i96, ms) * std.time.ns_per_ms;
++        if (self.timer_c.state() == .active and self.timer_at <= due) return;
++        self.timer_at = due;
++        timer.reset(loop, &self.timer_c, &self.timer_cancel_c, @intCast(ms), Hotty, self, onTimer);
++    }
++
++    /// An animated image's frame is due: render it, show it, and set the
++    /// timer for the next one.
++    fn onTimer(
++        self_: ?*Hotty,
++        _: *xev.Loop,
++        _: *xev.Completion,
++        r: xev.Timer.RunError!void,
++    ) xev.CallbackAction {
++        _ = r catch return .disarm;
++        const self = self_ orelse return .disarm;
++        const handler: *StreamHandler = @fieldParentPtr("hotty", self);
++        handler.renderer_state.mutex.lockUncancelable(global.io());
++        defer handler.renderer_state.mutex.unlock(global.io());
++        const t = handler.terminal;
++        if (self.host) |h| {
++            if (!t.modes.get(.synchronized_output) and hotty_host_has_dirty(h) and self.render(t))
++                handler.queueRender() catch {};
++        }
++        self.schedule(t);
++        return .disarm;
++    }
++
+     /// Forgets placements whose image is gone: scrolled out of the
+     /// scrollback, erased, or left behind on the alternate screen. The
+     /// document stays, so the program can place it again (SPEC §5.4),
+@@ -552,6 +619,7 @@ pub const Hotty = struct {
+         const cfg = self.config(t);
+         hotty_host_configure(h, &cfg);
+         _ = self.render(t);
++        self.schedule(t);
+     }
+ 
+     // --- rendering -----------------------------------------------------------
