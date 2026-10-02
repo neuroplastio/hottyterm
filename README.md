@@ -30,7 +30,7 @@ tree here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves |
 | new code | `src/termio/hotty.zig`, 1376 lines: all of the logic |
 | upstream files touched | 5 files, 65 lines, hooks and one setting |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
@@ -62,6 +62,11 @@ How it works:
 - **`fit`** (SPEC §5.2): hotty-blitz finds it as it renders a placement made
   with `f=1`; hotty.zig sends it to the program with the replies, from
   whichever path drew the frame.
+- **`hover`** (SPEC §9.4): a placement made with `v=1` hears the nearest id
+  under the pointer each time it changes, and out when the pointer leaves.
+  hotty-blitz finds it from the moves and leaves it already gets for
+  `:hover`; hotty.zig also leaves the surface when the pointer leaves the
+  window (the apprts' move to -1, -1), unless a press holds the pointer.
 - **The network** (SPEC §7.2): surfaces fetch nothing until the user grants
   it with `hotty-net`, in CSP syntax (`hotty-net = img-src https:`), and then
   only what a document also asks for with `<meta name="hotty-network">`.

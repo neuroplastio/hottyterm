@@ -1,0 +1,89 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
+Date: Fri, 2 Oct 2026 20:25:12 +0200
+Subject: [PATCH 8/8] hottyterm: hover reaches the program, and leaving the
+ window leaves
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+SPEC §9.4: a placement with v=1 hears `hover` with the nearest id under
+the pointer each time it changes, and out when the window loses the
+pointer. hotty-blitz finds both from the moves, releases and leaves it is
+already handed for :hover; the events come back with the replies. What
+it was not handed: the pointer leaving the terminal's window. The apprts
+report that as a move to -1, -1, which surfaceMove ignored, so a surface
+stayed hovered (and a program that asked would never hear out). Now the
+surface under the pointer is left, unless a press holds the pointer for
+its surface.
+
+Upstream files: none touched.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig | 41 ++++++++++++++++++++++++++++++++++++++---
+ 1 file changed, 38 insertions(+), 3 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 46599fb0..0835f46a 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -1066,6 +1066,23 @@ pub const Hotty = struct {
+         return target != null;
+     }
+ 
++    /// The pointer left the terminal's window: the surface it was over is
++    /// left too, and a placement with v=1 hears it is out (SPEC §9.4). A
++    /// press that holds the pointer for its surface keeps it: the platform
++    /// goes on reporting its moves and its release.
++    fn leaveWindow(self: *Hotty, t: *terminal.Terminal, mods: u32) void {
++        if (self.capture_len > 0 or self.hover_len == 0) return;
++        const h = self.host orelse return;
++        const fx = self.effects();
++        var buf: [73]u8 = undefined;
++        const old = std.fmt.bufPrintZ(&buf, "{s}", .{self.hover[0..self.hover_len]}) catch "";
++        hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
++        self.hover_len = 0;
++        self.shape = null;
++        self.setLink(null);
++        if (self.render(t)) self.drew = true;
++    }
++
+     /// A key for the surface holding the keyboard. True if it used it.
+     fn key(self: *Hotty, t: *terminal.Terminal, code: u32, text: ?[*:0]const u8, mods: u32) bool {
+         const h = self.host orelse return false;
+@@ -1323,13 +1340,31 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
+     return took;
+ }
+ 
+-/// Surface.cursorPosCallback: hovering a surface restyles it and is not
+-/// reported.
++/// Surface.cursorPosCallback: hovering a surface restyles it, and a
++/// placement that asked hears it as hover (SPEC §9.4). A negative position
++/// is the pointer leaving the window (the apprts send -1, -1): the surface
++/// under it is left.
+ pub fn surfaceMove(s: *Surface, pos: apprt.CursorPos, mods: ?input.Mods) bool {
+-    if (pos.x < 0 or pos.y < 0) return false;
++    if (pos.x < 0 or pos.y < 0) {
++        windowLeft(s, mods orelse s.mouse.mods);
++        return false;
++    }
+     return pointerAt(s, .move, pos, mods orelse s.mouse.mods);
+ }
+ 
++fn windowLeft(s: *Surface, mods: input.Mods) void {
++    var drew = false;
++    {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const hs = &s.io.terminal_stream.handler.hotty;
++        hs.leaveWindow(&s.io.terminal, hostMods(mods));
++        drew = hs.drew;
++        hs.drew = false;
++    }
++    deliver(s, drew);
++}
++
+ /// Surface.keyCallback: the surface holding the keyboard gets the key first.
+ /// Keys its focused element has no use for go to the program as usual.
+ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
