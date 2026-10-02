@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
+Date: Fri, 2 Oct 2026 12:28:31 +0200
+Subject: [PATCH 3/3] hottyterm: surface image ids never collide
+
+Every placement at a new size takes a fresh kitty image id, and ids
+cycled through 256 values. A program that resizes its surfaces went
+round them quickly: the new image then took the id of another surface's
+live image, which deleted that surface's placement (sending an id again
+replaces the image), and the other surface's entry went on pointing at
+the new image. Surfaces vanished after a few dozen resizes.
+
+Ids now cycle through 65536 values and skip any that a surface holds or
+an image on either screen uses.
+
+Upstream files: none touched.
+---
+ src/termio/hotty.zig | 30 ++++++++++++++++++++++++++++--
+ 1 file changed, 28 insertions(+), 2 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 483a5153..1cb01100 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -96,6 +96,9 @@ const osc_prefix = "7279;";
+ /// Surfaces get kitty image ids from here up ("HOT\x00"), clear of the ids
+ /// programs pick and of Ghostty's implicit ones in the upper half.
+ const id_base: u32 = 0x484F_5400;
++/// How many ids surfaces cycle through. Every placement at a new size takes
++/// a fresh one, so a program resizing its surfaces goes through them fast.
++const id_span: u32 = 0x1_0000;
+ 
+ /// What hottyterm takes from the terminal's configuration. Lives in
+ /// Termio's DerivedConfig, so it is allocated in that config's arena.
+@@ -693,14 +696,37 @@ pub const Hotty = struct {
+         return out;
+     }
+ 
++    /// The next image id that no surface holds and no image on either
++    /// screen uses. Sending an image with an id in use replaces that image
++    /// and deletes its placements: another surface would vanish, and its
++    /// entry would go on pointing at the new image.
++    fn freeId(self: *Hotty, t: *terminal.Terminal) u32 {
++        var tries: u32 = 0;
++        while (tries < id_span) : (tries += 1) {
++            const id = self.next_id;
++            self.next_id = if (self.next_id + 1 >= id_base + id_span) id_base else self.next_id + 1;
++            if (self.idInUse(t, id)) continue;
++            return id;
++        }
++        return self.next_id;
++    }
++
++    fn idInUse(self: *Hotty, t: *terminal.Terminal, id: u32) bool {
++        var it = self.placed.valueIterator();
++        while (it.next()) |p| if (p.image_id == id) return true;
++        inline for (.{ .primary, .alternate }) |k| {
++            if (t.screens.get(k)) |screen| if (screen.kitty_images.images.contains(id)) return true;
++        }
++        return false;
++    }
++
+     fn place(self: *Hotty, t: *terminal.Terminal, name: []const u8, p: Place, w: u32, h: u32, data: []const u8) !void {
+         // One image per placement: a surface placed again moves.
+         if (self.placed.fetchRemove(name)) |kv| {
+             self.deleteImage(t, kv.value);
+             self.alloc.free(kv.key);
+         }
+-        const id = self.next_id;
+-        self.next_id = if (self.next_id >= id_base + 0xff) id_base else self.next_id + 1;
++        const id = self.freeId(t);
+ 
+         var cmd: kitty.graphics.Command = .{
+             .control = .{ .transmit_and_display = .{

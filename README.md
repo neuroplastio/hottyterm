@@ -30,8 +30,8 @@ tree here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds |
-| new code | `src/termio/hotty.zig`, 1091 lines: all of the logic |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide |
+| new code | `src/termio/hotty.zig`, 1206 lines: all of the logic |
 | upstream files touched | 4 files, 45 lines, hooks only |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
