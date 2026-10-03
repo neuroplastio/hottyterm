@@ -50,6 +50,11 @@ How it works:
 - **Parsing is upstream's.** Ghostty passes every OSC it does not implement to
   the stream handler once `osc_unknown_max_bytes` is set; hotty.zig takes
   OSC 7279 and hands the body to hotty-blitz.
+- **The protocol is hotty-blitz's,** at the commit a release's notes name:
+  CI builds against hotty-blitz's main. From hotty-blitz 0.0.3 (8330fbf), a
+  program changes a document with `a=delta` (SPEC §6, hotty d2da455), and
+  `a=patch`, its name before, is refused as an unknown action: a program
+  needs hotty-go 57fdbb0 or later, or the same rename in its own SDK.
 - **Surfaces are kitty images** in the active screen's image storage, placed
   at the cursor with a command built in memory. They scroll, clear and die
   with their screen like any kitty image.
