@@ -1,0 +1,146 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Tue, 6 Oct 2026 22:30:15 +0200
+Subject: [PATCH 9/9] hottyterm: a document that scrolls takes the wheel first
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+SPEC §5.3 (hotty f171655): a document that asks to scroll (a=doc
+scroll=1, 2 or 3) scrolls as a page does, and a wheel, a touchpad's
+scroll or a touch drag over it is its own while something in it can move
+that way. Where nothing can, it goes on to the terminal as over the cells
+(§9), unless overscroll-behavior stops it. hotty-blitz decides, through
+its new hotty_host_wheel (hotty-blitz C ABI: hotty_host_wheel and
+hotty_host_end_gesture are new): it returns whether the surface took the
+gesture.
+
+Surface.scrollCallback now hands the wheel to surfaceScroll first, which
+finds the surface under the pointer as a press does (passing through
+where it takes no pointer, §9.3) and turns Ghostty's offsets into
+hotty-blitz's: pixels, positive right and down, a notch as many pixels as
+it scrolls the cells (mouse-scroll-multiplier included). A wheel it does
+not take goes on to scrollback, mouse reports or alternate scroll as
+before. Over the cells, or while the program holds the pointer, the
+gesture is the terminal's, even where it goes on over a surface.
+
+Scrolling shows overlay scrollbars that fade, so key and pointer events
+now set the frame timer after they render, as the stream does.
+
+Upstream files: src/Surface.zig, 2 lines (a hook and its comment).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/Surface.zig      |  3 +++
+ src/termio/hotty.zig | 60 ++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 63 insertions(+)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 672210ab..7cfe4064 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -3566,6 +3566,9 @@ pub fn scrollCallback(
+     // Always show the mouse again if it is hidden
+     if (self.mouse.hidden) self.showMouse();
+ 
++    // hottyterm: a document that scrolls takes the wheel first.
++    if (hotty.surfaceScroll(self, xoff, yoff, scroll_mods)) return;
++
+     const y: ScrollAmount = if (yoff == 0) .{} else y: {
+         // We use cell_size to determine if we have accumulated enough to trigger a scroll
+         const cell_size: f64 = @floatFromInt(self.size.cell.height);
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 0835f46a..9d3b8bff 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -88,6 +88,7 @@ extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;
+ extern fn hotty_host_reset(h: *Host, fx: ?*const Effects) void;
+ extern fn hotty_host_pointer(h: *Host, surface: [*:0]const u8, kind: u32, x: f32, y: f32, mods: u32, fx: *const Effects) void;
+ extern fn hotty_host_key(h: *Host, key: u32, text: ?[*:0]const u8, mods: u32, fx: *const Effects) bool;
++extern fn hotty_host_wheel(h: *Host, surface: ?[*:0]const u8, x: f32, y: f32, dx: f32, dy: f32, mods: u32, fx: *const Effects) bool;
+ extern fn hotty_host_blur(h: *Host, surface: [*:0]const u8, fx: *const Effects) void;
+ extern fn hotty_host_focused(h: *Host) ?[*:0]const u8;
+ extern fn hotty_host_cursor(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
+@@ -1063,6 +1064,8 @@ pub const Hotty = struct {
+             if (hotty_host_focused(h)) |name| hotty_host_blur(h, name, &fx);
+         }
+         if (self.render(t)) self.drew = true;
++        // A thumb hovered or dragged holds its scrollbars; left, they fade.
++        self.schedule(t);
+         return target != null;
+     }
+ 
+@@ -1089,9 +1092,35 @@ pub const Hotty = struct {
+         const fx = self.effects();
+         const consumed = hotty_host_key(h, code, text, mods, &fx);
+         if (self.render(t)) self.drew = true;
++        // A key that scrolled shows scrollbars, which fade.
++        self.schedule(t);
+         return consumed;
+     }
+ 
++    /// A wheel's turn, a touchpad's scroll or a touch drag at viewport
++    /// pixel (`px`, `py`), by (`dx`, `dy`) pixels, positive right and
++    /// down. True if a surface took it: its document scrolled, or
++    /// `overscroll-behavior` stopped it there (SPEC §5.3). Over the cells,
++    /// or while the program holds the pointer, the gesture is the
++    /// terminal's, even where it goes on over a surface.
++    fn wheel(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64, dx: f64, dy: f64, mods: u32) bool {
++        const h = self.host orelse return false;
++        const fx = self.effects();
++        const target: ?Target = if (self.program_hold) null else self.hit(t, px, py);
++        var name_buf: [73]u8 = undefined;
++        const name: ?[*:0]const u8 = if (target) |tg|
++            (std.fmt.bufPrintZ(&name_buf, "{s}", .{tg.name}) catch return false).ptr
++        else
++            null;
++        const x: f32 = if (target) |tg| tg.x else 0;
++        const y: f32 = if (target) |tg| tg.y else 0;
++        const took = hotty_host_wheel(h, name, x, y, @floatCast(dx), @floatCast(dy), mods, &fx);
++        if (self.render(t)) self.drew = true;
++        // Scrollbars show as it scrolls, and fade.
++        self.schedule(t);
++        return took;
++    }
++
+     fn setLink(self: *Hotty, url: ?[]const u8) void {
+         if (self.link) |old| {
+             if (url != null and std.mem.eql(u8, old, url.?)) return;
+@@ -1365,6 +1394,37 @@ fn windowLeft(s: *Surface, mods: input.Mods) void {
+     deliver(s, drew);
+ }
+ 
++/// Surface.scrollCallback: a wheel, a touchpad's scroll or a touch drag over
++/// a surface whose document scrolls (SPEC §5.3) is the surface's while it
++/// can move that way, and otherwise does what it does over the cells. True
++/// if a surface took it. Ghostty's offsets are positive towards the top and
++/// left, in wheel notches or (precision) pixels; a notch scrolls a surface
++/// as many pixels as it scrolls the cells.
++pub fn surfaceScroll(s: *Surface, xoff: f64, yoff: f64, scroll_mods: input.ScrollMods) bool {
++    const pos = s.rt_surface.getCursorPos() catch return false;
++    const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = pos.x, .y = pos.y } };
++    const tp = coord.convert(.terminal, s.size).terminal;
++    const cell_w: f64 = @floatFromInt(s.size.cell.width);
++    const cell_h: f64 = @floatFromInt(s.size.cell.height);
++    const m = s.config.mouse_scroll_multiplier;
++    const dx: f64, const dy: f64 = if (scroll_mods.precision)
++        .{ -xoff, -yoff * m.precision }
++    else
++        .{ -xoff * cell_w, -yoff * cell_h * m.discrete };
++    var drew = false;
++    const took = took: {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const hs = &s.io.terminal_stream.handler.hotty;
++        const took = hs.wheel(&s.io.terminal, tp.x, tp.y, dx, dy, hostMods(s.mouse.mods));
++        drew = hs.drew;
++        hs.drew = false;
++        break :took took;
++    };
++    deliver(s, took or drew);
++    return took;
++}
++
+ /// Surface.keyCallback: the surface holding the keyboard gets the key first.
+ /// Keys its focused element has no use for go to the program as usual.
+ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {

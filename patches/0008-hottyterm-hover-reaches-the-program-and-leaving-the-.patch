@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
 Date: Fri, 2 Oct 2026 20:25:12 +0200
-Subject: [PATCH 8/8] hottyterm: hover reaches the program, and leaving the
+Subject: [PATCH 8/9] hottyterm: hover reaches the program, and leaving the
  window leaves
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
