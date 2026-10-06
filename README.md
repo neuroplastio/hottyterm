@@ -55,12 +55,19 @@ How it works:
   program changes a document with `a=delta` (SPEC §6, hotty d2da455), and
   `a=patch`, its name before, is refused as an unknown action: a program
   needs hotty-go 57fdbb0 or later, or the same rename in its own SDK.
-- **Surfaces are kitty images** in the active screen's image storage, placed
-  at the cursor with a command built in memory. They scroll, clear and die
-  with their screen like any kitty image.
-- **Updates are kitty frame edits** (`a=f`, `r=1`) of the damaged rectangles,
-  the same edits the polyfill sends to a terminal. After a font size change,
-  surfaces re-render at the new cell size and replace their pixels in place.
+- **Native, not the polyfill.** A program sends hottyterm OSC 7279 and
+  nothing else, and the linked hotty-blitz lays out and renders every
+  surface. No kitty graphics crosses the pty: turning surfaces into kitty
+  graphics is what the polyfill (`hotty run`) does for terminals that are
+  not hosts.
+- **Drawn through Ghostty's image layer.** Inside the process, a surface's
+  pixels go into the active screen's image storage (the one Ghostty keeps
+  for kitty graphics), placed at the cursor by a command built in memory. A
+  placement therefore scrolls with its line, goes with an erase, and leaves
+  with its screen, as SPEC §5.4 and SDK §4.3 expect of any host.
+- **Updates replace only the damaged rectangles** of those pixels, as
+  in-memory frame edits (`a=f`, `r=1`). After a font size change, surfaces
+  re-render at the new cell size and replace their pixels in place.
 - **Animated images play** (GIF, APNG, WebP): hotty-blitz says when the next
   frame is due, and a timer on the IO thread's loop renders it then, as a
   frame edit of the image's box. Nothing plays, no timer.
