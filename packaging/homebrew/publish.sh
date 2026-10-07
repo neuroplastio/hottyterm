@@ -10,8 +10,10 @@
 # `Casks/hottyterm.rb` from `packaging/homebrew/hottyterm.rb` with the app's
 # sha256, and (with `--push`) commits and pushes it to the tap.
 #
-# Needs curl, sha256sum (or shasum) and git. On --push it uses HOMEBREW_TAP_TOKEN
-# when set (the CI path), and your own git credentials otherwise.
+# Needs curl, sha256sum (or shasum) and git. On --push it writes with
+# HOMEBREW_TAP_DEPLOY_KEY when set (the CI path): the private half of the tap's
+# deploy key for hottyterm, which may write to the tap and nothing else.
+# Otherwise it uses your own git credentials.
 set -euo pipefail
 
 if [ $# -lt 1 ] || [ $# -gt 2 ] || { [ $# -eq 2 ] && [ "$2" != --push ]; }; then
@@ -37,8 +39,13 @@ if ! grep -qx "$sha256  $app" "$work/SHA256SUMS"; then
 	exit 1
 fi
 
-if [ -n "$push" ] && [ -n "${HOMEBREW_TAP_TOKEN:-}" ]; then
-	remote="https://x-access-token:$HOMEBREW_TAP_TOKEN@github.com/$tap.git"
+if [ -n "$push" ] && [ -n "${HOMEBREW_TAP_DEPLOY_KEY:-}" ]; then
+	printf '%s\n' "$HOMEBREW_TAP_DEPLOY_KEY" > "$work/key"
+	chmod 600 "$work/key"
+	# GitHub's host key, as https://api.github.com/meta lists it.
+	echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" > "$work/known_hosts"
+	export GIT_SSH_COMMAND="ssh -i $work/key -o IdentitiesOnly=yes -o UserKnownHostsFile=$work/known_hosts"
+	remote="git@github.com:$tap.git"
 else
 	remote="https://github.com/$tap.git"
 fi

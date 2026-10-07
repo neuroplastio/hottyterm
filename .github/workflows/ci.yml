@@ -14,7 +14,7 @@
 #   of the artifacts. Versions are CalVer like the other neuroplastio
 #   projects: the commit's UTC date and short commit, 26.09.29-dev.1e81d70.
 # - homebrew: after a release, its macOS app as a cask in the org tap
-#   (packaging/homebrew), when HOMEBREW_TAP_TOKEN is set.
+#   (packaging/homebrew), with the tap's deploy key.
 name: ci
 
 on:
@@ -314,8 +314,9 @@ jobs:
 
   # The Homebrew cask, rendered from the release's macOS app and pushed to
   # the org tap `neuroplastio/homebrew-tap` (packaging/homebrew/publish.sh).
-  # The tap is another repository, so this needs HOMEBREW_TAP_TOKEN (a token
-  # that may write to it); without it the job skips, as kubecom's does.
+  # The tap is another repository: HOMEBREW_TAP_DEPLOY_KEY is the private
+  # half of a deploy key on it that may write, and nothing else. Without it
+  # the job skips, as kubecom's does.
   homebrew:
     needs: release
     runs-on: ubuntu-latest
@@ -325,11 +326,11 @@ jobs:
 
       - name: Publish
         env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
           VERSION: ${{ needs.release.outputs.version }}
         run: |
-          if [ -z "${HOMEBREW_TAP_TOKEN:-}" ]; then
-            echo "::notice::HOMEBREW_TAP_TOKEN is not set; skipping the Homebrew publish"
+          if [ -z "${HOMEBREW_TAP_DEPLOY_KEY:-}" ]; then
+            echo "::notice::HOMEBREW_TAP_DEPLOY_KEY is not set; skipping the Homebrew publish"
             exit 0
           fi
           packaging/homebrew/publish.sh "$VERSION" --push

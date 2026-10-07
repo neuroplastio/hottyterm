@@ -234,7 +234,7 @@ One workflow, `.github/workflows/ci.yml`:
 | `macos` | a push to main that changes the fork's inputs (`ghostty-ref`, `patches/`, `brand/`, `notices/`, the scripts, the workflow), or on demand | `macos-26`, Xcode 26.6, `scripts/build-macos.sh`; artifact `hottyterm-macos-arm64` |
 | `canary` | daily, or on demand | the patches and the branding against upstream's latest main |
 | `release` | on main, when both builds ran and passed | a GitHub prerelease with both artifacts and `SHA256SUMS` |
-| `homebrew` | after a release | `packaging/homebrew/publish.sh`: the cask `hottyterm` in [neuroplastio/homebrew-tap](https://github.com/neuroplastio/homebrew-tap), rendered from `packaging/homebrew/hottyterm.rb` with the release's app; skipped without the `HOMEBREW_TAP_TOKEN` secret |
+| `homebrew` | after a release | `packaging/homebrew/publish.sh`: the cask `hottyterm` in [neuroplastio/homebrew-tap](https://github.com/neuroplastio/homebrew-tap), rendered from `packaging/homebrew/hottyterm.rb` with the release's app; writes with the `HOMEBREW_TAP_DEPLOY_KEY` secret, the private half of a deploy key on the tap |
 
 Every build carries `LICENSE` and `THIRD-PARTY-NOTICES.txt` (the Linux
 archive's top, the app's `Contents/Resources`), and each release attaches
