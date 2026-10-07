@@ -113,8 +113,9 @@ Every release is a [GitHub prerelease](https://github.com/neuroplastio/hottyterm
 - **macOS**, Apple silicon:
   `brew install --cask neuroplastio/tap/hottyterm`, or the release's
   `hottyterm-<version>-macos-arm64.zip`. The app is signed ad hoc, not
-  notarized, so macOS blocks its first launch until it is allowed in
-  System Settings, Privacy & Security ("Open Anyway"). `brew upgrade`
+  notarized. The cask takes macOS's quarantine off it, so it opens without
+  asking; from the zip, macOS blocks its first launch until it is allowed
+  in System Settings, Privacy & Security ("Open Anyway"). `brew upgrade`
   updates it; the app never looks for updates itself.
 - **Linux**, x86_64: the release's `hottyterm-<version>-linux-x86_64.tar.gz`,
   unpacked anywhere (`bin/hottyterm` finds its library through a relative

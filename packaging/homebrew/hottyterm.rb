@@ -2,8 +2,10 @@
 # github.com/neuroplastio/hottyterm; change it there.
 #
 # The macOS app of a hottyterm release, for Apple silicon. It is signed ad
-# hoc, not notarized, so it arrives quarantined and macOS asks once before
-# its first launch; the cask leaves that to macOS. No CLI, completions or
+# hoc, not notarized: with the quarantine a download carries, macOS would
+# refuse to open it until the user allowed it in System Settings, after
+# every upgrade too. So the cask takes the quarantine off the app it has
+# just installed (Homebrew 5 has no --no-quarantine). No CLI, completions or
 # man pages: they are still Ghostty's and name `ghostty`. Its updates are
 # off (Ghostty's feed would replace it with Ghostty), so `brew upgrade`
 # updates it.
@@ -21,6 +23,13 @@ cask "hottyterm" do
 
   app "hottyterm.app"
 
+  postflight_steps do
+    run "/usr/bin/xattr",
+        args:           ["-dr", "com.apple.quarantine", "{{appdir}}/hottyterm.app"],
+        writable_paths: ["hottyterm.app"],
+        writable_base:  :appdir
+  end
+
   # Its own, by its bundle id. Ghostty's config, which it reads too, stays.
   zap trash: [
     "~/Library/Application Support/io.github.neuroplastio.hottyterm",
@@ -31,9 +40,8 @@ cask "hottyterm" do
   ]
 
   caveats <<~EOS
-    hottyterm is signed ad hoc, not notarized, so macOS blocks its first
-    launch. Open it once, then allow it in System Settings, Privacy &
-    Security ("Open Anyway").
+    hottyterm is signed ad hoc, not notarized by Apple; this cask removes
+    macOS's quarantine from it, so it opens without asking.
 
     It reads Ghostty's config file, ~/.config/ghostty/config, as Ghostty does.
   EOS
