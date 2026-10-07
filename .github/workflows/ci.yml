@@ -13,6 +13,8 @@
 # - release: on main, when both builds ran and passed, a GitHub prerelease
 #   of the artifacts. Versions are CalVer like the other neuroplastio
 #   projects: the commit's UTC date and short commit, 26.09.29-dev.1e81d70.
+# - homebrew: after a release, its macOS app as a cask in the org tap
+#   (packaging/homebrew), when HOMEBREW_TAP_TOKEN is set.
 name: ci
 
 on:
@@ -229,8 +231,8 @@ jobs:
             zig-cache
           key: macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-${{ github.sha }}
 
-      # Signed ad hoc: macOS asks to confirm the first launch (right-click,
-      # Open).
+      # Signed ad hoc: macOS blocks the first launch until it is allowed in
+      # System Settings, Privacy & Security.
       - name: Package
         run: ditto -c -k --keepParent hottyterm/main/out/hottyterm.app hottyterm-macos-arm64.zip
 
@@ -251,6 +253,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
 
@@ -300,13 +304,35 @@ jobs:
 
           Assets:
           - \`hottyterm-$VERSION-linux-x86_64.tar.gz\`: \`bin/\`, \`share/\` and \`lib/libhotty_blitz.so\`. Needs GTK 4, libadwaita and gtk4-layer-shell.
-          - \`hottyterm-$VERSION-macos-arm64.zip\`: \`hottyterm.app\` for Apple silicon, signed ad hoc: the first launch needs right-click, Open.
+          - \`hottyterm-$VERSION-macos-arm64.zip\`: \`hottyterm.app\` for Apple silicon, signed ad hoc: macOS blocks the first launch until it is allowed in System Settings, Privacy & Security ("Open Anyway"). Also \`brew install --cask neuroplastio/tap/hottyterm\`.
           - \`hottyterm-$VERSION-*-THIRD-PARTY-NOTICES.txt\`: the licences of everything each build contains (also inside the archive and the app).
           - \`SHA256SUMS\`
           NOTES
           gh release create "$VERSION" --draft --prerelease --target "$GITHUB_SHA" \
             --title "hottyterm $VERSION" --notes-file notes.md dist/*
           gh release edit "$VERSION" --draft=false
+
+  # The Homebrew cask, rendered from the release's macOS app and pushed to
+  # the org tap `neuroplastio/homebrew-tap` (packaging/homebrew/publish.sh).
+  # The tap is another repository, so this needs HOMEBREW_TAP_TOKEN (a token
+  # that may write to it); without it the job skips, as kubecom's does.
+  homebrew:
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Publish
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          if [ -z "${HOMEBREW_TAP_TOKEN:-}" ]; then
+            echo "::notice::HOMEBREW_TAP_TOKEN is not set; skipping the Homebrew publish"
+            exit 0
+          fi
+          packaging/homebrew/publish.sh "$VERSION" --push
 
   # A failure here is the early warning that moving ghostty-ref will need
   # work (README, "Changing the fork").

@@ -106,6 +106,21 @@ How it works:
   input with Alt set, and it holds the pointer for the program, so an
   alt+drag that starts over a surface (plx moving a tool or a pane) works.
 
+## Install
+
+Every release is a [GitHub prerelease](https://github.com/neuroplastio/hottyterm/releases):
+
+- **macOS**, Apple silicon:
+  `brew install --cask neuroplastio/tap/hottyterm`, or the release's
+  `hottyterm-<version>-macos-arm64.zip`. The app is signed ad hoc, not
+  notarized, so macOS blocks its first launch until it is allowed in
+  System Settings, Privacy & Security ("Open Anyway"). `brew upgrade`
+  updates it; the app never looks for updates itself.
+- **Linux**, x86_64: the release's `hottyterm-<version>-linux-x86_64.tar.gz`,
+  unpacked anywhere (`bin/hottyterm` finds its library through a relative
+  rpath). It needs GTK 4, libadwaita and gtk4-layer-shell, and is built on
+  Arch Linux, so it needs a glibc as recent as Arch's.
+
 ## Settings
 
 hottyterm reads Ghostty's config file (`~/.config/ghostty/config`) and adds
@@ -201,8 +216,8 @@ it fails.
 `scripts/build-macos.sh` builds `out/hottyterm.app` for Apple silicon on a
 Mac with Xcode 26: GhosttyKit (the framework the app links) as upstream
 builds it, then the app in Xcode's `ReleaseLocal` configuration, signed ad
-hoc, with hotty-blitz's static library added to its link. macOS asks to confirm the first launch
-(right-click, Open). The branding covers the macOS app too: bundle id
+hoc, with hotty-blitz's static library added to its link. macOS blocks the
+first launch until it is allowed in System Settings, Privacy & Security. The branding covers the macOS app too: bundle id
 `io.github.neuroplastio.hottyterm`, name, icon (Icon Composer bundle and
 image sets), menus, AppleScript dictionary and Swift strings. It never looks
 for updates: Ghostty's update feed would replace it with Ghostty. Still
@@ -219,6 +234,7 @@ One workflow, `.github/workflows/ci.yml`:
 | `macos` | a push to main that changes the fork's inputs (`ghostty-ref`, `patches/`, `brand/`, `notices/`, the scripts, the workflow), or on demand | `macos-26`, Xcode 26.6, `scripts/build-macos.sh`; artifact `hottyterm-macos-arm64` |
 | `canary` | daily, or on demand | the patches and the branding against upstream's latest main |
 | `release` | on main, when both builds ran and passed | a GitHub prerelease with both artifacts and `SHA256SUMS` |
+| `homebrew` | after a release | `packaging/homebrew/publish.sh`: the cask `hottyterm` in [neuroplastio/homebrew-tap](https://github.com/neuroplastio/homebrew-tap), rendered from `packaging/homebrew/hottyterm.rb` with the release's app; skipped without the `HOMEBREW_TAP_TOKEN` secret |
 
 Every build carries `LICENSE` and `THIRD-PARTY-NOTICES.txt` (the Linux
 archive's top, the app's `Contents/Resources`), and each release attaches
