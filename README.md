@@ -117,10 +117,16 @@ Every release is a [GitHub prerelease](https://github.com/neuroplastio/hottyterm
   asking; from the zip, macOS blocks its first launch until it is allowed
   in System Settings, Privacy & Security ("Open Anyway"). `brew upgrade`
   updates it; the app never looks for updates itself.
-- **Linux**, x86_64: the release's `hottyterm-<version>-linux-x86_64.tar.gz`,
-  unpacked anywhere (`bin/hottyterm` finds its library through a relative
-  rpath). It needs GTK 4, libadwaita and gtk4-layer-shell, and is built on
-  Arch Linux, so it needs a glibc as recent as Arch's.
+- **Arch Linux**, x86_64: the AUR package
+  [`hottyterm-bin`](https://aur.archlinux.org/packages/hottyterm-bin)
+  (`yay -S hottyterm-bin`, or any AUR helper). It installs the release's
+  Linux build in `/usr/lib/hottyterm`, with `hottyterm` on the PATH, its
+  desktop entry and its icons.
+- **Other Linux**, x86_64: the release's
+  `hottyterm-<version>-linux-x86_64.tar.gz`, unpacked anywhere
+  (`bin/hottyterm` finds its library through a relative rpath). It needs
+  GTK 4, libadwaita and gtk4-layer-shell, and is built on Arch Linux, so it
+  needs a glibc as recent as Arch's.
 
 ## Settings
 
@@ -236,6 +242,7 @@ One workflow, `.github/workflows/ci.yml`:
 | `canary` | daily, or on demand | the patches and the branding against upstream's latest main |
 | `release` | on main, when both builds ran and passed | a GitHub prerelease with both artifacts and `SHA256SUMS` |
 | `homebrew` | after a release | `packaging/homebrew/publish.sh`: the cask `hottyterm` in [neuroplastio/homebrew-tap](https://github.com/neuroplastio/homebrew-tap), rendered from `packaging/homebrew/hottyterm.rb` with the release's app; writes with the `HOMEBREW_TAP_DEPLOY_KEY` secret, the private half of a deploy key on the tap |
+| `aur` | after a release | `packaging/aur/publish.sh`: [`hottyterm-bin`](https://aur.archlinux.org/packages/hottyterm-bin) on the AUR, rendered from `packaging/aur/PKGBUILD` with the release's Linux build and built with makepkg first; writes with the `AUR_SSH_PRIVATE_KEY` secret, a key of the AUR account |
 
 Every build carries `LICENSE` and `THIRD-PARTY-NOTICES.txt` (the Linux
 archive's top, the app's `Contents/Resources`), and each release attaches

@@ -15,6 +15,8 @@
 #   projects: the commit's UTC date and short commit, 26.09.29-dev.1e81d70.
 # - homebrew: after a release, its macOS app as a cask in the org tap
 #   (packaging/homebrew), with the tap's deploy key.
+# - aur: after a release, its Linux build as the AUR package hottyterm-bin
+#   (packaging/aur), with a key of the AUR account.
 name: ci
 
 on:
@@ -80,7 +82,7 @@ jobs:
         run: |
           pacman -Syu --noconfirm --needed base-devel git openssh curl unzip \
             gtk4 gtk4-layer-shell libadwaita wayland libx11 fontconfig \
-            python-gobject gettext
+            python-gobject gettext patchelf
 
       - uses: actions/checkout@v7
         with:
@@ -141,13 +143,20 @@ jobs:
             ~/.cache/zig
           key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-${{ github.sha }}
 
-      # bin/hottyterm finds lib/libhotty_blitz.so through its $ORIGIN rpath.
-      # The licence and the third-party notices go at the top.
+      # bin/hottyterm finds lib/libhotty_blitz.so through its $ORIGIN rpath,
+      # and through nothing else: the build also gives it hotty-blitz's
+      # target directory, for a run from zig-out, which is this runner's path
+      # and nobody's install. The licence and the third-party notices go at
+      # the top.
       - name: Package
         run: |
           mkdir -p dist/hottyterm/lib
           cp -R hottyterm/ghostty/zig-out/. dist/hottyterm/
           cp hotty-blitz/main/target/release/libhotty_blitz.so dist/hottyterm/lib/
+          # shellcheck disable=SC2016 # the loader's $ORIGIN, not the shell's
+          rpath='$ORIGIN/../lib'
+          patchelf --set-rpath "$rpath" dist/hottyterm/bin/hottyterm
+          test "$(patchelf --print-rpath dist/hottyterm/bin/hottyterm)" = "$rpath"
           cp hottyterm/main/LICENSE dist/hottyterm/LICENSE
           python3 hottyterm/main/scripts/notices.py --platform linux-x86_64 \
             --target x86_64-unknown-linux-gnu --fork hottyterm/ghostty --blitz hotty-blitz/main \
@@ -303,7 +312,7 @@ jobs:
           - $blitz
 
           Assets:
-          - \`hottyterm-$VERSION-linux-x86_64.tar.gz\`: \`bin/\`, \`share/\` and \`lib/libhotty_blitz.so\`. Needs GTK 4, libadwaita and gtk4-layer-shell.
+          - \`hottyterm-$VERSION-linux-x86_64.tar.gz\`: \`bin/\`, \`share/\` and \`lib/libhotty_blitz.so\`. Needs GTK 4, libadwaita and gtk4-layer-shell. On Arch Linux, the AUR package \`hottyterm-bin\`.
           - \`hottyterm-$VERSION-macos-arm64.zip\`: \`hottyterm.app\` for Apple silicon, signed ad hoc: macOS blocks the first launch until it is allowed in System Settings, Privacy & Security ("Open Anyway"). Also \`brew install --cask neuroplastio/tap/hottyterm\`.
           - \`hottyterm-$VERSION-*-THIRD-PARTY-NOTICES.txt\`: the licences of everything each build contains (also inside the archive and the app).
           - \`SHA256SUMS\`
@@ -334,6 +343,43 @@ jobs:
             exit 0
           fi
           packaging/homebrew/publish.sh "$VERSION" --push
+
+  # The AUR package hottyterm-bin, rendered from the release's Linux build
+  # and pushed to the AUR (packaging/aur/publish.sh), once makepkg has built
+  # it as a user's would. makepkg refuses to run as root, so the job runs it
+  # as a user of its own in an Arch container. AUR_SSH_PRIVATE_KEY is a key
+  # of the AUR account the package belongs to; without it the job skips, as
+  # kubecom's does.
+  aur:
+    needs: release
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      # git before the checkout, so that it is a clone: the package's version
+      # counts the commits up to the release's.
+      - name: Packages
+        run: pacman -Syu --noconfirm --needed git openssh curl libarchive zstd
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Publish
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          if [ -z "${AUR_SSH_PRIVATE_KEY:-}" ]; then
+            echo "::notice::AUR_SSH_PRIVATE_KEY is not set; skipping the AUR publish"
+            exit 0
+          fi
+          useradd -m builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+          su builder -c "packaging/aur/publish.sh '$VERSION' --push"
 
   # A failure here is the early warning that moving ghostty-ref will need
   # work (README, "Changing the fork").
