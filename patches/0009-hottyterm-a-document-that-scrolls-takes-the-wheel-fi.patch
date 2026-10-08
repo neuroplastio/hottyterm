@@ -37,7 +37,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 63 insertions(+)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 672210ab..7cfe4064 100644
+index 5b14e7ca..b63bc9a5 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -3566,6 +3566,9 @@ pub fn scrollCallback(

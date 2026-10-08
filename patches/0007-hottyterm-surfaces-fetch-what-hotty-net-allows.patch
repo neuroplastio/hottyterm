@@ -32,10 +32,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 86 insertions(+), 9 deletions(-)
 
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 754cf479..d178e550 100644
+index 4a043192..55ec77b3 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -3878,6 +3878,23 @@ term: []const u8 = "xterm-ghostty",
+@@ -3931,6 +3931,23 @@ term: []const u8 = "xterm-ghostty",
  /// running. Defaults to an empty string if not set.
  @"enquiry-response": []const u8 = "",
  
@@ -219,15 +219,15 @@ index 8f7aa0b7..46599fb0 100644
  
      /// Forgets placements whose image is gone: scrolled out of the
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index 2e6796d1..949fb4c8 100644
+index dc1db7ba..dd856309 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
-@@ -125,7 +125,7 @@ pub const StreamHandler = struct {
-         self.clipboard_write = config.clipboard_write;
+@@ -130,7 +130,7 @@ pub const StreamHandler = struct {
          self.clipboard_write_limit = config.clipboard_write_limit;
          self.enquiry_response = config.enquiry_response;
+         self.xt_checksum_report = config.xt_checksum_report;
 -        self.hotty.settings = config.hotty;
 +        self.hotty.configure(config.hotty);
          self.terminal.setDefaultCursorStyle(config.cursor_style);
          self.terminal.setDefaultCursorBlink(config.cursor_blink);
- 
+         self.terminal.setDefaultXtChecksum(config.xt_checksum_extension);

@@ -23,10 +23,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 70 insertions(+), 1 deletion(-)
 
 diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
-index 918f9a0a..ae38ce57 100644
+index 0c1b163f..33830032 100644
 --- a/src/termio/Termio.zig
 +++ b/src/termio/Termio.zig
-@@ -379,6 +379,7 @@ pub fn threadEnter(
+@@ -399,6 +399,7 @@ pub fn threadEnter(
          .mailbox = &self.mailbox,
          .backend = undefined, // Backend must replace this on threadEnter
      };

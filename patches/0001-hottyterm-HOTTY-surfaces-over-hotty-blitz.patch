@@ -27,7 +27,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 1342e41c..672210ab 100644
+index 22e4ae41..5b14e7ca 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -27,6 +27,7 @@ const crash = @import("crash/main.zig");
@@ -84,7 +84,7 @@ index 1342e41c..672210ab 100644
      // This is set to true if the terminal is allowed to capture the shift
      // modifier. Note we can do this more efficiently probably with less
      // locking/unlocking but clicking isn't that frequent enough to be a
-@@ -4629,6 +4641,9 @@ pub fn cursorPosCallback(
+@@ -4643,6 +4655,9 @@ pub fn cursorPosCallback(
  
      // log.debug("cursor pos x={} y={} mods={?}", .{ pos.x, pos.y, mods });
  
@@ -116,7 +116,7 @@ index 22f39b7b..790f4af4 100644
      try checkNixShell(exe, cfg);
  
 diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
-index d08f2e5f..918f9a0a 100644
+index 824c16c4..0c1b163f 100644
 --- a/src/termio/Termio.zig
 +++ b/src/termio/Termio.zig
 @@ -12,6 +12,7 @@ const EnvMap = std.process.Environ.Map;
@@ -127,31 +127,31 @@ index d08f2e5f..918f9a0a 100644
  const terminalpkg = @import("../terminal/main.zig");
  const global = @import("../global.zig");
  const xev = global.xev;
-@@ -180,6 +181,7 @@ pub const DerivedConfig = struct {
-     clipboard_write_limit: usize,
-     enquiry_response: []const u8,
+@@ -196,6 +197,7 @@ pub const DerivedConfig = struct {
+     xt_checksum_report: bool,
+     xt_checksum_extension: terminalpkg.xt_checksum.Flags,
      conditional_state: configpkg.ConditionalState,
 +    hotty: hotty.Settings,
  
      pub fn init(
          alloc_gpa: Allocator,
-@@ -217,6 +219,7 @@ pub const DerivedConfig = struct {
-             .clipboard_write_limit = config.@"clipboard-write-limit-bytes".value,
-             .enquiry_response = try alloc.dupe(u8, config.@"enquiry-response"),
+@@ -235,6 +237,7 @@ pub const DerivedConfig = struct {
+             .xt_checksum_report = config.@"vt-xt-checksum-report",
+             .xt_checksum_extension = xtChecksumFlags(config.@"vt-xt-checksum-extension"),
              .conditional_state = config._conditional_state,
 +            .hotty = try .init(alloc, config),
  
              // This has to be last so that we copy AFTER the arena allocations
              // above happen (Zig assigns in order).
-@@ -305,6 +308,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
-         .clipboard_write = opts.config.clipboard_write,
+@@ -325,6 +328,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
          .clipboard_write_limit = opts.config.clipboard_write_limit,
          .enquiry_response = opts.config.enquiry_response,
+         .xt_checksum_report = opts.config.xt_checksum_report,
 +        .hotty = .{ .alloc = alloc, .settings = opts.config.hotty },
      };
  
      const thread_enter_state = try ThreadEnterState.create(
-@@ -326,6 +330,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
+@@ -346,6 +350,7 @@ pub fn init(self: *Termio, alloc: Allocator, opts: termio.Options) !void {
          .terminal_stream = .init(.{
              .allocator = alloc,
              .handler = handler,
@@ -159,7 +159,7 @@ index d08f2e5f..918f9a0a 100644
          }),
          .thread_enter_state = thread_enter_state,
      };
-@@ -526,6 +531,9 @@ pub fn resize(
+@@ -546,6 +551,9 @@ pub fn resize(
          if (self.terminal.modes.get(.in_band_size_reports)) {
              try self.sizeReportLocked(td, .mode_2048);
          }
@@ -169,7 +169,7 @@ index d08f2e5f..918f9a0a 100644
      }
  
      // Mail the renderer so that it can update the GPU and re-render
-@@ -723,6 +731,9 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
+@@ -743,6 +751,9 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
          self.terminal_stream.nextSlice(buf);
      }
  
@@ -1366,7 +1366,7 @@ index 00000000..483a5153
 +    return consumed;
 +}
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index 22dec0c8..2e6796d1 100644
+index bc4f27dd..dc1db7ba 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
 @@ -11,6 +11,7 @@ const internal_os = @import("../os/main.zig");
@@ -1377,7 +1377,7 @@ index 22dec0c8..2e6796d1 100644
  const terminfo = @import("../terminfo/main.zig");
  const posix = std.posix;
  
-@@ -80,6 +81,9 @@ pub const StreamHandler = struct {
+@@ -84,6 +85,9 @@ pub const StreamHandler = struct {
      /// transaction, if any.
      kitty_clipboard_write: ?*terminal.kitty.clipboard.WriteState = null,
  
@@ -1387,7 +1387,7 @@ index 22dec0c8..2e6796d1 100644
      /// This is set to true when a message was written to the termio
      /// mailbox. This can be used by callers to determine if they need
      /// to wake up the termio thread.
-@@ -95,6 +99,7 @@ pub const StreamHandler = struct {
+@@ -99,6 +103,7 @@ pub const StreamHandler = struct {
      pub const tmux_enabled = terminal.options.tmux_control_mode;
  
      pub fn deinit(self: *StreamHandler) void {
@@ -1395,26 +1395,27 @@ index 22dec0c8..2e6796d1 100644
          self.apc.deinit();
          self.dcs.deinit();
          self.kittyClipboardWriteAbort();
-@@ -120,6 +125,7 @@ pub const StreamHandler = struct {
-         self.clipboard_write = config.clipboard_write;
+@@ -125,6 +130,7 @@ pub const StreamHandler = struct {
          self.clipboard_write_limit = config.clipboard_write_limit;
          self.enquiry_response = config.enquiry_response;
+         self.xt_checksum_report = config.xt_checksum_report;
 +        self.hotty.settings = config.hotty;
          self.terminal.setDefaultCursorStyle(config.cursor_style);
          self.terminal.setDefaultCursorBlink(config.cursor_blink);
- 
-@@ -374,8 +380,9 @@ pub const StreamHandler = struct {
+         self.terminal.setDefaultXtChecksum(config.xt_checksum_extension);
+@@ -387,9 +393,10 @@ pub const StreamHandler = struct {
              .title_push,
              .title_pop,
              .kitty_dnd,
 -            .osc_unknown,
+             .program_status,
              => {},
 +
 +            .osc_unknown => try self.hotty.osc(self, value),
          }
      }
  
-@@ -884,6 +891,7 @@ pub const StreamHandler = struct {
+@@ -916,6 +923,7 @@ pub const StreamHandler = struct {
          self: *StreamHandler,
      ) !void {
          self.terminal.fullReset();
