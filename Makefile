@@ -1,6 +1,7 @@
 # hottyterm: the Ghostty fork is ../ghostty (scripts/fork.sh); hotty-blitz is
-# HOTTY_BLITZ_DIR or next to this repository.
-.PHONY: check fork apply brand build debug smoke notices canary export
+# HOTTY_BLITZ_DIR or next to this repository, built as checked out (CI builds
+# the commit in hotty-blitz-ref).
+.PHONY: check fork apply brand build debug smoke notices canary export pin-blitz
 
 check: apply build smoke   ## the gate
 
@@ -32,3 +33,6 @@ canary: fork   ## do the patches still apply to upstream's latest main?
 
 export:   ## the fork's commits back into patches/
 	@scripts/export.sh
+
+pin-blitz:   ## hotty-blitz-ref to hotty-blitz's main as pushed
+	@scripts/pin-blitz.sh

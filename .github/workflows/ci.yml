@@ -3,7 +3,8 @@
 # - linux: every push and pull request. In an Arch Linux container (the
 #   distribution hottyterm is developed on): the patches apply to
 #   ghostty-ref, the branding finds its anchors, and the fork builds against
-#   hotty-blitz. The smoke test needs a display and a GPU and stays local.
+#   hotty-blitz at the commit in hotty-blitz-ref. The smoke test needs a
+#   display and a GPU and stays local.
 # - macos: hottyterm.app for Apple silicon (scripts/build-macos.sh). Macs
 #   are the scarcest runners, so it runs when a push to main changes the
 #   fork's inputs (the `changes` job decides), and on demand, not on every
@@ -57,7 +58,7 @@ jobs:
         env:
           BEFORE: ${{ github.event.before }}
         run: |
-          inputs='^(ghostty-ref|patches/|brand/|notices/|scripts/(brand\.py|fork\.sh|build-macos\.sh|notices\.py)|\.github/workflows/ci\.yml)'
+          inputs='^(ghostty-ref|hotty-blitz-ref|patches/|brand/|notices/|scripts/(brand\.py|fork\.sh|build-macos\.sh|notices\.py)|\.github/workflows/ci\.yml)'
           if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             fork=true   # a new branch, or history rewritten: build
           elif git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -qE "$inputs"; then
@@ -88,9 +89,13 @@ jobs:
         with:
           path: hottyterm/main
 
+      - id: pin
+        run: echo "blitz=$(grep -v '^#' hottyterm/main/hotty-blitz-ref | head -1)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
         with:
           repository: neuroplastio/hotty-blitz
+          ref: ${{ steps.pin.outputs.blitz }}
           path: hotty-blitz/main
 
       - id: blitz
@@ -186,9 +191,13 @@ jobs:
         with:
           path: hottyterm/main
 
+      - id: pin
+        run: echo "blitz=$(grep -v '^#' hottyterm/main/hotty-blitz-ref | head -1)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/checkout@v7
         with:
           repository: neuroplastio/hotty-blitz
+          ref: ${{ steps.pin.outputs.blitz }}
           path: hotty-blitz/main
 
       - id: blitz

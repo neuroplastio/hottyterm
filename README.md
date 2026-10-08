@@ -65,7 +65,7 @@ here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went |
 | new code | `src/termio/hotty.zig`, 1471 lines: all of the logic |
 | upstream files touched | 5 files, 68 lines added and one changed — hooks and one setting |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
@@ -85,8 +85,8 @@ The hooks:
 - **Parsing is upstream's.** Ghostty passes every OSC it does not implement to
   the stream handler once `osc_unknown_max_bytes` is set; hotty.zig takes
   OSC 7279 and hands the body to hotty-blitz.
-- **The protocol is hotty-blitz's,** at the commit a release's notes name:
-  CI builds against hotty-blitz's main. From hotty-blitz 0.0.3 (8330fbf), a
+- **The protocol is hotty-blitz's,** at the commit in
+  [`hotty-blitz-ref`](hotty-blitz-ref), which a release's notes name too. From hotty-blitz 0.0.3 (8330fbf), a
   program changes a document with `a=delta` (SPEC §6, hotty d2da455), and
   `a=patch`, its name before, is refused as an unknown action: a program
   needs hotty-go 57fdbb0 or later, or the same rename in its own SDK.
@@ -251,6 +251,9 @@ make check                    # patches apply, build, smoke test
 The binary is `../ghostty/zig-out/bin/hottyterm`. Its application id is its own,
 so it runs next to an installed Ghostty.
 
+A local build takes the hotty-blitz checkout as it is, and says so when that is
+not the commit in `hotty-blitz-ref`, which CI and every release build.
+
 `scripts/build.sh` carries two workarounds for this machine: Zig 0.16 needs
 LLVM and LLD to link CachyOS's `crt1.o`, and a cached blueprint-compiler 0.16
 whose warnings on upstream's UI files are hidden unless it fails.
@@ -276,7 +279,7 @@ One workflow, `.github/workflows/ci.yml`:
 | job | when | what |
 | --- | --- | --- |
 | `linux` | every push and pull request | in an Arch Linux container: the patches apply, the branding finds its anchors, the fork builds; artifact `hottyterm-linux-x86_64` (`bin/`, `share/`, and `lib/libhotty_blitz.so`) |
-| `macos` | a push to main that changes the fork's inputs (`ghostty-ref`, `patches/`, `brand/`, `notices/`, the scripts, the workflow), or on demand | `macos-26`, Xcode 26.6, `scripts/build-macos.sh`; artifact `hottyterm-macos-arm64` |
+| `macos` | a push to main that changes the fork's inputs (`ghostty-ref`, `hotty-blitz-ref`, `patches/`, `brand/`, `notices/`, the scripts, the workflow), or on demand | `macos-26`, Xcode 26.6, `scripts/build-macos.sh`; artifact `hottyterm-macos-arm64` |
 | `canary` | daily, or on demand | the patches and the branding against upstream's latest main |
 | `release` | on main, when both builds ran and passed | a GitHub prerelease with both artifacts and `SHA256SUMS` |
 | `homebrew` | after a release | `packaging/homebrew/publish.sh`: the cask `hottyterm` in [neuroplastio/homebrew-tap](https://github.com/neuroplastio/homebrew-tap), rendered from `packaging/homebrew/hottyterm.rb` with the release's app; writes with the `HOMEBREW_TAP_DEPLOY_KEY` secret, the private half of a deploy key on the tap |
@@ -295,7 +298,8 @@ Releases are versioned like the other neuroplastio projects: CalVer from the
 commit's UTC date, then the short commit, e.g. `26.09.29-dev.1e81d70`. The tag is
 the version; the notes name the Ghostty and hotty-blitz commits the build used. A
 docs-only push builds on Linux but makes no release; run the workflow by hand for
-one.
+one. A change in hotty-blitz reaches a release when `hotty-blitz-ref` moves to it,
+a commit here like any other.
 
 A small `changes` job decides whether a push touches the fork's inputs, so a Mac
 is not started only to skip. `gh workflow run ci` runs everything by hand.
@@ -319,6 +323,11 @@ throwaway worktree, dry-runs the branding on it, and reports conflicts and moved
 anchors. Moving `ghostty-ref` is a deliberate step: canary; in the fork, `git
 reset --hard HEAD~1` (the branding) and `git rebase <new ref>`; `scripts/brand.py`;
 build, smoke test; export; then commit `ghostty-ref` and `patches/` together.
+
+Moving `hotty-blitz-ref` is the same kind of step: `make pin-blitz` writes
+hotty-blitz's main as pushed (or `scripts/pin-blitz.sh <commit>`, one on that
+main); `make check` with that commit checked out; then commit `hotty-blitz-ref`,
+with any patches that need it.
 
 ## Verified (2026-09-29)
 

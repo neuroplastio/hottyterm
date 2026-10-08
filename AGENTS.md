@@ -38,6 +38,10 @@ neuroplastio/hotty) through hotty-blitz's C ABI, and nothing else.
 - **Moving `ghostty-ref`** is one deliberate step: `scripts/canary.sh` first,
   then rebase the fork onto the new commit, fix, export, build, smoke test,
   and commit `ghostty-ref` and `patches/` together.
+- **Moving `hotty-blitz-ref`** is how hotty-blitz reaches a release: CI
+  builds that commit, never hotty-blitz's main as it is. `make pin-blitz`
+  (a pushed commit only), `make check` with it checked out, then commit the
+  ref, with any patches that need it, so each release names what it built.
 - **Releases carry licence notices** (`scripts/notices.py`). When it fails
   on a new component, check the component's upstream licence and add it to
   `notices/overrides.toml` with the upstream file under `notices/upstream/`;

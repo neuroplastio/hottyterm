@@ -29,6 +29,14 @@ blitz_dir() {
 }
 BLITZ="$(blitz_dir)"
 
+# CI builds the commit in hotty-blitz-ref; a local build takes the checkout as
+# it is, and says so when that is anything else.
+pin="$(grep -v '^#' "$HERE/hotty-blitz-ref" | head -1)"
+at="$(git -C "$BLITZ" rev-parse HEAD 2>/dev/null || echo unknown)"
+if [ "$at" != "$pin" ] || [ -n "$(git -C "$BLITZ" status --porcelain 2>/dev/null)" ]; then
+  echo "note: building hotty-blitz as checked out in $BLITZ ($(echo "$at" | cut -c1-7), with its changes), not hotty-blitz-ref's $(echo "$pin" | cut -c1-7)" >&2
+fi
+
 # 1. Zig lib with LLVM + LLD as the default for every compile step.
 LIB="$CACHE/zig-lib-llvm"
 if [ ! -f "$LIB/.patched" ]; then
