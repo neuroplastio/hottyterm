@@ -65,7 +65,7 @@ here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK) |
 | new code | `src/termio/hotty.zig`, 1471 lines: all of the logic |
 | upstream files touched | 5 files, 68 lines added and one changed — hooks and one setting |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |

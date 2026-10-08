@@ -1,0 +1,141 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Thu, 8 Oct 2026 20:10:08 +0200
+Subject: [PATCH 14/14] gtk: a touch drag scrolls
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+On a touchscreen, a drag with one finger scrolled nothing: GTK emulates a
+pointer from it, so it selected text instead. A touch-only GestureDrag in
+the capture phase now turns each drag update into a precision scroll of
+the drag's delta (Surface.scrollCallback), so a touch drag goes wherever a
+touchpad's scroll goes: mouse reports, the alternate screen, the
+scrollback, and in hottyterm a HOTTY document that scrolls (SPEC §9,
+§5.3).
+A mouse drag still selects. The scrolled window's kinetic scrolling is
+off, so it doesn't scroll the same drag a second time.
+
+Generic, in upstream's style, so it could be offered to Ghostty. Upstream
+lines: 68 (GTK apprt only).
+---
+ src/apprt/gtk/class/surface.zig               | 57 +++++++++++++++++++
+ src/apprt/gtk/ui/1.2/surface.blp              |  8 +++
+ .../gtk/ui/1.5/surface-scrolled-window.blp    |  3 +
+ 3 files changed, 68 insertions(+)
+
+diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
+index 8b0faeb4..0ab68fe8 100644
+--- a/src/apprt/gtk/class/surface.zig
++++ b/src/apprt/gtk/class/surface.zig
+@@ -664,6 +664,11 @@ pub const Surface = extern struct {
+         /// True when we have a precision scroll in progress
+         precision_scroll: bool = false,
+ 
++        /// The last offset of a live touch drag, so each drag-update
++        /// reports the delta since the previous one.
++        touch_scroll_x: f64 = 0,
++        touch_scroll_y: f64 = 0,
++
+         /// True when the child has exited.
+         child_exited: bool = false,
+ 
+@@ -3047,6 +3052,55 @@ pub const Surface = extern struct {
+         self.private().precision_scroll = false;
+     }
+ 
++    // A touch drag scrolls: it is one step of the wheel (Surface.scrollCallback),
++    // so a document that scrolls takes it, then mouse reports and the
++    // alternate screen, then the scrollback — exactly as a touchpad does.
++    // The gesture is touch-only, so a mouse drag still selects text.
++    fn touchScrollBegin(
++        _: *gtk.GestureDrag,
++        _: f64,
++        _: f64,
++        self: *Self,
++    ) callconv(.c) void {
++        const priv = self.private();
++        priv.touch_scroll_x = 0;
++        priv.touch_scroll_y = 0;
++    }
++
++    fn touchScrollUpdate(
++        _: *gtk.GestureDrag,
++        offset_x: f64,
++        offset_y: f64,
++        self: *Self,
++    ) callconv(.c) void {
++        const priv = self.private();
++        const dx = offset_x - priv.touch_scroll_x;
++        const dy = offset_y - priv.touch_scroll_y;
++        priv.touch_scroll_x = offset_x;
++        priv.touch_scroll_y = offset_y;
++
++        const core_surface = priv.core_surface orelse return;
++        const scaled = self.scaledCoordinates(dx, dy);
++        // GestureDrag is in screen pixels with y down: a finger up (negative
++        // y) moves the content up, a scroll down — what a natural-scrolling
++        // touchpad does. EcMouseScrollVertical inverts GTK's touchpad deltas
++        // to land on the same convention, so the drag's delta goes in as is.
++        core_surface.scrollCallback(scaled.x, scaled.y, .{ .precision = true }) catch |err| {
++            log.warn("error in touch scroll callback err={}", .{err});
++        };
++    }
++
++    fn touchScrollEnd(
++        _: *gtk.GestureDrag,
++        _: f64,
++        _: f64,
++        self: *Self,
++    ) callconv(.c) void {
++        const priv = self.private();
++        priv.touch_scroll_x = 0;
++        priv.touch_scroll_y = 0;
++    }
++
+     fn ecMouseScrollVertical(
+         _: *gtk.EventControllerScroll,
+         x: f64,
+@@ -3847,6 +3901,9 @@ pub const Surface = extern struct {
+             class.bindTemplateCallback("scroll_vertical_begin", &ecMouseScrollVerticalPrecisionBegin);
+             class.bindTemplateCallback("scroll_vertical_end", &ecMouseScrollVerticalPrecisionEnd);
+             class.bindTemplateCallback("scroll_horizontal", &ecMouseScrollHorizontal);
++            class.bindTemplateCallback("touch_scroll_begin", &touchScrollBegin);
++            class.bindTemplateCallback("touch_scroll_update", &touchScrollUpdate);
++            class.bindTemplateCallback("touch_scroll_end", &touchScrollEnd);
+             class.bindTemplateCallback("drop", &dtDrop);
+             class.bindTemplateCallback("render_surface_realize", &renderSurfaceRealize);
+             class.bindTemplateCallback("render_surface_unrealize", &renderSurfaceUnrealize);
+diff --git a/src/apprt/gtk/ui/1.2/surface.blp b/src/apprt/gtk/ui/1.2/surface.blp
+index b62ff029..8dd0427e 100644
+--- a/src/apprt/gtk/ui/1.2/surface.blp
++++ b/src/apprt/gtk/ui/1.2/surface.blp
+@@ -72,6 +72,14 @@ Overlay terminal_page {
+       released => $mouse_up();
+       button: 0;
+     }
++
++    GestureDrag touch_scroll {
++      touch-only: true;
++      propagation-phase: capture;
++      drag-begin => $touch_scroll_begin();
++      drag-update => $touch_scroll_update();
++      drag-end => $touch_scroll_end();
++    }
+   };
+ 
+   [overlay]
+diff --git a/src/apprt/gtk/ui/1.5/surface-scrolled-window.blp b/src/apprt/gtk/ui/1.5/surface-scrolled-window.blp
+index 8ba27cb6..de8592d9 100644
+--- a/src/apprt/gtk/ui/1.5/surface-scrolled-window.blp
++++ b/src/apprt/gtk/ui/1.5/surface-scrolled-window.blp
+@@ -11,6 +11,9 @@ template $GhostttySurfaceScrolledWindow: Adw.Bin {
+     Gtk.ScrolledWindow scrolled_window {
+       hscrollbar-policy: never;
+       vscrollbar-policy: bind $scrollbar_policy(template.config) as <Gtk.PolicyType>;
++      // A touch drag is the surface's (it becomes a scroll); the scrolled
++      // window must not kinetic-scroll it behind the surface's back.
++      kinetic-scrolling: false;
+     }
+   }
+ }
