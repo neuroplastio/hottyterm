@@ -1,0 +1,120 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Thu, 8 Oct 2026 16:02:00 +0200
+Subject: [PATCH 10/10] hottyterm: a key's release goes where its press went
+
+surfaceKey swallowed every release while a surface held the keyboard,
+and passed every release on while none did. A program that asked the
+kitty keyboard protocol for event types could hear a press without its
+release (Escape, a ctrl chord, Up in an <input>: keys the surface passed
+on) or a release without its press (a key pressed before a surface took
+the keyboard, or a surface's key after Tab gave the keyboard back).
+
+hotty.zig now keeps the keys whose press a surface took: a release is
+the surface's if its press was, and the program's otherwise. No upstream
+lines change.
+---
+ src/termio/hotty.zig | 72 +++++++++++++++++++++++++++-----------------
+ 1 file changed, 44 insertions(+), 28 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 9d3b8bff..56580eda 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -258,6 +258,9 @@ pub const Hotty = struct {
+     /// A press on a hyperlink with the OSC 8 gesture: it and its release
+     /// are the terminal's, never the surface's.
+     link_press: bool = false,
++    /// The keys whose press a surface took: their releases are the
++    /// surface's too, wherever the keyboard is by then (`surfaceKey`).
++    held_keys: std.EnumSet(input.Key) = .initEmpty(),
+ 
+     const Place = struct {
+         surface: [:0]u8,
+@@ -1427,6 +1430,9 @@ pub fn surfaceScroll(s: *Surface, xoff: f64, yoff: f64, scroll_mods: input.Scrol
+ 
+ /// Surface.keyCallback: the surface holding the keyboard gets the key first.
+ /// Keys its focused element has no use for go to the program as usual.
++/// The press decides, and its release goes where the press went, so a
++/// program that asked for event types never hears a release without its
++/// press, nor a press without its release.
+ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+     if (s.readonly) return false;
+     const hs = &s.io.terminal_stream.handler.hotty;
+@@ -1434,34 +1440,13 @@ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+     const consumed = consumed: {
+         s.renderer_state.mutex.lockUncancelable(global.io());
+         defer s.renderer_state.mutex.unlock(global.io());
+-        if (!hs.hasKeyboard()) break :consumed false;
+-        // The press decides; its release goes wherever the press went.
+-        if (event.action == .release) break :consumed true;
+-        const code: u32 = switch (event.key) {
+-            .enter, .numpad_enter => 1,
+-            .tab => 2,
+-            .backspace => 3,
+-            .delete => 4,
+-            .escape => 5,
+-            .arrow_left => 6,
+-            .arrow_right => 7,
+-            .arrow_up => 8,
+-            .arrow_down => 9,
+-            .home => 10,
+-            .end => 11,
+-            .page_up => 12,
+-            .page_down => 13,
+-            .space => 14,
+-            else => 0,
+-        };
+-        var text_buf: [64]u8 = undefined;
+-        const text: ?[*:0]const u8 = if (code == 0 and event.utf8.len > 0 and event.utf8.len < text_buf.len)
+-            (std.fmt.bufPrintZ(&text_buf, "{s}", .{event.utf8}) catch break :consumed false).ptr
+-        else if (code == 0)
+-            break :consumed false
+-        else
+-            null;
+-        const used = hs.key(&s.io.terminal, code, text, hostMods(event.mods));
++        if (event.action == .release) {
++            const held = hs.held_keys.contains(event.key);
++            hs.held_keys.remove(event.key);
++            break :consumed held;
++        }
++        const used = surfaceKeyPress(hs, &s.io.terminal, event);
++        hs.held_keys.setPresent(event.key, used);
+         drew = hs.drew;
+         hs.drew = false;
+         break :consumed used;
+@@ -1469,3 +1454,34 @@ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+     deliver(s, consumed or drew);
+     return consumed;
+ }
++
++/// A press or a repeat, for the surface holding the keyboard if any. True
++/// if it used it.
++fn surfaceKeyPress(hs: *Hotty, t: *terminal.Terminal, event: input.KeyEvent) bool {
++    if (!hs.hasKeyboard()) return false;
++    const code: u32 = switch (event.key) {
++        .enter, .numpad_enter => 1,
++        .tab => 2,
++        .backspace => 3,
++        .delete => 4,
++        .escape => 5,
++        .arrow_left => 6,
++        .arrow_right => 7,
++        .arrow_up => 8,
++        .arrow_down => 9,
++        .home => 10,
++        .end => 11,
++        .page_up => 12,
++        .page_down => 13,
++        .space => 14,
++        else => 0,
++    };
++    var text_buf: [64]u8 = undefined;
++    const text: ?[*:0]const u8 = if (code == 0 and event.utf8.len > 0 and event.utf8.len < text_buf.len)
++        (std.fmt.bufPrintZ(&text_buf, "{s}", .{event.utf8}) catch return false).ptr
++    else if (code == 0)
++        return false
++    else
++        null;
++    return hs.key(t, code, text, hostMods(event.mods));
++}
