@@ -65,7 +65,7 @@ here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`) |
 | new code | `src/termio/hotty.zig`, 1471 lines: all of the logic |
 | upstream files touched | 5 files, 68 lines added and one changed — hooks and one setting |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
@@ -170,8 +170,8 @@ Every release is a [GitHub prerelease](https://github.com/neuroplastio/hottyterm
 
 ## Settings
 
-hottyterm reads Ghostty's config file (`~/.config/ghostty/config`) and adds one
-setting to it.
+hottyterm reads Ghostty's config file (`~/.config/ghostty/config`) and adds two
+settings to it.
 
 ### `hotty-net`: what surfaces may fetch
 
@@ -205,6 +205,24 @@ nothing granted (§7.2).
   sources, and reload the config (`reload_config`). Documents shown already are
   held to the new policy from their next request.
 - Programs see the grant in the capabilities, as `net` (SPEC §4).
+- Ghostty does not know the key: going back to Ghostty, delete the line.
+
+### `hotty-link-click`: how a click opens a link
+
+**A plain click opens a link,** as in a browser: a URL or a file path in the
+cells, an OSC 8 hyperlink, or a hyperlink in a surface. The pointer over one
+underlines it.
+
+| `hotty-link-click =` | a link opens with |
+| --- | --- |
+| `plain` (the default) | a click, or Ctrl (Cmd on macOS) and click |
+| `modifier` | Ctrl (Cmd on macOS) and click only, as in Ghostty |
+
+- **A drag still selects:** a link opens on a release that did not drag.
+- **A program that reports the mouse** (an editor, tmux) gets the click, as it
+  does without this setting.
+- A link that opens is handed to the desktop as Ghostty hands it: the same
+  opener, and on macOS the same allowlist and confirmation for OSC 8 links.
 - Ghostty does not know the key: going back to Ghostty, delete the line.
 
 ## Branding
