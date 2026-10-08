@@ -1,0 +1,73 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Thu, 8 Oct 2026 18:06:13 +0200
+Subject: [PATCH 13/13] hottyterm: only the loop's thread sets the frame timer
+
+schedule() armed the IO loop's timer from whichever thread called it: the
+stream's reader, or the app's thread for keys and the pointer. xev's loops
+are not thread-safe: kqueue's timer reset cancels by editing the loop's
+timer heap on the caller's thread, and every backend takes a new timer
+only on the loop's next turn, against the loop's cached clock. Off the
+loop's thread, schedule() now wakes the loop instead (the async that
+hotty-blitz's fetches already use), and the loop's tick sets the timer.
+
+Upstream lines: none (hotty.zig only).
+---
+ src/termio/hotty.zig | 16 ++++++++++++++--
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index c6287e59..827f24bc 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -24,7 +24,9 @@
+ //! and the timer that plays animated images (`onTimer`) and the wakeup for what
+ //! surfaces fetched from the network (`onWake`), which run on the IO thread's
+ //! loop and take it. hotty-blitz fetches on threads of its own, and only
+-//! `wake` runs on them.
++//! `wake` runs on them. The stream and the Surface entry points run on other
++//! threads than the loop's, and xev's loops are not thread-safe, so only the
++//! loop's own thread touches it (`schedule`).
+ 
+ const std = @import("std");
+ const Allocator = std.mem.Allocator;
+@@ -244,8 +246,9 @@ pub const Hotty = struct {
+ 
+     /// Animated images (GIF, APNG, WebP) show their next frame on a timer
+     /// on the IO thread's loop (`threadEnter`), set for the earliest frame
+-    /// due (`schedule`). IO thread only.
++    /// due (`schedule`). The loop's thread only.
+     loop: ?*xev.Loop = null,
++    loop_thread: ?std.Thread.Id = null,
+     timer: ?xev.Timer = null,
+     timer_c: xev.Completion = .{},
+     timer_cancel_c: xev.Completion = .{},
+@@ -569,6 +572,7 @@ pub const Hotty = struct {
+     /// wakeup.
+     pub fn threadEnter(self: *Hotty, loop: *xev.Loop) void {
+         self.loop = loop;
++        self.loop_thread = std.Thread.getCurrentId();
+         if (self.timer == null) self.timer = xev.Timer.init() catch |err| t: {
+             log.warn("hotty: no timer, animated images stay still: {}", .{err});
+             break :t null;
+@@ -607,12 +611,20 @@ pub const Hotty = struct {
+     /// plays and the timer is not already set for then or sooner. While
+     /// the program holds its output (mode 2026), it looks again in a
+     /// tenth of a second instead: the end of the batch renders anyway.
++    /// Off the loop's thread (the stream, a key, the pointer) it wakes the
++    /// loop instead, whose `tick` comes back here: kqueue's timer cancel
++    /// edits the loop's timer heap at once, and every backend takes a new
++    /// timer only on the loop's next turn.
+     fn schedule(self: *Hotty, t: *terminal.Terminal) void {
+         const h = self.host orelse return;
+         const loop = self.loop orelse return;
+         const timer = self.timer orelse return;
+         var ms = hotty_host_next_frame(h);
+         if (ms < 0) return; // nothing plays: a timer set before finds nothing and stops
++        if (self.loop_thread != std.Thread.getCurrentId()) {
++            if (self.wakeup) |*w| w.notify() catch {};
++            return;
++        }
+         if (t.modes.get(.synchronized_output)) ms = @max(ms, 100);
+         const now = std.Io.Timestamp.now(global.io(), .awake).nanoseconds;
+         const due = now + @as(i96, ms) * std.time.ns_per_ms;
