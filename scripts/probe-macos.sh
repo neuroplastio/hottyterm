@@ -71,9 +71,12 @@ from PIL import Image
 counts = []
 for p in sorted(glob.glob(sys.argv[1] + "/shot*.png")):
     im = Image.open(p).convert("RGB")
-    counts.append(sum(1 for r, g, b in im.getdata() if r > 200 and g < 80 and b < 80))
+    counts.append(sum(1 for r, g, b in im.get_flattened_data() if r > 200 and g < 80 and b < 80))
 print(" ".join(map(str, counts)) or "no screenshots")
-print("blinks" if any(counts) and not all(counts) else "does not blink" if any(counts) else "no caret seen")
+# The window's close button is red too: a caret that blinks shows as the
+# count going up and down by the caret's few pixels, not as zeroes.
+lo, hi = min(counts, default=0), max(counts, default=0)
+print("no caret seen" if hi == 0 else f"blinks ({hi - lo} px)" if hi - lo >= 8 else "does not blink")
 EOF
 
 echo "== keys: abc, then Backspace"
