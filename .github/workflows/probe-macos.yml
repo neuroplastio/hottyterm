@@ -1,0 +1,42 @@
+# Runs a hottyterm release on a GitHub macOS runner and probes a focused text
+# input there (scripts/probe-macos.sh): does its caret blink, and do typing
+# and Backspace edit it? No Mac of the maintainer's is involved. Macs are the
+# scarcest runners, so only on demand:
+#
+#   gh workflow run probe-macos.yml -f release=26.10.08-dev.ef9ca36
+name: probe-macos
+
+on:
+  workflow_dispatch:
+    inputs:
+      release:
+        description: The release tag to probe
+        required: true
+
+jobs:
+  probe:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release }}
+        run: |
+          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p '*macos-arm64.zip' -D dl
+          ditto -x -k dl/*.zip /Applications
+          xattr -dr com.apple.quarantine /Applications/hottyterm.app || true
+
+      - name: Probe
+        run: scripts/probe-macos.sh /Applications/hottyterm.app probe
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: probe-${{ inputs.release }}
+          path: |
+            probe/*.png
+            probe/replies.log
+          retention-days: 3
