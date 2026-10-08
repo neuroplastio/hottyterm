@@ -65,7 +65,7 @@ here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`) |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`) |
 | new code | `src/termio/hotty.zig`, 1471 lines: all of the logic |
 | upstream files touched | 5 files, 68 lines added and one changed — hooks and one setting |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
@@ -170,7 +170,7 @@ Every release is a [GitHub prerelease](https://github.com/neuroplastio/hottyterm
 
 ## Settings
 
-hottyterm reads Ghostty's config file (`~/.config/ghostty/config`) and adds two
+hottyterm reads Ghostty's config file (`~/.config/ghostty/config`) and adds three
 settings to it.
 
 ### `hotty-net`: what surfaces may fetch
@@ -223,6 +223,22 @@ underlines it.
   does without this setting.
 - A link that opens is handed to the desktop as Ghostty hands it: the same
   opener, and on macOS the same allowlist and confirmation for OSC 8 links.
+- Ghostty does not know the key: going back to Ghostty, delete the line.
+
+### `hotty-focus-click`: the click that focuses a terminal
+
+**The click that focuses a terminal clicks too,** as in a browser: the first
+click on a window in the background, or on a split without focus, also presses
+the surface's button, opens the link, or reaches the program as a mouse event.
+
+| `hotty-focus-click =` | the click that gives a terminal focus |
+| --- | --- |
+| `pass` (the default) | focuses it and clicks |
+| `focus` | only focuses it, as in Ghostty |
+
+- With `pass`, a click only meant to bring hottyterm forward lands on whatever
+  is under the pointer: in vim it moves the cursor, in tmux it can switch the
+  pane. That is why Ghostty drops it; set `focus` to have that back.
 - Ghostty does not know the key: going back to Ghostty, delete the line.
 
 ## Branding

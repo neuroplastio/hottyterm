@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Tue, 6 Oct 2026 22:30:15 +0200
-Subject: [PATCH 09/11] hottyterm: a document that scrolls takes the wheel
+Subject: [PATCH 09/12] hottyterm: a document that scrolls takes the wheel
  first
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
