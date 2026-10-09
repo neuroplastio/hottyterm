@@ -1,0 +1,198 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Fri, 9 Oct 2026 10:46:18 +0200
+Subject: [PATCH 15/15] hottyterm: a surface names a key from the bytes the
+ program would read
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A text field's keys are its program's keymap, named from what the
+program would read for them (HOTTY SPEC §10.2, §10.4), so the surface
+holding the keyboard gets each key as Ghostty encodes it, in the modes
+the program set (hotty-blitz's hotty_host_key_bytes), not as a key code
+and the text the layout composed. What a binding writes (text:, csi:,
+esc:, cursor_key) goes to the surface first too: Ghostty's macOS Cmd+Left
+writes 0x01, which a field reads as Control+a, and Option+Left writes
+ESC b, Alt+b. The keys a field does not use reach the program as they
+came; the press still decides where its release goes.
+
+Upstream files: Surface.zig makes encodeKeyOpts pub and adds three
+one-line hooks in performBindingAction.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/Surface.zig      |  5 ++-
+ src/termio/hotty.zig | 90 ++++++++++++++++++++++++++------------------
+ 2 files changed, 57 insertions(+), 38 deletions(-)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 74e0c1865..8d8eadb37 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -3371,7 +3371,7 @@ fn encodeKey(
+     return write_req;
+ }
+ 
+-fn encodeKeyOpts(self: *const Surface) input.key_encode.Options {
++pub fn encodeKeyOpts(self: *const Surface) input.key_encode.Options {
+     self.renderer_state.mutex.lockUncancelable(global.io());
+     defer self.renderer_state.mutex.unlock(global.io());
+     const t = &self.io.terminal;
+@@ -4964,6 +4964,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+                 .esc => try std.fmt.bufPrint(&buf, "\x1b{s}", .{data}),
+                 else => unreachable,
+             };
++            if (hotty.surfaceBindingBytes(self, full_data)) return true; // hottyterm
+             self.queueIo(try termio.Message.writeReq(
+                 self.alloc,
+                 full_data,
+@@ -4991,6 +4992,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+                 );
+                 return true;
+             };
++            if (hotty.surfaceBindingBytes(self, text)) return true; // hottyterm
+             self.queueIo(try termio.Message.writeReq(
+                 self.alloc,
+                 text,
+@@ -5023,6 +5025,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+                 break :normal !self.io.terminal.modes.get(.cursor_keys);
+             };
+ 
++            if (hotty.surfaceBindingBytes(self, if (normal) ck.normal else ck.application)) return true; // hottyterm
+             if (normal) {
+                 self.queueIo(.{ .write_stable = ck.normal }, .unlocked);
+             } else {
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 827f24bc8..944ddee4f 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -89,7 +89,7 @@ extern fn hotty_host_render(h: *Host, ctx: ?*anyopaque, cb: FrameFn) void;
+ extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;
+ extern fn hotty_host_reset(h: *Host, fx: ?*const Effects) void;
+ extern fn hotty_host_pointer(h: *Host, surface: [*:0]const u8, kind: u32, x: f32, y: f32, mods: u32, fx: *const Effects) void;
+-extern fn hotty_host_key(h: *Host, key: u32, text: ?[*:0]const u8, mods: u32, fx: *const Effects) bool;
++extern fn hotty_host_key_bytes(h: *Host, data: [*]const u8, len: usize, fx: *const Effects) bool;
+ extern fn hotty_host_wheel(h: *Host, surface: ?[*:0]const u8, x: f32, y: f32, dx: f32, dy: f32, mods: u32, fx: *const Effects) bool;
+ extern fn hotty_host_blur(h: *Host, surface: [*:0]const u8, fx: *const Effects) void;
+ extern fn hotty_host_focused(h: *Host) ?[*:0]const u8;
+@@ -1102,10 +1102,14 @@ pub const Hotty = struct {
+     }
+ 
+     /// A key for the surface holding the keyboard. True if it used it.
+-    fn key(self: *Hotty, t: *terminal.Terminal, code: u32, text: ?[*:0]const u8, mods: u32) bool {
++    /// Keys for the surface holding the keyboard, as the bytes the program
++    /// would read for them (SPEC §10.4). True if it used any; the others
++    /// then reach the program as replies, in order.
++    fn keyBytes(self: *Hotty, t: *terminal.Terminal, bytes: []const u8) bool {
+         const h = self.host orelse return false;
++        if (bytes.len == 0) return false;
+         const fx = self.effects();
+-        const consumed = hotty_host_key(h, code, text, mods, &fx);
++        const consumed = hotty_host_key_bytes(h, bytes.ptr, bytes.len, &fx);
+         if (self.render(t)) self.drew = true;
+         // A key that scrolled shows scrollbars, which fade.
+         self.schedule(t);
+@@ -1454,14 +1458,20 @@ pub fn surfaceScroll(s: *Surface, xoff: f64, yoff: f64, scroll_mods: input.Scrol
+     return took;
+ }
+ 
+-/// Surface.keyCallback: the surface holding the keyboard gets the key first.
+-/// Keys its focused element has no use for go to the program as usual.
+-/// The press decides, and its release goes where the press went, so a
+-/// program that asked for event types never hears a release without its
+-/// press, nor a press without its release.
++/// Surface.keyCallback: the surface holding the keyboard gets the key first,
++/// named from the bytes the program would read for it (SPEC §10.4): Ghostty's
++/// own encoding, in the modes the program set, so a key is what a TUI would
++/// see, whatever the keyboard layout or remapping made of it. Keys its
++/// focused element has no use for go to the program as usual. The press
++/// decides, and its release goes where the press went, so a program that
++/// asked for event types never hears a release without its press, nor a
++/// press without its release.
+ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+     if (s.readonly) return false;
+     const hs = &s.io.terminal_stream.handler.hotty;
++    // Encoding takes the renderer lock itself.
++    var buf: [1024]u8 = undefined;
++    const bytes = if (event.action == .release or !holdsKeyboard(s)) "" else encodeKey(s, event, &buf);
+     var drew = false;
+     const consumed = consumed: {
+         s.renderer_state.mutex.lockUncancelable(global.io());
+@@ -1471,7 +1481,7 @@ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+             hs.held_keys.remove(event.key);
+             break :consumed held;
+         }
+-        const used = surfaceKeyPress(hs, &s.io.terminal, event);
++        const used = hs.keyBytes(&s.io.terminal, bytes);
+         hs.held_keys.setPresent(event.key, used);
+         drew = hs.drew;
+         hs.drew = false;
+@@ -1481,33 +1491,39 @@ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+     return consumed;
+ }
+ 
+-/// A press or a repeat, for the surface holding the keyboard if any. True
+-/// if it used it.
+-fn surfaceKeyPress(hs: *Hotty, t: *terminal.Terminal, event: input.KeyEvent) bool {
+-    if (!hs.hasKeyboard()) return false;
+-    const code: u32 = switch (event.key) {
+-        .enter, .numpad_enter => 1,
+-        .tab => 2,
+-        .backspace => 3,
+-        .delete => 4,
+-        .escape => 5,
+-        .arrow_left => 6,
+-        .arrow_right => 7,
+-        .arrow_up => 8,
+-        .arrow_down => 9,
+-        .home => 10,
+-        .end => 11,
+-        .page_up => 12,
+-        .page_down => 13,
+-        .space => 14,
+-        else => 0,
++/// Surface.performBindingAction: what a binding writes to the pty (`text:`,
++/// `csi:`, `esc:`, `cursor_key`) goes to the surface holding the keyboard
++/// first, as the keys the program would read in it (SPEC §10.4). Ghostty's
++/// macOS Cmd+Left writes 0x01, which a field's keymap reads as Control+a.
++/// True if the surface used any of it: the binding then writes nothing, and
++/// the keys it did not use reach the program as replies.
++pub fn surfaceBindingBytes(s: *Surface, bytes: []const u8) bool {
++    if (s.readonly) return false;
++    var drew = false;
++    const used = used: {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const hs = &s.io.terminal_stream.handler.hotty;
++        const used = hs.keyBytes(&s.io.terminal, bytes);
++        drew = hs.drew;
++        hs.drew = false;
++        break :used used;
+     };
+-    var text_buf: [64]u8 = undefined;
+-    const text: ?[*:0]const u8 = if (code == 0 and event.utf8.len > 0 and event.utf8.len < text_buf.len)
+-        (std.fmt.bufPrintZ(&text_buf, "{s}", .{event.utf8}) catch return false).ptr
+-    else if (code == 0)
+-        return false
+-    else
+-        null;
+-    return hs.key(t, code, text, hostMods(event.mods));
++    deliver(s, used or drew);
++    return used;
++}
++
++fn holdsKeyboard(s: *Surface) bool {
++    s.renderer_state.mutex.lockUncancelable(global.io());
++    defer s.renderer_state.mutex.unlock(global.io());
++    return s.io.terminal_stream.handler.hotty.hasKeyboard();
++}
++
++/// What Ghostty writes to the pty for `event`, in `buf`: empty for nothing,
++/// or for more than `buf` holds (an input method's long commit, which then
++/// goes to the program).
++fn encodeKey(s: *Surface, event: input.KeyEvent, buf: []u8) []const u8 {
++    var w: std.Io.Writer = .fixed(buf);
++    input.key_encode.encode(&w, event, s.encodeKeyOpts()) catch return "";
++    return w.buffered();
+ }

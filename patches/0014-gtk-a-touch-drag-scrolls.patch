@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Thu, 8 Oct 2026 20:10:08 +0200
-Subject: [PATCH 14/14] gtk: a touch drag scrolls
+Subject: [PATCH 14/15] gtk: a touch drag scrolls
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -25,7 +25,7 @@ lines: 68 (GTK apprt only).
  3 files changed, 68 insertions(+)
 
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 8b0faeb4..0ab68fe8 100644
+index 8b0faeb47..0ab68fe8d 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -664,6 +664,11 @@ pub const Surface = extern struct {
@@ -107,7 +107,7 @@ index 8b0faeb4..0ab68fe8 100644
              class.bindTemplateCallback("render_surface_realize", &renderSurfaceRealize);
              class.bindTemplateCallback("render_surface_unrealize", &renderSurfaceUnrealize);
 diff --git a/src/apprt/gtk/ui/1.2/surface.blp b/src/apprt/gtk/ui/1.2/surface.blp
-index b62ff029..8dd0427e 100644
+index b62ff029d..8dd0427ea 100644
 --- a/src/apprt/gtk/ui/1.2/surface.blp
 +++ b/src/apprt/gtk/ui/1.2/surface.blp
 @@ -72,6 +72,14 @@ Overlay terminal_page {
@@ -126,7 +126,7 @@ index b62ff029..8dd0427e 100644
  
    [overlay]
 diff --git a/src/apprt/gtk/ui/1.5/surface-scrolled-window.blp b/src/apprt/gtk/ui/1.5/surface-scrolled-window.blp
-index 8ba27cb6..de8592d9 100644
+index 8ba27cb64..de8592d91 100644
 --- a/src/apprt/gtk/ui/1.5/surface-scrolled-window.blp
 +++ b/src/apprt/gtk/ui/1.5/surface-scrolled-window.blp
 @@ -11,6 +11,9 @@ template $GhostttySurfaceScrolledWindow: Adw.Bin {

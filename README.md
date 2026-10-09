@@ -65,7 +65,7 @@ here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK) |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK); `0015` a surface names a key from the bytes the program would read |
 | new code | `src/termio/hotty.zig`, 1471 lines: all of the logic |
 | upstream files touched | 5 files, 68 lines added and one changed — hooks and one setting |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
@@ -132,7 +132,16 @@ The hooks:
   host stylesheet's root font-size is the terminal's font in CSS px (14px
   for `font-size = 14` on macOS, 16px for 12 on Linux). `HOTTY_SCALE`
   overrides the scale.
-- **Input:** a surface that holds the keyboard gets keys first; clicks and
+- **Keys:** a surface that holds the keyboard gets keys first, as the
+  bytes the program would read for them: Ghostty's own encoding, in the
+  modes the program set, and what a binding writes (`text:`, `csi:`, `esc:`,
+  `cursor_key`). A text field's keymap (SPEC §10.2, §10.4) reads those, so a
+  field sees the key a TUI would, whatever the layout or a remap made of it:
+  on macOS, Cmd+Left (Ghostty writes 0x01) is Control+a and Option+Left
+  (ESC b) is Alt+b. What the surface does not use reaches the program as it
+  came. Bindings that do something else (copy, paste, tabs) stay the
+  terminal's.
+- **Input:** clicks and
   hover on a surface go to it and are not reported to the program as mouse
   input, except where it takes no pointer (`pointer-events: none`, SPEC
   §9.3): there they pass through to the window below or to the cells, and

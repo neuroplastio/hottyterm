@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
 Date: Fri, 2 Oct 2026 12:28:31 +0200
-Subject: [PATCH 03/14] hottyterm: surface image ids never collide
+Subject: [PATCH 03/15] hottyterm: surface image ids never collide
 
 Every placement at a new size takes a fresh kitty image id, and ids
 cycled through 256 values. A program that resizes its surfaces went
@@ -19,7 +19,7 @@ Upstream files: none touched.
  1 file changed, 28 insertions(+), 2 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 483a5153..1cb01100 100644
+index 483a51530..1cb011007 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -96,6 +96,9 @@ const osc_prefix = "7279;";

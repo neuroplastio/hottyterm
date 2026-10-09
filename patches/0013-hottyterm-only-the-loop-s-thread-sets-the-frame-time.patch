@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Thu, 8 Oct 2026 18:06:13 +0200
-Subject: [PATCH 13/14] hottyterm: only the loop's thread sets the frame timer
+Subject: [PATCH 13/15] hottyterm: only the loop's thread sets the frame timer
 
 schedule() armed the IO loop's timer from whichever thread called it: the
 stream's reader, or the app's thread for keys and the pointer. xev's loops
@@ -17,7 +17,7 @@ Upstream lines: none (hotty.zig only).
  1 file changed, 14 insertions(+), 2 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index c6287e59..827f24bc 100644
+index c6287e595..827f24bc8 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -24,7 +24,9 @@

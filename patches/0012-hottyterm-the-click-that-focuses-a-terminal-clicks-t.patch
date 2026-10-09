@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Thu, 8 Oct 2026 17:34:32 +0200
-Subject: [PATCH 12/14] hottyterm: the click that focuses a terminal clicks too
+Subject: [PATCH 12/15] hottyterm: the click that focuses a terminal clicks too
  (hotty-focus-click)
 
 Ghostty drops the click that gives a terminal focus: on macOS the view
@@ -25,7 +25,7 @@ split-focus condition).
  5 files changed, 34 insertions(+), 2 deletions(-)
 
 diff --git a/macos/Sources/Ghostty/Ghostty.Config.swift b/macos/Sources/Ghostty/Ghostty.Config.swift
-index 78cc9024..bd244fdf 100644
+index 78cc9024d..bd244fdf0 100644
 --- a/macos/Sources/Ghostty/Ghostty.Config.swift
 +++ b/macos/Sources/Ghostty/Ghostty.Config.swift
 @@ -351,6 +351,16 @@ extension Ghostty {
@@ -46,7 +46,7 @@ index 78cc9024..bd244fdf 100644
              let defaultValue = MacOSTitlebarStyle.transparent
              guard let config = self.config else { return defaultValue }
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index f77985f7..36ad8f10 100644
+index f77985f7e..36ad8f100 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 @@ -692,7 +692,7 @@ extension Ghostty {
@@ -96,7 +96,7 @@ index f77985f7..36ad8f10 100644
          }
  
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 2745ad3a..74e0c186 100644
+index 2745ad3ac..74e0c1865 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -345,6 +345,7 @@ const DerivedConfig = struct {
@@ -116,7 +116,7 @@ index 2745ad3a..74e0c186 100644
              .scroll_to_bottom = config.@"scroll-to-bottom",
              .notify_on_command_finish = config.@"notify-on-command-finish",
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 6a240355..8b0faeb4 100644
+index 6a2403556..8b0faeb47 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -2862,7 +2862,7 @@ pub const Surface = extern struct {
@@ -129,7 +129,7 @@ index 6a240355..8b0faeb4 100644
              return;
          }
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index c23a5f28..d8e86d43 100644
+index c23a5f28c..d8e86d43c 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -3959,6 +3959,16 @@ term: []const u8 = "xterm-ghostty",

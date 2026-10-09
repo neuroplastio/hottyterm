@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
 Date: Fri, 2 Oct 2026 19:43:17 +0200
-Subject: [PATCH 07/14] hottyterm: surfaces fetch what hotty-net allows
+Subject: [PATCH 07/15] hottyterm: surfaces fetch what hotty-net allows
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -32,7 +32,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 86 insertions(+), 9 deletions(-)
 
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 4a043192..55ec77b3 100644
+index 4a0431921..55ec77b39 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -3931,6 +3931,23 @@ term: []const u8 = "xterm-ghostty",
@@ -60,7 +60,7 @@ index 4a043192..55ec77b3 100644
  ///
  /// Most users should leave this set to `auto`. This will automatically detect
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 8f7aa0b7..46599fb0 100644
+index 8f7aa0b7c..46599fb09 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -21,8 +21,10 @@
@@ -219,7 +219,7 @@ index 8f7aa0b7..46599fb0 100644
  
      /// Forgets placements whose image is gone: scrolled out of the
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index dc1db7ba..dd856309 100644
+index dc1db7ba7..dd8563095 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
 @@ -130,7 +130,7 @@ pub const StreamHandler = struct {
