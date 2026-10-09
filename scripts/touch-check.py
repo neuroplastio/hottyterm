@@ -15,6 +15,32 @@ under them, whose document scrolls vertically (scroll=1), with:
     `touch-action: auto`, so a touch pans them and never drags them;
   - the last events the surface sent, newest at the bottom.
 The placement asks for `press`, so every press shows. q quits.
+
+What each touch should show in the log (SPEC §9.1). A tap is a touch that
+lifts within 8 CSS px: it presses where it lifts and never drags, so it
+sends no `dragstart` or `dragend`.
+  1. Slider, a sideways swipe: `press sA`, `dragstart sA c=… r=…` where it
+     began, a `drag s…` for each step crossed (one at once if the finger is
+     already past sA), `dragend s…`. Add `click sA` if it lifts on sA. The
+     blue step follows the finger.
+  2. Slider, a vertical swipe: nothing in the log. The scrollback moves.
+  3. Slider, a tap: `press sN`, `click sN`. The blue step jumps there.
+  4. Pad, a drag either way: `press pad`, `dragstart pad`, then
+     `drag (none)` per cell once outside it, `dragend`.
+     Pad, a tap: `press pad` only. The pad reports no click.
+  5. List, a vertical swipe starting on a button: nothing in the log. The
+     list scrolls, and past its end the scrollback does.
+  6. List, a tap on a button: `press itemN`, `focus (none)` (only the first
+     time the surface takes the keyboard; focus names no element),
+     `click itemN`.
+  7. A slider drag, then a second finger: `dragend (none)`. The blue step
+     stops following. Nothing more until every finger lifts.
+  8. Alt held on a keyboard: a sideways swipe on the slider logs nothing,
+     and a tap logs `press sN`, `click sN` as in 3.
+  9. The finger, not the mouse:
+     - With the mouse pointer resting on the list, a swipe on the
+       scrollback text moves the scrollback and not the list.
+     - With it resting on the text, a swipe on the list scrolls the list.
 """
 import os
 import shutil
