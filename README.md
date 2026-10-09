@@ -65,9 +65,9 @@ here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK); `0015` a surface names a key from the bytes the program would read |
-| new code | `src/termio/hotty.zig`, 1471 lines: all of the logic |
-| upstream files touched | 5 files, 68 lines added and one changed — hooks and one setting |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK); `0015` a surface names a key from the bytes the program would read; `0016` a touch taps and scrolls where the finger touched (GTK); `0017` a touch drags what opts out of panning |
+| new code | `src/termio/hotty.zig`, 1628 lines: all of the logic |
+| upstream files touched | 10 files, 246 lines added and 4 changed — hooks, settings and the GTK touch gesture |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
@@ -79,6 +79,7 @@ The hooks:
 | `src/config/Config.zig` | the `hotty-net` setting |
 | `src/Surface.zig` | keys, clicks, hover and the wheel go to the surfaces first; the font size, for the CSS px |
 | `src/build/GhosttyExe.zig` | links `libhotty_blitz` (`HOTTY_BLITZ_LIB`) |
+| `src/apprt/gtk/class/surface.zig` | a touch drag scrolls, where the finger touched; a touch over a surface goes to the surface, taps included |
 
 ## How it works
 
@@ -119,6 +120,16 @@ The hooks:
   while something in it can move that way; where nothing can, the gesture
   reaches the cells as if it were over them, unless `overscroll-behavior`
   stops it. hotty-blitz decides, through `hotty_host_wheel`.
+- **Touch** (SPEC §9.1, GTK only): every phase of a touch that begins over a
+  surface goes to hotty-blitz (`hotty_host_touch`), taps included, and none
+  to the pointer. It drags when the touched element opts in to drags and its
+  `touch-action` allows no pan along the first move past 8 CSS px; its moves
+  wait until then. Otherwise it pans, and the terminal scrolls with it as
+  with any touch, from where the finger touched (`hotty_host_wheel` first).
+  A second finger cancels it. A touch over the cells is the terminal's, and
+  taps and scrolls where the finger is, not where the mouse pointer was.
+  hottyterm takes no long press. `scripts/touch-check.py` is the manual
+  check, since the headless display cannot touch.
 - **The network** (SPEC §7.2): surfaces fetch nothing until the user grants
   it with `hotty-net`, in CSP syntax (`hotty-net = img-src https:`), and then
   only what a document also asks for with `<meta name="hotty-network">`.

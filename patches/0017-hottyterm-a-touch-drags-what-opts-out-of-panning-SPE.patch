@@ -1,0 +1,292 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Fri, 9 Oct 2026 20:32:46 +0200
+Subject: [PATCH 17/17] =?UTF-8?q?hottyterm:=20a=20touch=20drags=20what=20o?=
+ =?UTF-8?q?pts=20out=20of=20panning=20(SPEC=20=C2=A79.1)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A touch that begins over a surface that takes the pointer there is the
+surface's to decide (hotty_host_touch): every phase of it goes to
+hotty-blitz, taps included, and none to the pointer. While it may still
+drag, its moves wait; once it pans, the terminal scrolls with them from
+where it began, the moves held included, and the lift ends the wheel
+gesture; once it drags, its moves are the surface's. A second finger, or
+the platform, cancels it, and GTK's drag begun again when that finger
+lifts is the same touch. A touch over the cells, or one that only
+focuses the split (hotty-focus-click = focus), is the terminal's as
+before. hottyterm takes no long press, so it never sends one.
+
+Upstream lines: 46 added, 5 of them changed signatures (gesture and
+offset parameters), all in src/apprt/gtk/class/surface.zig; the logic is
+in src/termio/hotty.zig.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/apprt/gtk/class/surface.zig | 51 +++++++++++++++--
+ src/termio/hotty.zig            | 99 +++++++++++++++++++++++++++++++++
+ 2 files changed, 145 insertions(+), 5 deletions(-)
+
+diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
+index 3f7b22ead..fa901f948 100644
+--- a/src/apprt/gtk/class/surface.zig
++++ b/src/apprt/gtk/class/surface.zig
+@@ -41,6 +41,7 @@ const global = @import("../../../global.zig");
+ const gtk_version = @import("../gtk_version.zig");
+ const Overrides = @import("Overrides.zig");
+ const scale_util = @import("../scale.zig");
++const hotty = @import("../../../termio/hotty.zig");
+ 
+ const log = std.log.scoped(.gtk_ghostty_surface);
+ 
+@@ -673,6 +674,10 @@ pub const Surface = extern struct {
+         /// scroll happen there, not where the mouse pointer was.
+         touch_start: apprt.CursorPos = .{ .x = 0, .y = 0 },
+ 
++        /// hottyterm: the live touch began over a HOTTY surface, which has
++        /// its taps (hotty.surfaceTouch).
++        touch_hotty: bool = false,
++
+         /// True when the child has exited.
+         child_exited: bool = false,
+ 
+@@ -2866,6 +2871,9 @@ pub const Surface = extern struct {
+             _ = widget.grabFocus();
+         }
+ 
++        // hottyterm: a touch a HOTTY surface has is not a click.
++        if (priv.touch_hotty and gesture.as(gtk.GestureSingle).getCurrentSequence() != null) return;
++
+         // Report the event
+         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+ 
+@@ -2934,6 +2942,9 @@ pub const Surface = extern struct {
+         const gtk_mods = event.getModifierState();
+         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+ 
++        // hottyterm: a touch a HOTTY surface has is not a click.
++        if (priv.touch_hotty and gesture.as(gtk.GestureSingle).getCurrentSequence() != null) return;
++
+         if (button == .left and priv.suppress_left_mouse_release) {
+             priv.suppress_left_mouse_release = false;
+             return;
+@@ -3061,7 +3072,7 @@ pub const Surface = extern struct {
+     // alternate screen, then the scrollback — exactly as a touchpad does.
+     // The gesture is touch-only, so a mouse drag still selects text.
+     fn touchScrollBegin(
+-        _: *gtk.GestureDrag,
++        gesture: *gtk.GestureDrag,
+         start_x: f64,
+         start_y: f64,
+         self: *Self,
+@@ -3075,15 +3086,26 @@ pub const Surface = extern struct {
+         const start = self.scaledCoordinates(start_x, start_y);
+         priv.touch_start = .{ .x = @floatCast(start.x), .y = @floatCast(start.y) };
+         priv.cursor_pos = priv.touch_start;
++        // hottyterm: over a HOTTY surface, the touch is its to decide. GTK
++        // begins the drag again when a second finger lifts: that is the
++        // same touch, the terminal's since the second finger.
++        const event = gesture.as(gtk.EventController).getCurrentEvent() orelse return;
++        if (event.getEventType() != .touch_begin) return;
++        const core_surface = priv.core_surface orelse return;
++        priv.touch_hotty = hotty.surfaceTouch(core_surface, .down, priv.touch_start, touchMods(gesture)) != .cells;
+     }
+ 
+     fn touchScrollUpdate(
+-        _: *gtk.GestureDrag,
++        gesture: *gtk.GestureDrag,
+         offset_x: f64,
+         offset_y: f64,
+         self: *Self,
+     ) callconv(.c) void {
+         const priv = self.private();
++        // hottyterm: the moves wait while a HOTTY surface may drag with
++        // them, and are its own once it does (SPEC §9.1).
++        if (priv.touch_hotty and priv.core_surface != null and
++            !hotty.surfaceTouch(priv.core_surface.?, .move, self.touchFinger(offset_x, offset_y), touchMods(gesture)).scrolls()) return;
+         const dx = offset_x - priv.touch_scroll_x;
+         const dy = offset_y - priv.touch_scroll_y;
+         priv.touch_scroll_x = offset_x;
+@@ -3104,14 +3126,33 @@ pub const Surface = extern struct {
+     }
+ 
+     fn touchScrollEnd(
+-        _: *gtk.GestureDrag,
+-        _: f64,
+-        _: f64,
++        gesture: *gtk.GestureDrag,
++        offset_x: f64,
++        offset_y: f64,
+         self: *Self,
+     ) callconv(.c) void {
+         const priv = self.private();
+         priv.touch_scroll_x = 0;
+         priv.touch_scroll_y = 0;
++        // hottyterm: the finger lifted, or a second one (or the platform)
++        // cancelled the touch.
++        const event = gesture.as(gtk.EventController).getCurrentEvent();
++        const lifted = event != null and event.?.getEventType() == .touch_end;
++        const core_surface = priv.core_surface orelse return;
++        _ = hotty.surfaceTouch(core_surface, if (lifted) .up else .cancel, self.touchFinger(offset_x, offset_y), touchMods(gesture));
++    }
++
++    /// hottyterm: where the live touch's finger is, `offset` from where it
++    /// began, in surface pixels.
++    fn touchFinger(self: *Self, offset_x: f64, offset_y: f64) apprt.CursorPos {
++        const start = self.private().touch_start;
++        const offset = self.scaledCoordinates(offset_x, offset_y);
++        return .{ .x = start.x + @as(f32, @floatCast(offset.x)), .y = start.y + @as(f32, @floatCast(offset.y)) };
++    }
++
++    fn touchMods(gesture: *gtk.GestureDrag) input.Mods {
++        const event = gesture.as(gtk.EventController).getCurrentEvent() orelse return .{};
++        return gtk_key.translateMods(event.getModifierState());
+     }
+ 
+     fn ecMouseScrollVertical(
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 944ddee4f..564753186 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -91,6 +91,8 @@ extern fn hotty_host_reset(h: *Host, fx: ?*const Effects) void;
+ extern fn hotty_host_pointer(h: *Host, surface: [*:0]const u8, kind: u32, x: f32, y: f32, mods: u32, fx: *const Effects) void;
+ extern fn hotty_host_key_bytes(h: *Host, data: [*]const u8, len: usize, fx: *const Effects) bool;
+ extern fn hotty_host_wheel(h: *Host, surface: ?[*:0]const u8, x: f32, y: f32, dx: f32, dy: f32, mods: u32, fx: *const Effects) bool;
++extern fn hotty_host_end_gesture(h: *Host) void;
++extern fn hotty_host_touch(h: *Host, surface: [*:0]const u8, phase: u32, x: f32, y: f32, mods: u32, fx: *const Effects) u32;
+ extern fn hotty_host_blur(h: *Host, surface: [*:0]const u8, fx: *const Effects) void;
+ extern fn hotty_host_focused(h: *Host) ?[*:0]const u8;
+ extern fn hotty_host_cursor(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
+@@ -175,6 +177,30 @@ test cssPx {
+ 
+ pub const PointerKind = enum(u32) { move = 0, down = 1, up = 2, leave = 3 };
+ 
++/// A finger's phase, as hotty_host_touch takes it: down when the first
++/// finger touches; cancel when a second one does or the platform cancelled
++/// it. hottyterm takes no long press, so it never sends hotty-blitz's 4.
++pub const TouchPhase = enum(u32) { down = 0, move = 1, up = 2, cancel = 3 };
++
++/// Whose a touch is after one of its phases (SPEC §9.1), for the apprt.
++pub const Touch = enum {
++    /// It began over the cells: the terminal's, clicks and scrolls.
++    cells,
++    /// It began over a surface, which has its taps, and the terminal
++    /// scrolls with its moves: it pans.
++    scroll,
++    /// It began over a surface that may drag with it: hold its moves, and
++    /// scroll with them once it pans (the moves held included).
++    hold,
++    /// The surface's: a drag, or on up a tap it took as a click.
++    taken,
++
++    /// The terminal scrolls with the touch's moves.
++    pub fn scrolls(self: Touch) bool {
++        return self == .cells or self == .scroll;
++    }
++};
++
+ /// A kitty display command (`a=p`): the graphics module does not export it.
+ const KittyDisplay = @FieldType(kitty.graphics.Command.Control, "display");
+ 
+@@ -229,6 +255,10 @@ pub const Hotty = struct {
+     /// reaches it.
+     capture: [72]u8 = undefined,
+     capture_len: usize = 0,
++    /// The surface the live touch began on, which has every phase of it
++    /// (`touch`); empty for one that began over the cells.
++    touch_surface: [72]u8 = undefined,
++    touch_len: usize = 0,
+     /// A press on the cells holds the pointer for the program until its
+     /// last button is released (`programHolds`): every event of the
+     /// gesture is the program's, even over a surface, so a drag that starts
+@@ -445,6 +475,7 @@ pub const Hotty = struct {
+         self.placed.clearRetainingCapacity();
+         self.hover_len = 0;
+         self.capture_len = 0;
++        self.touch_len = 0;
+         self.setLink(null);
+     }
+ 
+@@ -1140,6 +1171,46 @@ pub const Hotty = struct {
+         return took;
+     }
+ 
++    /// A finger at viewport pixel (`px`, `py`) (SPEC §9.1). A touch that
++    /// begins over a surface that takes the pointer there is that surface's
++    /// to decide, every phase of it, taps included, and hotty-blitz says
++    /// whose it is; one over the cells, or while the program holds the
++    /// pointer, is the terminal's. A touch hovers nothing.
++    fn touch(self: *Hotty, t: *terminal.Terminal, phase: TouchPhase, px: f64, py: f64, mods: u32) Touch {
++        const h = self.host orelse return .cells;
++        if (phase == .down) {
++            self.touch_len = 0;
++            const tg = (if (self.program_hold) null else self.hit(t, px, py)) orelse return .cells;
++            if (tg.name.len > self.touch_surface.len) return .cells;
++            @memcpy(self.touch_surface[0..tg.name.len], tg.name);
++            self.touch_len = tg.name.len;
++        }
++        if (self.touch_len == 0) {
++            // The lift ends the wheel gesture the touch scrolled with.
++            if (phase == .up) hotty_host_end_gesture(h);
++            return .cells;
++        }
++        const own = self.touch_surface[0..self.touch_len];
++        var name_buf: [73]u8 = undefined;
++        const name = std.fmt.bufPrintZ(&name_buf, "{s}", .{own}) catch return .cells;
++        // Its surface gone from the screen: the touch is cancelled, and the
++        // rest of it is the terminal's.
++        const p = self.at(t, own, px, py);
++        const fx = self.effects();
++        const ph: TouchPhase = if (p == null) .cancel else phase;
++        const r = hotty_host_touch(h, name.ptr, @intFromEnum(ph), if (p) |q| q.x else 0, if (p) |q| q.y else 0, mods, &fx);
++        if (phase == .up or p == null) self.touch_len = 0;
++        if (phase == .up and r != 2) hotty_host_end_gesture(h);
++        if (self.render(t)) self.drew = true;
++        // A drag that scrolls shows scrollbars, which fade.
++        self.schedule(t);
++        return switch (r) {
++            1 => .hold,
++            2 => .taken,
++            else => .scroll,
++        };
++    }
++
+     fn setLink(self: *Hotty, url: ?[]const u8) void {
+         if (self.link) |old| {
+             if (url != null and std.mem.eql(u8, old, url.?)) return;
+@@ -1458,6 +1529,34 @@ pub fn surfaceScroll(s: *Surface, xoff: f64, yoff: f64, scroll_mods: input.Scrol
+     return took;
+ }
+ 
++/// A touch on the apprt's surface, at its pixel `pos`: the apprt passes
++/// every phase of every touch here, and does with it what the result says
++/// (`Touch`). Over a surface, hotty-blitz decides whether the touch drags
++/// (SPEC §9.1), so its taps never reach Surface.mouseButtonCallback, and its
++/// moves reach Surface.scrollCallback only once it pans.
++pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods: input.Mods) Touch {
++    const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = pos.x, .y = pos.y } };
++    const tp = coord.convert(.terminal, s.size).terminal;
++    var drew = false;
++    const r: Touch = r: {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const hs = &s.io.terminal_stream.handler.hotty;
++        // A touch that only focuses the split, as a click then does
++        // (hotty-focus-click = focus), is the terminal's.
++        if (phase == .down and !s.focused and s.config.hotty_focus_click == .focus) {
++            hs.touch_len = 0;
++            break :r .cells;
++        }
++        const r = hs.touch(&s.io.terminal, phase, tp.x, tp.y, hostMods(mods));
++        drew = hs.drew;
++        hs.drew = false;
++        break :r r;
++    };
++    deliver(s, r == .taken or drew);
++    return r;
++}
++
+ /// Surface.keyCallback: the surface holding the keyboard gets the key first,
+ /// named from the bytes the program would read for it (SPEC §10.4): Ghostty's
+ /// own encoding, in the modes the program set, so a key is what a TUI would

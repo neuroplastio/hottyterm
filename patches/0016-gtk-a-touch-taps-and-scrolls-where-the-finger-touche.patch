@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Fri, 9 Oct 2026 20:23:59 +0200
+Subject: [PATCH 16/17] gtk: a touch taps and scrolls where the finger touched
+
+GTK moves no pointer for a touch, so the cursor stayed where the mouse
+last was: a touch drag scrolled there (the HOTTY document under the mouse,
+or the mouse report's position), and a tap clicked there. The touch's
+start point is now the cursor's when it begins and while it scrolls, so
+mouseButtonCallback and scrollCallback see where the finger is.
+
+Generic, in upstream's style, a fix to "gtk: a touch drag scrolls".
+Upstream lines: 15 (GTK apprt only).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/apprt/gtk/class/surface.zig | 17 +++++++++++++++--
+ 1 file changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
+index 0ab68fe8d..3f7b22ead 100644
+--- a/src/apprt/gtk/class/surface.zig
++++ b/src/apprt/gtk/class/surface.zig
+@@ -669,6 +669,10 @@ pub const Surface = extern struct {
+         touch_scroll_x: f64 = 0,
+         touch_scroll_y: f64 = 0,
+ 
++        /// Where the live touch began, in surface pixels: its taps and its
++        /// scroll happen there, not where the mouse pointer was.
++        touch_start: apprt.CursorPos = .{ .x = 0, .y = 0 },
++
+         /// True when the child has exited.
+         child_exited: bool = false,
+ 
+@@ -3058,13 +3062,19 @@ pub const Surface = extern struct {
+     // The gesture is touch-only, so a mouse drag still selects text.
+     fn touchScrollBegin(
+         _: *gtk.GestureDrag,
+-        _: f64,
+-        _: f64,
++        start_x: f64,
++        start_y: f64,
+         self: *Self,
+     ) callconv(.c) void {
+         const priv = self.private();
+         priv.touch_scroll_x = 0;
+         priv.touch_scroll_y = 0;
++        // GTK moves no pointer for a touch, so the cursor would stay where
++        // the mouse last was: the touch's point is the cursor's, for its tap
++        // (mouseButtonCallback) and its scroll (scrollCallback).
++        const start = self.scaledCoordinates(start_x, start_y);
++        priv.touch_start = .{ .x = @floatCast(start.x), .y = @floatCast(start.y) };
++        priv.cursor_pos = priv.touch_start;
+     }
+ 
+     fn touchScrollUpdate(
+@@ -3081,6 +3091,9 @@ pub const Surface = extern struct {
+ 
+         const core_surface = priv.core_surface orelse return;
+         const scaled = self.scaledCoordinates(dx, dy);
++        // The scroll happens where the finger touched, as a touchpad's does
++        // where the pointer is.
++        priv.cursor_pos = priv.touch_start;
+         // GestureDrag is in screen pixels with y down: a finger up (negative
+         // y) moves the content up, a scroll down — what a natural-scrolling
+         // touchpad does. EcMouseScrollVertical inverts GTK's touchpad deltas
