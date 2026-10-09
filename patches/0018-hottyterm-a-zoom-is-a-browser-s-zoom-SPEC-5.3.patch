@@ -1,0 +1,242 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Sat, 10 Oct 2026 01:11:06 +0200
+Subject: [PATCH 18/18] =?UTF-8?q?hottyterm:=20a=20zoom=20is=20a=20browser'?=
+ =?UTF-8?q?s=20zoom=20(SPEC=20=C2=A75.3)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+This is the change to SPEC §5.3 (hotty b52ffe3) that the maintainer
+approved on 2026-10-10. ctrl+= changed the font's points and kept the
+scale. hotty-blitz then laid out a box z times larger in CSS px, with
+only the font and the cells grown. On top of that, every placement kept
+the kitty source rectangle it was placed with, so after a zoom-in it
+showed only the top left of the new, bigger frame, stretched over its
+cells.
+
+- cssPx takes the configured font-size (Surface.config.original_font_size,
+  which surfaceFont now records). Points over it multiply the scale, and
+  the root font comes from the configured size, bit for bit the same
+  across a zoom. A new font-size in the settings changes the font in CSS
+  px, so hotty-blitz lays the document out again and sends resize.
+- resized() resets each placement's source rectangle to its window at
+  the new cell size (rewindow), in place: displaying it again would move
+  it to the cursor. What a placement shows changed, so this is
+  markMutated, not a geometry-only dirty.
+- resized() wakes the IO mailbox after its replies, as tick() does. A
+  resize runs from the coalescing timer, so a resize or fit waited for
+  the next key or output.
+
+On a headless display, with quad.py (a 24×6 surface with four
+quadrants, placed once):
+- two ctrl+= steps keep the quadrants at 50% (before: 57%), and the
+  50px square grows 80 → 86 → 93 device px (×13/12, ×14/12);
+- the program hears nothing on a zoom or a reset, and one resize when a
+  config reload changes font-size from 12 to 16.
+The cssPx test covers a zoom in, a zoom out, and a zoom over
+HOTTY_SCALE.
+
+Upstream lines: none; all in src/termio/hotty.zig.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig | 108 ++++++++++++++++++++++++++++++++++++-------
+ 1 file changed, 92 insertions(+), 16 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 564753186..62a25841f 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -142,12 +142,24 @@ pub const Settings = struct {
+ /// `font_size` is the terminal's font in CSS px, the root font size of the
+ /// host stylesheet (SPEC §8). `override` (HOTTY_SCALE) replaces the scale;
+ /// the font stays the size it is on screen.
++///
++/// A zoom (ctrl+=) is a browser's (SPEC §5.3): `points` over the
++/// configured size, `original`, multiplies the scale, and the font and a
++/// cell keep their size in CSS px, so a surface keeps its layout and is
++/// drawn again sharper. The font comes from the configured size, so a
++/// zoom leaves it exactly as it was. A new font size in the settings is
++/// a font change: the font in CSS px follows it.
+ const CssPx = struct { scale: f32, font_size: f32 };
+ 
+-fn cssPx(size: font.face.DesiredSize, base_dpi: f32, override: ?f32) CssPx {
++fn cssPx(size: font.face.DesiredSize, original: f32, base_dpi: f32, override: ?f32) CssPx {
+     const dpi: f32 = @floatFromInt(@max(size.ydpi, 1));
+-    const scale = @max(override orelse dpi / base_dpi, 0.5);
+-    return .{ .scale = scale, .font_size = size.pixels() / scale };
++    const display = @max(override orelse dpi / base_dpi, 0.5);
++    var unzoomed = size;
++    if (original > 0) unzoomed.points = original;
++    return .{
++        .scale = display * size.points / unzoomed.points,
++        .font_size = unzoomed.pixels() / display,
++    };
+ }
+ 
+ test cssPx {
+@@ -155,24 +167,35 @@ test cssPx {
+     // A Retina Mac, font-size = 14: 144 dpi on macOS's 72, so 2 device px
+     // per CSS px, and the root font is 14px. (The old guess from the cell
+     // height, 34 / (14 * 4/3 * 1.25), made it 1.46.)
+-    const mac = cssPx(.{ .points = 14, .xdpi = 144, .ydpi = 144 }, 72, null);
++    const mac = cssPx(.{ .points = 14, .xdpi = 144, .ydpi = 144 }, 14, 72, null);
+     try t.expectEqual(@as(f32, 2), mac.scale);
+     try t.expectApproxEqAbs(@as(f32, 14), mac.font_size, 0.001);
+     // A 1x Linux display: 96 dpi, a CSS px is a device px, and 14pt is
+     // 18.67px, as before.
+-    const linux = cssPx(.{ .points = 14, .xdpi = 96, .ydpi = 96 }, 96, null);
++    const linux = cssPx(.{ .points = 14, .xdpi = 96, .ydpi = 96 }, 14, 96, null);
+     try t.expectEqual(@as(f32, 1), linux.scale);
+     try t.expectApproxEqAbs(@as(f32, 18.667), linux.font_size, 0.001);
+     // Scaled to 125%: 120 dpi, the font as large in CSS px as at 1x.
+-    const scaled = cssPx(.{ .points = 14, .xdpi = 120, .ydpi = 120 }, 96, null);
++    const scaled = cssPx(.{ .points = 14, .xdpi = 120, .ydpi = 120 }, 14, 96, null);
+     try t.expectEqual(@as(f32, 1.25), scaled.scale);
+     try t.expectApproxEqAbs(@as(f32, 18.667), scaled.font_size, 0.001);
+     // HOTTY_SCALE wins, and the font keeps its device size.
+-    const forced = cssPx(.{ .points = 14, .xdpi = 144, .ydpi = 144 }, 72, 1);
++    const forced = cssPx(.{ .points = 14, .xdpi = 144, .ydpi = 144 }, 14, 72, 1);
+     try t.expectEqual(@as(f32, 1), forced.scale);
+     try t.expectApproxEqAbs(@as(f32, 28), forced.font_size, 0.001);
+     // Nothing below half a device px per CSS px.
+-    try t.expectEqual(@as(f32, 0.5), cssPx(.{ .points = 14 }, 96, 0.1).scale);
++    try t.expectEqual(@as(f32, 0.5), cssPx(.{ .points = 14 }, 14, 96, 0.1).scale);
++    // Zoomed from 14 to 21 points on a 1x display: 1.5 device px per CSS
++    // px, and the font exactly the size it was.
++    const zoomed = cssPx(.{ .points = 21, .xdpi = 96, .ydpi = 96 }, 14, 96, null);
++    try t.expectApproxEqAbs(@as(f32, 1.5), zoomed.scale, 0.0001);
++    try t.expectEqual(linux.font_size, zoomed.font_size);
++    // Out, on the Retina Mac: from 14 to 7 points, 1 device px per CSS px.
++    const out = cssPx(.{ .points = 7, .xdpi = 144, .ydpi = 144 }, 14, 72, null);
++    try t.expectApproxEqAbs(@as(f32, 1), out.scale, 0.0001);
++    try t.expectEqual(mac.font_size, out.font_size);
++    // A zoom over HOTTY_SCALE multiplies it.
++    try t.expectApproxEqAbs(@as(f32, 2), cssPx(.{ .points = 28, .xdpi = 144, .ydpi = 144 }, 14, 72, 1).scale, 0.0001);
+ }
+ 
+ pub const PointerKind = enum(u32) { move = 0, down = 1, up = 2, leave = 3 };
+@@ -235,6 +258,9 @@ pub const Hotty = struct {
+     /// that holds the display's content scale (Surface.font_size). The
+     /// Surface sets it (`surfaceFont`); a resize follows every change.
+     font_size: font.face.DesiredSize = .{ .points = 12 },
++    /// The font size in the settings (`font-size`): `font_size` over it
++    /// is the zoom.
++    original_points: f32 = 12,
+ 
+     // Collected while one call into the host runs.
+     replies: std.ArrayListUnmanaged(u8) = .empty,
+@@ -404,7 +430,7 @@ pub const Hotty = struct {
+             std.fmt.parseFloat(f32, std.mem.span(s)) catch null
+         else
+             null;
+-        const css = cssPx(self.font_size, font.face.default_dpi, override);
++        const css = cssPx(self.font_size, self.original_points, font.face.default_dpi, override);
+         return .{
+             .cell_w = cell_w,
+             .cell_h = cell_h,
+@@ -541,17 +567,47 @@ pub const Hotty = struct {
+         return true;
+     }
+ 
++    /// Sets every placement's source rectangle to its window at the cell
++    /// size now. A placement keeps the one `display` gave it, in device
++    /// pixels, so after a zoom-in it showed only the top left of the new,
++    /// bigger frame, stretched over its cells; the program need not place
++    /// the surface again (SPEC §5.3). It stays where it is: a display
++    /// would move it to the cursor.
++    fn rewindow(self: *Hotty, t: *terminal.Terminal) void {
++        var it = self.placed.valueIterator();
++        while (it.next()) |p| {
++            if (p.hidden) continue;
++            const screen = t.screens.get(p.screen) orelse continue;
++            const storage = &screen.kitty_images;
++            const placement = storage.placements.getPtr(.{
++                .image_id = p.image_id,
++                .placement_id = .{ .tag = .external, .id = 1 },
++            }) orelse continue;
++            const r = self.source(p.win);
++            if (placement.source_x == r.x and placement.source_y == r.y and
++                placement.source_width == r.w and placement.source_height == r.h) continue;
++            placement.source_x = r.x;
++            placement.source_y = r.y;
++            placement.source_width = r.w;
++            placement.source_height = r.h;
++            // What the placement shows changed, as when it is placed
++            // again: not a geometry-only event.
++            storage.markMutated(global.io());
++        }
++    }
++
+     /// The kitty display of `p`'s window of image `id`, at the cursor: the
+     /// window is the image's source rectangle, over the window's cells,
+     /// stacked by the placement's z and the surface's creation.
+     fn display(self: *Hotty, id: u32, p: Place) KittyDisplay {
++        const r = self.source(p.win);
+         return .{
+             .image_id = id,
+             .placement_id = 1,
+-            .x = @as(u32, p.win.x) * self.cell_w,
+-            .y = @as(u32, p.win.y) * self.cell_h,
+-            .width = @as(u32, p.win.w) * self.cell_w,
+-            .height = @as(u32, p.win.h) * self.cell_h,
++            .x = r.x,
++            .y = r.y,
++            .width = r.w,
++            .height = r.h,
+             .columns = p.win.w,
+             .rows = p.win.h,
+             .z = stackZ(p.z, p.created),
+@@ -559,6 +615,16 @@ pub const Hotty = struct {
+         };
+     }
+ 
++    /// The pixels of the image a window shows, at the cell size now.
++    fn source(self: *const Hotty, win: Window) struct { x: u32, y: u32, w: u32, h: u32 } {
++        return .{
++            .x = @as(u32, win.x) * self.cell_w,
++            .y = @as(u32, win.y) * self.cell_h,
++            .w = @as(u32, win.w) * self.cell_w,
++            .h = @as(u32, win.h) * self.cell_h,
++        };
++    }
++
+     /// The kitty z of a placement (SPEC §5.2): its z, from -1000 to 1000,
+     /// then the order its surface was created in, all above the text (a
+     /// kitty z of 0 or more). Creation wraps after a million surfaces.
+@@ -744,8 +810,17 @@ pub const Hotty = struct {
+         const h = self.host orelse return;
+         const cfg = self.config(t);
+         hotty_host_configure(h, &cfg);
++        self.rewindow(t);
+         _ = self.render(t);
+-        self.sendReplies();
++        // `resize` and `fit` (SPEC §9, §5.2) go out now: a resize runs
++        // from the IO thread's coalescing timer, not from output, which
++        // wakes the mailbox after it.
++        if (self.replies.items.len > 0) {
++            const handler: *StreamHandler = @fieldParentPtr("hotty", self);
++            self.sendReplies();
++            handler.termio_messaged = false;
++            handler.termio_mailbox.notify();
++        }
+         self.schedule(t);
+     }
+ 
+@@ -1365,12 +1440,13 @@ fn openLink(s: *Surface, url: []const u8) void {
+ }
+ 
+ /// Surface.init and Surface.setFontSize: the size the terminal's font is
+-/// loaded at, for the CSS px (`cssPx`). The resize that follows a change
+-/// re-renders the surfaces with it.
++/// loaded at, and the size in the settings, for the CSS px (`cssPx`). The
++/// resize that follows a change re-renders the surfaces with it.
+ pub fn surfaceFont(s: *Surface) void {
+     s.renderer_state.mutex.lockUncancelable(global.io());
+     defer s.renderer_state.mutex.unlock(global.io());
+     s.io.terminal_stream.handler.hotty.font_size = s.font_size;
++    s.io.terminal_stream.handler.hotty.original_points = s.config.original_font_size;
+ }
+ 
+ /// Surface.keyCallback, after a change of modifiers: Ghostty resets the

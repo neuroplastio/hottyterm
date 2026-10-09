@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 17:40:52 +0200
-Subject: [PATCH 02/17] hottyterm: a relocatable rpath for packaged Linux
+Subject: [PATCH 02/18] hottyterm: a relocatable rpath for packaged Linux
  builds
 
 An rpath of $ORIGIN/../lib, so a packaged build finds
