@@ -71,7 +71,8 @@ jobs:
   linux:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
-    container: archlinux:latest
+    # Arch's official image from ghcr.io: Docker Hub rate-limits GitHub's runners.
+    container: ghcr.io/archlinux/archlinux:latest
     timeout-minutes: 90
     outputs:
       blitz: ${{ steps.blitz.outputs.sha }}
@@ -362,7 +363,7 @@ jobs:
   aur:
     needs: release
     runs-on: ubuntu-latest
-    container: archlinux:base-devel
+    container: ghcr.io/archlinux/archlinux:base-devel
     timeout-minutes: 15
     defaults:
       run:
