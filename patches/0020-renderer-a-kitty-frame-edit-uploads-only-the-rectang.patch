@@ -1,0 +1,640 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Sat, 10 Oct 2026 16:52:33 +0200
+Subject: [PATCH 20/20] renderer: a kitty frame edit uploads only the rectangle
+ it changed
+
+A frame edit of the displayed frame (a=f with r) composes a rectangle
+into the image in place, but the renderer copied the whole image under
+the terminal lock and uploaded it into a new texture, so a one-cell
+change to a large image cost the image. Now:
+
+- kitty: the image logs each such edit's rectangle with the generation
+  it stamped (Image.changes, freed with the image; markImageRegionChanged
+  in the storage). Anything else that stamps a generation breaks the
+  chain, and changesSince then says "upload it whole".
+- renderer: when the GPU has an earlier generation and the image knows
+  what changed since, only those rectangles are copied under the lock,
+  into a new `update` state, and written into the existing texture with
+  Texture.replaceRegion.
+- OpenGL only (texture_region_updates): GL orders the write after the
+  frames that still draw with the texture. Metal's replaceRegion doesn't
+  wait for frames in flight, so Metal keeps uploading whole images.
+
+Lines added outside tests: renderer/image.zig 117, graphics_image.zig
+87, graphics_exec.zig 11, graphics_storage.zig 15, OpenGL.zig 4,
+Metal.zig 5. Tests: the chain (graphics_image), an edit logging its
+clipped rectangle and a shown frame breaking the chain (graphics_exec),
+and the renderer preparing one region (renderer/image).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/renderer/Metal.zig                  |   5 +
+ src/renderer/OpenGL.zig                 |   4 +
+ src/renderer/image.zig                  | 192 +++++++++++++++++++++++-
+ src/terminal/kitty/graphics_exec.zig    |  86 ++++++++++-
+ src/terminal/kitty/graphics_image.zig   | 117 +++++++++++++++
+ src/terminal/kitty/graphics_storage.zig |  15 ++
+ 6 files changed, 416 insertions(+), 3 deletions(-)
+
+diff --git a/src/renderer/Metal.zig b/src/renderer/Metal.zig
+index a98dce87a..f092070de 100644
+--- a/src/renderer/Metal.zig
++++ b/src/renderer/Metal.zig
+@@ -37,6 +37,11 @@ pub const custom_shader_y_is_down = true;
+ /// Triple buffering.
+ pub const swap_chain_count = 3;
+ 
++/// Texture.replaceRegion writes from the CPU without waiting for frames
++/// in flight that draw with the texture, so a changed image gets a new
++/// texture instead.
++pub const texture_region_updates = false;
++
+ const log = std.log.scoped(.metal);
+ 
+ layer: IOSurfaceLayer,
+diff --git a/src/renderer/OpenGL.zig b/src/renderer/OpenGL.zig
+index ab6c9fa56..540f86f3e 100644
+--- a/src/renderer/OpenGL.zig
++++ b/src/renderer/OpenGL.zig
+@@ -33,6 +33,10 @@ pub const custom_shader_y_is_down = false;
+ /// having to wait on the apprt consuming previous frames.
+ pub const swap_chain_count = 3;
+ 
++/// Texture.replaceRegion may update a texture that earlier frames still
++/// draw with: OpenGL orders the write after them.
++pub const texture_region_updates = true;
++
+ const log = std.log.scoped(.opengl);
+ 
+ /// We require at least OpenGL 4.3
+diff --git a/src/renderer/image.zig b/src/renderer/image.zig
+index ef0367bd1..c9bcc1586 100644
+--- a/src/renderer/image.zig
++++ b/src/renderer/image.zig
+@@ -128,6 +128,9 @@ pub const State = struct {
+                 .ready,
+                 .unload_ready,
+                 => |t| t,
++                .update,
++                .unload_update,
++                => |u| u.texture,
+                 else => {
+                     log.warn("image not ready for placement image_id={}", .{p.image_id});
+                     continue;
+@@ -757,6 +760,8 @@ pub const State = struct {
+         alloc: Allocator,
+         image: *const terminal.kitty.graphics.Image,
+     ) PrepImageError!void {
++        if (try self.prepKittyChanges(alloc, image)) return;
++
+         // For animated images this is the current animation frame;
+         // the image generation changes whenever the current frame
+         // does, so the upload cache stays coherent.
+@@ -783,6 +788,58 @@ pub const State = struct {
+             },
+         );
+     }
++
++    /// If the GPU already has an earlier generation of this Kitty image
++    /// and the image knows which rectangles changed since (frame edits
++    /// in place), copy only those for upload into the existing texture.
++    /// Returns false when the whole image must be prepared instead.
++    fn prepKittyChanges(
++        self: *State,
++        alloc: Allocator,
++        image: *const terminal.kitty.graphics.Image,
++    ) Allocator.Error!bool {
++        if (!GraphicsAPI.texture_region_updates) return false;
++        const entry = self.images.getPtr(.{ .kitty = image.id }) orelse return false;
++        if (entry.generation == image.generation) return false;
++        const texture = switch (entry.image) {
++            .ready => |t| t,
++            else => return false,
++        };
++        if (image.format != .rgba or
++            texture.width != image.width or
++            texture.height != image.height) return false;
++        const changes = image.changesSince(entry.generation) orelse return false;
++        const data = image.renderData().bytes() orelse return false;
++
++        const regions = try alloc.alloc(Image.Region, changes.len);
++        var made: usize = 0;
++        errdefer {
++            for (regions[0..made]) |r| alloc.free(r.data);
++            alloc.free(regions);
++        }
++        const stride: usize = @as(usize, image.width) * 4;
++        for (changes) |c| {
++            const r = c.region;
++            const row_len: usize = @as(usize, r.width) * 4;
++            const buf = try alloc.alloc(u8, row_len * r.height);
++            for (0..r.height) |row| {
++                const start = (r.y + row) * stride + @as(usize, r.x) * 4;
++                @memcpy(buf[row * row_len ..][0..row_len], data[start..][0..row_len]);
++            }
++            regions[made] = .{
++                .x = r.x,
++                .y = r.y,
++                .width = r.width,
++                .height = r.height,
++                .data = buf,
++            };
++            made += 1;
++        }
++
++        entry.image = .{ .update = .{ .texture = texture, .regions = regions } };
++        entry.generation = image.generation;
++        return true;
++    }
+ };
+ 
+ /// Represents a single image placement on the grid.
+@@ -876,6 +933,10 @@ pub const Image = union(enum) {
+     /// The image is uploaded and ready to be used.
+     ready: Texture,
+ 
++    /// The image is uploaded and some rectangles of it changed; only
++    /// those go to the GPU, into the existing texture.
++    update: Update,
++
+     /// The image isn't uploaded yet but is scheduled to be unloaded.
+     unload_pending: Pending,
+     /// The image is uploaded and is scheduled to be unloaded.
+@@ -883,12 +944,36 @@ pub const Image = union(enum) {
+     /// The image is uploaded and scheduled to be replaced
+     /// with new data, but it's also scheduled to be unloaded.
+     unload_replace: Replace,
++    /// The image is uploaded with rectangles waiting to be
++    /// updated, but it's also scheduled to be unloaded.
++    unload_update: Update,
+ 
+     pub const Replace = struct {
+         texture: Texture,
+         pending: Pending,
+     };
+ 
++    pub const Update = struct {
++        texture: Texture,
++
++        /// Owned by this union, like pending data.
++        regions: []Region,
++
++        fn free(self: Update, alloc: Allocator) void {
++            for (self.regions) |r| alloc.free(r.data);
++            alloc.free(self.regions);
++        }
++    };
++
++    /// One rectangle of a texture, as tightly packed RGBA.
++    pub const Region = struct {
++        x: u32,
++        y: u32,
++        width: u32,
++        height: u32,
++        data: []u8,
++    };
++
+     /// Pending image data that needs to be uploaded to the GPU.
+     pub const Pending = struct {
+         height: u32,
+@@ -1003,6 +1088,11 @@ pub const Image = union(enum) {
+             .ready,
+             .unload_ready,
+             => |t| t.deinit(),
++
++            .update, .unload_update => |u| {
++                u.free(alloc);
++                u.texture.deinit();
++            },
+         }
+     }
+ 
+@@ -1012,11 +1102,13 @@ pub const Image = union(enum) {
+             .unload_pending,
+             .unload_replace,
+             .unload_ready,
++            .unload_update,
+             => return,
+ 
+             .ready => |t| .{ .unload_ready = t },
+             .pending => |p| .{ .unload_pending = p },
+             .replace => |r| .{ .unload_replace = r },
++            .update => |u| .{ .unload_update = u },
+         };
+     }
+ 
+@@ -1030,6 +1122,10 @@ pub const Image = union(enum) {
+         if (self.getPending()) |p| {
+             alloc.free(p.dataSlice());
+         }
++        switch (self.*) {
++            .update, .unload_update => |u| u.free(alloc),
++            else => {},
++        }
+         // If we have an existing texture, use it in the replace.
+         if (self.getTexture()) |t| {
+             self.* = .{ .replace = .{
+@@ -1044,7 +1140,7 @@ pub const Image = union(enum) {
+ 
+     /// Returns true if this image is pending upload.
+     pub fn isPending(self: Image) bool {
+-        return self.getPending() != null;
++        return self.getPending() != null or self == .update or self == .unload_update;
+     }
+ 
+     /// Returns true if this image has an associated texture.
+@@ -1058,11 +1154,13 @@ pub const Image = union(enum) {
+             .unload_pending,
+             .unload_replace,
+             .unload_ready,
++            .unload_update,
+             => true,
+ 
+             .pending,
+             .replace,
+             .ready,
++            .update,
+             => false,
+         };
+     }
+@@ -1079,6 +1177,26 @@ pub const Image = union(enum) {
+     })!void {
+         assert(self.isPending());
+ 
++        // Changed rectangles go into the existing texture.
++        switch (self.*) {
++            .update => |u| {
++                for (u.regions) |r| {
++                    if (r.width == 0 or r.height == 0) continue;
++                    u.texture.replaceRegion(
++                        r.x,
++                        r.y,
++                        r.width,
++                        r.height,
++                        r.data,
++                    ) catch return error.UploadFailed;
++                }
++                u.free(alloc);
++                self.* = .{ .ready = u.texture };
++                return;
++            },
++            else => {},
++        }
++
+         // Get our pending info
+         const p = self.getPendingPointer().?;
+ 
+@@ -1134,6 +1252,10 @@ pub const Image = union(enum) {
+             .unload_replace,
+             => |r| r.texture,
+ 
++            .update,
++            .unload_update,
++            => |u| u.texture,
++
+             else => null,
+         };
+     }
+@@ -1517,3 +1639,71 @@ test "kitty renderer uploads the current animation frame" {
+         entry.image.pending.dataSlice(),
+     );
+ }
++
++test "kitty renderer prepares only the rectangles a frame edit changed" {
++    if (!GraphicsAPI.texture_region_updates) return error.SkipZigTest;
++    const testing = std.testing;
++    const alloc = testing.allocator;
++    const io = testing.io;
++
++    var t = try terminal.Terminal.init(io, alloc, .{ .rows = 3, .cols = 3 });
++    defer t.deinit(alloc);
++    t.width_px = 30;
++    t.height_px = 30;
++
++    var state: State = .empty;
++    defer state.deinit(alloc);
++
++    const storage = &t.screens.active.kitty_images;
++    try storage.addImage(io, alloc, t.screens.active, .{
++        .id = 1,
++        .width = 2,
++        .height = 2,
++        .format = .rgba,
++        .data = .{ .complete = try alloc.dupe(u8, &(.{255} ** 16)) },
++    });
++    const pin = try t.screens.active.pages.trackPin(
++        t.screens.active.cursor.page_pin.*,
++    );
++    try storage.addPlacement(io, alloc, t.screens.active, 1, 1, .{
++        .location = .{ .pin = pin },
++        .columns = 1,
++        .rows = 1,
++    });
++    state.kittyUpdate(alloc, &t, .{ .width = 10, .height = 10 });
++
++    // Pretend the first generation is on the GPU. The texture is never
++    // used here, only its size is read.
++    const id: Id = .{ .kitty = 1 };
++    {
++        const entry = state.images.getPtr(id).?;
++        alloc.free(entry.image.pending.dataSlice());
++        var texture: Texture = undefined;
++        texture.width = 2;
++        texture.height = 2;
++        entry.image = .{ .ready = texture };
++    }
++
++    // Edit the bottom right pixel in place, as a=f with r=1 does.
++    const img = storage.images.getPtr(1).?;
++    @constCast(img.data.bytes().?)[12..16].* = .{ 0, 0, 255, 255 };
++    storage.markImageRegionChanged(io, alloc, img, .{
++        .x = 1,
++        .y = 1,
++        .width = 1,
++        .height = 1,
++    });
++
++    state.kittyUpdate(alloc, &t, .{ .width = 10, .height = 10 });
++    const entry = state.images.getPtr(id).?;
++    try testing.expectEqual(img.generation, entry.generation);
++    const regions = entry.image.update.regions;
++    try testing.expectEqual(@as(usize, 1), regions.len);
++    try testing.expectEqual(@as(u32, 1), regions[0].x);
++    try testing.expectEqual(@as(u32, 1), regions[0].y);
++    try testing.expectEqualSlices(u8, &.{ 0, 0, 255, 255 }, regions[0].data);
++
++    // The texture was never made, so it mustn't be freed.
++    entry.image.update.free(alloc);
++    _ = state.images.remove(id);
++}
+diff --git a/src/terminal/kitty/graphics_exec.zig b/src/terminal/kitty/graphics_exec.zig
+index b1b968b28..e00869fd1 100644
+--- a/src/terminal/kitty/graphics_exec.zig
++++ b/src/terminal/kitty/graphics_exec.zig
+@@ -732,9 +732,20 @@ fn completeAnimationFrame(
+ 
+         if (number - 1 == anim.current_index) {
+             // The displayed pixels changed; restart the frame's gap
+-            // timer like Kitty's re-upload does.
++            // timer like Kitty's re-upload does. Only the composed
++            // rectangle changed (composeRect clips it to the image),
++            // so renderers can upload just that.
+             anim.frame_shown_at_ms = null;
+-            storage.markImageContentChanged(io, img);
++            const region: Image.Region = if (f.x >= img.width or f.y >= img.height)
++                .{ .x = 0, .y = 0, .width = 0, .height = 0 }
++            else
++                .{
++                    .x = f.x,
++                    .y = f.y,
++                    .width = @min(frame_img.width, img.width - f.x),
++                    .height = @min(frame_img.height, img.height - f.y),
++                };
++            storage.markImageRegionChanged(io, alloc, img, region);
+         } else {
+             storage.markMutated(io);
+         }
+@@ -2934,6 +2945,77 @@ test "kittygfx animation: edit root frame bumps generation" {
+     try testing.expect(img.generation > gen1);
+ }
+ 
++test "kittygfx animation: an edit of the displayed frame logs its rectangle" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++    const io = testing.io;
++
++    var t = try Terminal.init(io, alloc, .{ .rows = 5, .cols = 5 });
++    defer t.deinit(alloc);
++    const storage = &t.screens.active.kitty_images;
++    {
++        // 4x2 white RGBA.
++        const cmd = try command.Parser.parseString(
++            alloc,
++            "a=t,f=32,s=4,v=2,i=1;//////////////////////////////////////////8=",
++        );
++        defer cmd.deinit(alloc);
++        try testing.expect(execute(io, alloc, &t, &cmd).?.ok());
++    }
++    const gen1 = storage.imagePtrByIdOrNumber(1, 0).?.generation;
++
++    // A 2x1 edit of the root frame at (1, 1).
++    {
++        const cmd = try command.Parser.parseString(
++            alloc,
++            "a=f,i=1,f=32,s=2,v=1,x=1,y=1,r=1;AAD//wAA//8=",
++        );
++        defer cmd.deinit(alloc);
++        try testing.expect(execute(io, alloc, &t, &cmd).?.ok());
++    }
++    var img = storage.imagePtrByIdOrNumber(1, 0).?;
++    const gen2 = img.generation;
++    const changes = img.changesSince(gen1).?;
++    try testing.expectEqual(@as(usize, 1), changes.len);
++    try testing.expectEqual(
++        Image.Region{ .x = 1, .y = 1, .width = 2, .height = 1 },
++        changes[0].region,
++    );
++
++    // An edit hanging off the right edge logs only what it composed.
++    {
++        const cmd = try command.Parser.parseString(
++            alloc,
++            "a=f,i=1,f=32,s=2,v=1,x=3,y=0,r=1;AP8A/wD/AP8=",
++        );
++        defer cmd.deinit(alloc);
++        try testing.expect(execute(io, alloc, &t, &cmd).?.ok());
++    }
++    img = storage.imagePtrByIdOrNumber(1, 0).?;
++    try testing.expectEqual(@as(usize, 2), img.changesSince(gen1).?.len);
++    try testing.expectEqual(
++        Image.Region{ .x = 3, .y = 0, .width = 1, .height = 1 },
++        img.changesSince(gen2).?[0].region,
++    );
++
++    // A new frame shown is not an edit: the chain goes stale.
++    {
++        const cmd = try command.Parser.parseString(
++            alloc,
++            "a=f,i=1,f=32,s=4,v=2;//////////////////////////////////////////8=",
++        );
++        defer cmd.deinit(alloc);
++        try testing.expect(execute(io, alloc, &t, &cmd).?.ok());
++    }
++    {
++        const cmd = try command.Parser.parseString(alloc, "a=a,i=1,c=2");
++        defer cmd.deinit(alloc);
++        _ = execute(io, alloc, &t, &cmd);
++    }
++    img = storage.imagePtrByIdOrNumber(1, 0).?;
++    try testing.expect(img.changesSince(gen2) == null);
++}
++
+ test "kittygfx animation: edit frame gap without data change" {
+     const testing = std.testing;
+     const alloc = testing.allocator;
+diff --git a/src/terminal/kitty/graphics_image.zig b/src/terminal/kitty/graphics_image.zig
+index 76abb9ad8..0ea7f19e2 100644
+--- a/src/terminal/kitty/graphics_image.zig
++++ b/src/terminal/kitty/graphics_image.zig
+@@ -762,6 +762,38 @@ pub const Image = struct {
+     /// pointer and never own it).
+     animation: ?*animation.Animation = null,
+ 
++    /// The rectangles of the displayed frame that frame edits (a=f
++    /// with r naming the displayed frame) changed in place, each with
++    /// the generation its edit stamped, so a renderer holding an
++    /// earlier generation can upload just those (see changesSince).
++    /// Null until such an edit. Owned and shared like `animation`.
++    changes: ?*Changes = null,
++
++    /// A rectangle of an image, in pixels.
++    pub const Region = struct {
++        x: u32,
++        y: u32,
++        width: u32,
++        height: u32,
++    };
++
++    /// A chain of in-place edits: entries[0] took the image from
++    /// generation `base` to entries[0].generation, each later entry
++    /// from the one before it, and each changed only its region.
++    pub const Changes = struct {
++        base: u64,
++        entries: std.ArrayListUnmanaged(Change) = .empty,
++
++        pub const Change = struct {
++            generation: u64,
++            region: Region,
++        };
++
++        /// Past this many edits the chain starts again; a renderer
++        /// further behind than that uploads the whole image.
++        pub const max = 64;
++    };
++
+     pub const Error = error{
+         InsufficientData,
+         InvalidData,
+@@ -818,6 +850,62 @@ pub const Image = struct {
+             alloc.destroy(anim);
+             self.animation = null;
+         }
++        self.dropChanges(alloc);
++    }
++
++    /// Records that the edit which stamped the current generation over
++    /// `before` changed only `region` of the displayed frame. If anything
++    /// else stamped a generation since the last recorded edit, the
++    /// chain starts again at `before`. Running out of memory drops the
++    /// chain, which only costs renderers a whole upload.
++    pub fn logChange(
++        self: *Image,
++        alloc: Allocator,
++        before: u64,
++        region: Region,
++    ) void {
++        const changes = self.changes orelse changes: {
++            const c = alloc.create(Changes) catch return;
++            c.* = .{ .base = before };
++            self.changes = c;
++            break :changes c;
++        };
++        const items = changes.entries.items;
++        const last = if (items.len == 0) changes.base else items[items.len - 1].generation;
++        if (last != before or items.len >= Changes.max) {
++            changes.entries.clearRetainingCapacity();
++            changes.base = before;
++        }
++        changes.entries.append(alloc, .{
++            .generation = self.generation,
++            .region = region,
++        }) catch self.dropChanges(alloc);
++    }
++
++    /// The edits that took this image from `generation` to its current
++    /// generation, or null if that isn't known: the image then changed
++    /// in some other way since, and must be uploaded whole.
++    pub fn changesSince(
++        self: *const Image,
++        generation: u64,
++    ) ?[]const Changes.Change {
++        const changes = self.changes orelse return null;
++        const items = changes.entries.items;
++        if (items.len == 0) return null;
++        if (items[items.len - 1].generation != self.generation) return null;
++        if (generation == changes.base) return items;
++        for (items, 0..) |c, i| {
++            if (c.generation == generation) return items[i + 1 ..];
++        }
++        return null;
++    }
++
++    fn dropChanges(self: *Image, alloc: Allocator) void {
++        if (self.changes) |c| {
++            c.entries.deinit(alloc);
++            alloc.destroy(c);
++            self.changes = null;
++        }
+     }
+ 
+     /// The pixel data that should be displayed for this image. For an
+@@ -2203,3 +2291,32 @@ test "limits: temporary file medium allowed by limits" {
+     );
+     defer loading.deinit(alloc);
+ }
++
++test "image changes chain until something else stamps a generation" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++
++    var img: Image = .{ .id = 1, .width = 4, .height = 2, .generation = 5 };
++    defer img.deinit(alloc);
++    try testing.expect(img.changesSince(4) == null);
++
++    // Two edits in a row chain from the generation before the first.
++    img.logChange(alloc, 4, .{ .x = 0, .y = 0, .width = 1, .height = 1 });
++    img.generation = 6;
++    img.logChange(alloc, 5, .{ .x = 1, .y = 1, .width = 2, .height = 1 });
++    try testing.expectEqual(@as(usize, 2), img.changesSince(4).?.len);
++    const since5 = img.changesSince(5).?;
++    try testing.expectEqual(@as(usize, 1), since5.len);
++    try testing.expectEqual(@as(u32, 2), since5[0].region.width);
++    try testing.expectEqual(@as(usize, 0), img.changesSince(6).?.len);
++    try testing.expect(img.changesSince(3) == null);
++
++    // A generation nobody logged (a new frame shown, say) leaves the
++    // chain stale until the next edit starts it again.
++    img.generation = 7;
++    try testing.expect(img.changesSince(6) == null);
++    img.generation = 8;
++    img.logChange(alloc, 7, .{ .x = 0, .y = 0, .width = 4, .height = 2 });
++    try testing.expect(img.changesSince(6) == null);
++    try testing.expectEqual(@as(usize, 1), img.changesSince(7).?.len);
++}
+diff --git a/src/terminal/kitty/graphics_storage.zig b/src/terminal/kitty/graphics_storage.zig
+index 897c8944a..315623676 100644
+--- a/src/terminal/kitty/graphics_storage.zig
++++ b/src/terminal/kitty/graphics_storage.zig
+@@ -975,6 +975,21 @@ pub const ImageStorage = struct {
+         img.generation = self.generation;
+     }
+ 
++    /// Like markImageContentChanged, for an edit of the displayed
++    /// frame in place that changed only `region`: a renderer holding the
++    /// previous generation can upload just that (Image.changesSince).
++    pub fn markImageRegionChanged(
++        self: *ImageStorage,
++        io: std.Io,
++        alloc: Allocator,
++        img: *Image,
++        region: Image.Region,
++    ) void {
++        const before = img.generation;
++        self.markImageContentChanged(io, img);
++        img.logChange(alloc, before, region);
++    }
++
+     /// Convert a stored image's base data to RGBA in place, adjusting
+     /// byte accounting. All animation composition happens in RGBA;
+     /// this is called before the first composition into an image.

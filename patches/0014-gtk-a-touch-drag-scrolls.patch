@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Thu, 8 Oct 2026 20:10:08 +0200
-Subject: [PATCH 14/19] gtk: a touch drag scrolls
+Subject: [PATCH 14/20] gtk: a touch drag scrolls
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
