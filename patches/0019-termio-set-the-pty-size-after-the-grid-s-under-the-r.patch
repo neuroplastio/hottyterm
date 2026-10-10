@@ -1,0 +1,60 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Sat, 10 Oct 2026 16:25:06 +0200
+Subject: [PATCH 19/19] termio: set the pty size after the grid's, under the
+ renderer lock
+
+Termio.resize set the pty size (TIOCSWINSZ, so the child gets SIGWINCH)
+before it took the renderer lock and resized the terminal. The read
+thread parses the child's output under that lock, so under load the
+frame a full screen app drew for the new size could be parsed onto the
+old grid. The resize then moved it:
+- a shorter screen trims rows from the top once its bottom rows hold
+  text, so the frame slid up a row;
+- a wider frame wrapped, and its last row scrolled the screen.
+Images anchored to those rows moved with them, and what the app drew
+stayed wrong until its next frame.
+
+Resize the terminal first, then set the pty size while still holding
+the lock. Whatever the child writes in answer to SIGWINCH is parsed
+only once the grid has the size it was written for. The in-band size
+report (mode 2048) still follows the resize, as before. The ioctl is
+cheap, so the critical section stays small.
+
+Reported by plexos (RESIZE-RACE-01): its decorations showed from two
+sizes at once after a window resize under high CPU.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/Termio.zig | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index 33830032c..27d4d368a 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -527,9 +527,6 @@ pub fn resize(
+     self.size = size;
+     const grid_size = size.grid();
+ 
+-    // Update the size of our pty.
+-    try self.backend.resize(grid_size, size.terminal());
+-
+     // Enter the critical area that we want to keep small
+     {
+         self.renderer_state.mutex.lockUncancelable(global.io());
+@@ -548,6 +545,14 @@ pub fn resize(
+             },
+         );
+ 
++        // Update the size of our pty only now, while we still hold the
++        // lock the read thread parses output under. The child learns the
++        // new size (SIGWINCH) once the grid already has it, so the frame it
++        // draws for that size is never parsed onto the old grid, and then
++        // moved by the resize: a full screen app's rows shifted, or wrapped
++        // and scrolled, under load.
++        try self.backend.resize(grid_size, size.terminal());
++
+         // If we have size reporting enabled we need to send a report.
+         if (self.terminal.modes.get(.in_band_size_reports)) {
+             try self.sizeReportLocked(td, .mode_2048);
