@@ -12,7 +12,9 @@ change to a large image cost the image. Now:
 - kitty: the image logs each such edit's rectangle with the generation
   it stamped (Image.changes, freed with the image; markImageRegionChanged
   in the storage). Anything else that stamps a generation breaks the
-  chain, and changesSince then says "upload it whole".
+  chain, and changesSince then says "upload it whole". A full chain
+  (64 edits) keeps its latest half, so a renderer a few edits behind
+  still finds where it was.
 - renderer: when the GPU has an earlier generation and the image knows
   what changed since, only those rectangles are copied under the lock,
   into a new `update` state, and written into the existing texture with
@@ -22,8 +24,8 @@ change to a large image cost the image. Now:
   wait for frames in flight, so Metal keeps uploading whole images.
 
 Lines added outside tests: renderer/image.zig 117, graphics_image.zig
-87, graphics_exec.zig 11, graphics_storage.zig 15, OpenGL.zig 4,
-Metal.zig 5. Tests: the chain (graphics_image), an edit logging its
+95, graphics_exec.zig 11, graphics_storage.zig 15, OpenGL.zig 4,
+Metal.zig 5. Tests: the chain and its trimming (graphics_image), an edit logging its
 clipped rectangle and a shown frame breaking the chain (graphics_exec),
 and the renderer preparing one region (renderer/image).
 
@@ -33,9 +35,9 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  src/renderer/OpenGL.zig                 |   4 +
  src/renderer/image.zig                  | 192 +++++++++++++++++++++++-
  src/terminal/kitty/graphics_exec.zig    |  86 ++++++++++-
- src/terminal/kitty/graphics_image.zig   | 117 +++++++++++++++
+ src/terminal/kitty/graphics_image.zig   | 137 +++++++++++++++++
  src/terminal/kitty/graphics_storage.zig |  15 ++
- 6 files changed, 416 insertions(+), 3 deletions(-)
+ 6 files changed, 436 insertions(+), 3 deletions(-)
 
 diff --git a/src/renderer/Metal.zig b/src/renderer/Metal.zig
 index a98dce87a..f092070de 100644
@@ -474,7 +476,7 @@ index b1b968b28..e00869fd1 100644
      const testing = std.testing;
      const alloc = testing.allocator;
 diff --git a/src/terminal/kitty/graphics_image.zig b/src/terminal/kitty/graphics_image.zig
-index 76abb9ad8..0ea7f19e2 100644
+index 76abb9ad8..756ff6eec 100644
 --- a/src/terminal/kitty/graphics_image.zig
 +++ b/src/terminal/kitty/graphics_image.zig
 @@ -762,6 +762,38 @@ pub const Image = struct {
@@ -508,15 +510,15 @@ index 76abb9ad8..0ea7f19e2 100644
 +            region: Region,
 +        };
 +
-+        /// Past this many edits the chain starts again; a renderer
-+        /// further behind than that uploads the whole image.
++        /// Past this many edits the chain keeps only the latest half; a
++        /// renderer further behind than that uploads the whole image.
 +        pub const max = 64;
 +    };
 +
      pub const Error = error{
          InsufficientData,
          InvalidData,
-@@ -818,6 +850,62 @@ pub const Image = struct {
+@@ -818,6 +850,70 @@ pub const Image = struct {
              alloc.destroy(anim);
              self.animation = null;
          }
@@ -526,8 +528,9 @@ index 76abb9ad8..0ea7f19e2 100644
 +    /// Records that the edit which stamped the current generation over
 +    /// `before` changed only `region` of the displayed frame. If anything
 +    /// else stamped a generation since the last recorded edit, the
-+    /// chain starts again at `before`. Running out of memory drops the
-+    /// chain, which only costs renderers a whole upload.
++    /// chain starts again at `before`; a full chain forgets its older
++    /// half. Running out of memory drops the chain, which only costs
++    /// renderers a whole upload.
 +    pub fn logChange(
 +        self: *Image,
 +        alloc: Allocator,
@@ -542,9 +545,16 @@ index 76abb9ad8..0ea7f19e2 100644
 +        };
 +        const items = changes.entries.items;
 +        const last = if (items.len == 0) changes.base else items[items.len - 1].generation;
-+        if (last != before or items.len >= Changes.max) {
++        if (last != before) {
 +            changes.entries.clearRetainingCapacity();
 +            changes.base = before;
++        } else if (items.len >= Changes.max) {
++            // Starting again would lose a renderer that is only a few
++            // edits behind, and make it upload the whole image.
++            const keep = Changes.max / 2;
++            changes.base = items[items.len - keep - 1].generation;
++            std.mem.copyForwards(Changes.Change, items[0..keep], items[items.len - keep ..]);
++            changes.entries.shrinkRetainingCapacity(keep);
 +        }
 +        changes.entries.append(alloc, .{
 +            .generation = self.generation,
@@ -579,7 +589,7 @@ index 76abb9ad8..0ea7f19e2 100644
      }
  
      /// The pixel data that should be displayed for this image. For an
-@@ -2203,3 +2291,32 @@ test "limits: temporary file medium allowed by limits" {
+@@ -2203,3 +2299,44 @@ test "limits: temporary file medium allowed by limits" {
      );
      defer loading.deinit(alloc);
  }
@@ -611,6 +621,18 @@ index 76abb9ad8..0ea7f19e2 100644
 +    img.logChange(alloc, 7, .{ .x = 0, .y = 0, .width = 4, .height = 2 });
 +    try testing.expect(img.changesSince(6) == null);
 +    try testing.expectEqual(@as(usize, 1), img.changesSince(7).?.len);
++
++    // A full chain forgets only its older half: a renderer a few edits
++    // behind still finds where it was.
++    var gen: u64 = 8;
++    while (gen < 8 + Image.Changes.max) : (gen += 1) {
++        img.generation = gen + 1;
++        img.logChange(alloc, gen, .{ .x = 0, .y = 0, .width = 1, .height = 1 });
++    }
++    try testing.expectEqual(@as(usize, Image.Changes.max / 2 + 1), img.changesSince(gen - Image.Changes.max / 2 - 1).?.len);
++    try testing.expectEqual(@as(usize, 2), img.changesSince(gen - 2).?.len);
++    try testing.expect(img.changesSince(gen - Image.Changes.max / 2 - 2) == null);
++    try testing.expect(img.changesSince(7) == null);
 +}
 diff --git a/src/terminal/kitty/graphics_storage.zig b/src/terminal/kitty/graphics_storage.zig
 index 897c8944a..315623676 100644
