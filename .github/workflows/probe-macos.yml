@@ -12,6 +12,10 @@ on:
       release:
         description: The release tag to probe
         required: true
+      remap:
+        description: Swap Cmd and Ctrl (key-remap) and probe the menu with them
+        type: boolean
+        default: false
 
 jobs:
   probe:
@@ -30,7 +34,9 @@ jobs:
           xattr -dr com.apple.quarantine /Applications/hottyterm.app || true
 
       - name: Probe
-        run: scripts/probe-macos.sh /Applications/hottyterm.app probe
+        env:
+          MODE: ${{ inputs.remap && 'remap' || '' }}
+        run: scripts/probe-macos.sh /Applications/hottyterm.app probe "$MODE"
 
       - uses: actions/upload-artifact@v7
         if: always()

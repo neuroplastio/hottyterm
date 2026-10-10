@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 16:25:06 +0200
-Subject: [PATCH 19/23] termio: set the pty size after the grid's, under the
+Subject: [PATCH 19/24] termio: set the pty size after the grid's, under the
  renderer lock
 
 Termio.resize set the pty size (TIOCSWINSZ, so the child gets SIGWINCH)

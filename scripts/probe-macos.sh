@@ -1,7 +1,7 @@
 #!/bin/sh
 # Probes a focused text input in hottyterm on macOS, on a CI runner:
 #
-#   scripts/probe-macos.sh /Applications/hottyterm.app <out dir>
+#   scripts/probe-macos.sh /Applications/hottyterm.app <out dir> [remap]
 #
 # A program shows a HOTTY surface with one focused <input> (a red caret) and
 # logs what the terminal sends it. The probe then
@@ -17,12 +17,18 @@
 #     line start), then Control+s, which the field leaves to the program.
 #     The values go "ab cd", "ab Xcd", "Yab Xcd", "YZ", "W", "", and the
 #     program hears 0x13;
+#   - with `remap`, Cmd and Ctrl swapped (key-remap) instead: Cmd+A (Control+a:
+#     select all), "Z", Cmd+H (Control+h: the program hears 0x08, and the
+#     app does not hide), Cmd+C (Control+c: the program hears 0x03, nothing
+#     is copied), Ctrl+Backspace (Meta+Backspace: delete to line start). The
+#     values go "Z", "", and the program hears 0x08 0x03;
 #   - prints hottyterm's log lines about HOTTY.
 # The runner's own settings decide whether screenshots and keystrokes are
 # allowed; the probe says when they are not.
 set -u
 APP="$1"
 OUT="$2"
+MODE="${3:-}"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
 
@@ -57,6 +63,9 @@ window-height = 20
 confirm-close-surface = false
 quit-after-last-window-closed = true
 EOF
+if [ "$MODE" = remap ]; then
+  printf 'key-remap = super=ctrl\nkey-remap = ctrl=super\n' >> "$HOME/.config/ghostty/config"
+fi
 
 python3 -m venv "$OUT/venv" >/dev/null && "$OUT/venv/bin/pip" -q install pillow >/dev/null
 
@@ -93,8 +102,16 @@ sleep 0.5
 osascript -e 'tell application "System Events" to key code 51' 2>&1
 sleep 1
 
-echo "== keys: offered to the field first, before Ghostty's bindings and menu"
 se() { osascript -e "tell application \"System Events\" to $1" 2>&1; sleep 0.5; }
+if [ "$MODE" = remap ]; then
+echo "== keys: Cmd and Ctrl swapped, the menu sees them swapped"
+se 'keystroke "a" using command down'
+se 'keystroke "Z"'
+se 'keystroke "h" using command down'
+se 'keystroke "c" using command down'
+se 'key code 51 using control down'
+else
+echo "== keys: offered to the field first, before Ghostty's bindings and menu"
 se 'keystroke " cd"'
 se 'key code 123 using option down'
 se 'keystroke "X"'
@@ -106,6 +123,7 @@ se 'keystroke "a" using command down'
 se 'keystroke "W"'
 se 'key code 51 using command down'
 se 'keystroke "s" using control down'
+fi
 sleep 1
 screencapture -x "$OUT/after-keys.png" 2>&1
 python3 - "$OUT/replies.log" <<'EOF'

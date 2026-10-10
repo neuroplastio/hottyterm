@@ -1,0 +1,191 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Sat, 10 Oct 2026 19:17:45 +0200
+Subject: [PATCH 24/24] hottyterm: the macOS menu sees keys as key-remap makes
+ them; no Mac keys for quit, close or full screen
+
+The maintainer, 2026-10-10: kill Cmd+Q, Cmd+W and Ctrl+Cmd+F on the Mac
+too, and swap Cmd and Ctrl in hottyterm as Option and Alt are swapped.
+Ghostty's key-remap swaps them (`key-remap = super=ctrl`, `key-remap =
+ctrl=super`), but AppKit's menu matched keys before the remap: the main
+key, which reaches macOS as Cmd, still hit Copy, Select All, Hide and
+Minimize with C, A, H and M instead of reaching the terminal as Ctrl.
+
+The menu now sees a key as remapped. A key that becomes no Command key
+is the terminal's, never the menu's; one that becomes a Command key goes
+to the menu as that, to the menu item of its binding or to the menu's
+own items (Hide, Minimize). ghostty_surface_key_remap_mods gives Swift
+the remapped modifiers.
+
+The default keys for quit, close (Cmd+W) and full screen are gone on
+the Mac too, the menu's static Ctrl+Cmd+F with them.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ include/ghostty.h                             |  2 +
+ macos/Sources/App/AppDelegate.swift           |  4 +-
+ .../Surface View/SurfaceView_AppKit.swift     | 37 ++++++++++++++++++-
+ src/apprt/embedded.zig                        | 14 +++++++
+ src/config/Config.zig                         | 14 ++-----
+ 5 files changed, 59 insertions(+), 12 deletions(-)
+
+diff --git a/include/ghostty.h b/include/ghostty.h
+index eec655037..d08060399 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1197,6 +1197,8 @@ GHOSTTY_API void ghostty_surface_set_color_scheme(ghostty_surface_t,
+                                                      ghostty_color_scheme_e);
+ GHOSTTY_API ghostty_input_mods_e ghostty_surface_key_translation_mods(ghostty_surface_t,
+                                                                          ghostty_input_mods_e);
++GHOSTTY_API ghostty_input_mods_e ghostty_surface_key_remap_mods(ghostty_surface_t,
++                                                                   ghostty_input_mods_e);
+ GHOSTTY_API bool ghostty_surface_key(ghostty_surface_t, ghostty_input_key_s);
+ GHOSTTY_API bool ghostty_surface_key_is_binding(ghostty_surface_t,
+                                                    ghostty_input_key_s,
+diff --git a/macos/Sources/App/AppDelegate.swift b/macos/Sources/App/AppDelegate.swift
+index 34959158e..718d78a21 100644
+--- a/macos/Sources/App/AppDelegate.swift
++++ b/macos/Sources/App/AppDelegate.swift
+@@ -1193,9 +1193,11 @@ extension AppDelegate {
+         syncMenuShortcut(config, action: "new_tab", menuItem: self.menuNewTab)
+         syncMenuShortcut(config, action: "close_surface", menuItem: self.menuClose)
+         syncMenuShortcut(config, action: "close_tab", menuItem: self.menuCloseTab)
+-        // hottyterm: no tabs.
++        // hottyterm: no tabs, and full screen is the window manager's.
+         self.menuNewTab?.isHidden = true
+         self.menuCloseTab?.isHidden = true
++        self.menuToggleFullScreen?.keyEquivalent = ""
++        self.menuToggleFullScreen?.keyEquivalentModifierMask = []
+         syncMenuShortcut(config, action: "close_window", menuItem: self.menuCloseWindow)
+         syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
+         syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
+diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
+index 36ad8f100..fe9d56b75 100644
+--- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
++++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
+@@ -1323,6 +1323,30 @@ extension Ghostty {
+                 return false
+             }
+ 
++            // hottyterm: the menu sees a key as `key-remap` makes it (Cmd and
++            // Ctrl swapped, say), not as it came. A key that becomes no
++            // Command key is the terminal's, never the menu's: Ctrl+H is not
++            // Hide. One that becomes a Command key goes to the menu as that.
++            let modKeys: NSEvent.ModifierFlags = [.shift, .control, .option, .command]
++            let rawMods = event.modifierFlags.intersection(modKeys)
++            let remappedMods = surface.map { surface in
++                Ghostty.eventModifierFlags(
++                    mods: ghostty_surface_key_remap_mods(surface, Ghostty.ghosttyMods(event.modifierFlags))
++                ).intersection(modKeys)
++            } ?? rawMods
++            let menuEvent: NSEvent = remappedMods == rawMods ? event : NSEvent.keyEvent(
++                with: .keyDown,
++                location: event.locationInWindow,
++                modifierFlags: event.modifierFlags.subtracting(modKeys).union(remappedMods),
++                timestamp: event.timestamp,
++                windowNumber: event.windowNumber,
++                context: nil,
++                characters: event.characters ?? "",
++                charactersIgnoringModifiers: event.charactersIgnoringModifiers ?? "",
++                isARepeat: event.isARepeat,
++                keyCode: event.keyCode
++            ) ?? event
++
+             // Get information about if this is a binding.
+             let bindingFlags = surfaceModel.flatMap { surface in
+                 var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
+@@ -1345,7 +1369,7 @@ extension Ghostty {
+                    bindingFlags.isDisjoint(with: [.all, .performable]),
+                    bindingFlags.contains(.consumed) {
+                     if let appDelegate = NSApp.delegate as? AppDelegate,
+-                       appDelegate.performGhosttyBindingMenuKeyEquivalent(with: event) {
++                       appDelegate.performGhosttyBindingMenuKeyEquivalent(with: menuEvent) {
+                         return true
+                     }
+                 }
+@@ -1354,6 +1378,17 @@ extension Ghostty {
+                 return true
+             }
+ 
++            // hottyterm: a remapped key that is no binding: the menu's only
++            // if it became a Command key, and otherwise the terminal's.
++            if remappedMods != rawMods {
++                if remappedMods.contains(.command),
++                   NSApp.mainMenu?.performKeyEquivalent(with: menuEvent) == true {
++                    return true
++                }
++                self.keyDown(with: event)
++                return true
++            }
++
+             let equivalent: String
+             switch event.charactersIgnoringModifiers {
+             case "\r":
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index b90366ac7..d34bb6e48 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -2027,6 +2027,20 @@ pub const CAPI = struct {
+         return @intCast(@as(input.Mods.Backing, @bitCast(result)));
+     }
+ 
++    /// hottyterm: the modifiers `mods_raw` stand for after `key-remap`, so
++    /// that the macOS menu sees a key as remapped.
++    export fn ghostty_surface_key_remap_mods(
++        surface: *Surface,
++        mods_raw: c_int,
++    ) c_int {
++        const mods: input.Mods = @bitCast(@as(
++            input.Mods.Backing,
++            @truncate(@as(c_uint, @bitCast(mods_raw))),
++        ));
++        const result = surface.core_surface.config.key_remaps.apply(mods);
++        return @intCast(@as(input.Mods.Backing, @bitCast(result)));
++    }
++
+     /// Send this for raw keypresses (i.e. the keyDown event on macOS).
+     /// This will handle the keymap translation and send the appropriate
+     /// key and char events.
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index 010084d5e..4e1ba52dd 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -7459,10 +7459,8 @@ pub const Keybinds = struct {
+ 
+     /// hottyterm: no tabs, since plx has them, and windows and full screen
+     /// are the window manager's: no default keys for tabs, for quitting,
+-    /// for closing windows or for full screen. The Mac keeps Cmd+Q, Cmd+W
+-    /// and Ctrl+Cmd+F, which no window manager gives there.
++    /// for closing windows or for full screen, on the Mac too.
+     fn hottytermDefaults(set: *inputpkg.Binding.Set, alloc: Allocator) !void {
+-        const mac = comptime builtin.target.os.tag.isDarwin();
+         var drop: std.ArrayList(inputpkg.Binding.Trigger) = .empty;
+         defer drop.deinit(alloc);
+         var it = set.bindings.iterator();
+@@ -7472,11 +7470,6 @@ pub const Keybinds = struct {
+                 .leaf => |leaf| leaf.action,
+                 else => continue,
+             };
+-            const ctrl_cmd_f = t.mods.ctrl and t.mods.super and !t.mods.shift and !t.mods.alt and
+-                switch (t.key) {
+-                    .unicode => |cp| cp == 'f',
+-                    else => false,
+-                };
+             const gone = switch (action) {
+                 .new_tab,
+                 .close_tab,
+@@ -7486,11 +7479,12 @@ pub const Keybinds = struct {
+                 .goto_tab,
+                 .move_tab,
+                 .toggle_tab_overview,
++                .close_surface,
+                 .close_window,
+                 .close_all_windows,
++                .quit,
++                .toggle_fullscreen,
+                 => true,
+-                .quit => !mac,
+-                .toggle_fullscreen => !(mac and ctrl_cmd_f),
+                 else => false,
+             };
+             if (gone) try drop.append(alloc, t);
