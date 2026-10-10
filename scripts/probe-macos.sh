@@ -7,7 +7,10 @@
 # `regions` probes partial frames instead (kitty frame edits drawn into the
 # image's texture, renderer `texture_region_updates`): a program colours one
 # cell of a grid a step, by a CSS variable, and the probe screenshots each
-# step: the new colour must show and the earlier ones stay. Then the program
+# step: the new colour must show and the earlier ones stay, counted against
+# the shot before so the menu bar and the Dock don't count. The colours are
+# saturated: macOS's colour conversion moves pale ones past the tolerance
+# (#80ff80 was captured as #38ff6d). Then the program
 # changes 4 cells' text at 10 Hz for 15 s and the probe reads the app's CPU
 # time over 12 s of it, and the same for a baseline app when given.
 #
@@ -57,7 +60,7 @@ def wait(name):
     while not os.path.exists(os.path.join(out, name)):
         drain(0.05)
 COLORS = ["#00c800", "#0000ff", "#ffff00", "#00ffff", "#ff00ff", "#ff8000",
-          "#8000ff", "#008080", "#808000", "#ffffff", "#80ff80", "#0080ff"]
+          "#8000ff", "#008080", "#808000", "#ff0000", "#ff0080", "#0080ff"]
 cells = "".join(f"<div class=c id=c{i}><span id=t{i}>{i}</span></div>" for i in range(24))
 html = ("<style>body{margin:0;background:#222;color:#ddd;font:14px monospace}"
         "#g{display:grid;grid-template-columns:repeat(6,60px);gap:8px;padding:8px}"
@@ -102,6 +105,7 @@ CFG
   [ -f "$dir/ready" ] || { echo "the program never started"; return; }
   sleep 3
   pid=$(pgrep -n -f "$app/Contents/MacOS/")
+  screencapture -x "$dir/start.png" 2>&1
   for k in $(seq 0 11); do
     touch "$dir/go$k"
     for _ in $(seq 1 50); do [ -f "$dir/step$k" ] && break; sleep 0.1; done
@@ -118,16 +122,17 @@ CFG
 import sys
 from PIL import Image
 COLORS = ["#00c800", "#0000ff", "#ffff00", "#00ffff", "#ff00ff", "#ff8000",
-          "#8000ff", "#008080", "#808000", "#ffffff", "#80ff80", "#0080ff"]
+          "#8000ff", "#008080", "#808000", "#ff0000", "#ff0080", "#0080ff"]
 rgb = [tuple(int(c[i:i + 2], 16) for i in (1, 3, 5)) for c in COLORS]
 def count(path, want):
     im = Image.open(path).convert("RGB")
     return sum(1 for p in im.get_flattened_data() if all(abs(a - b) <= 40 for a, b in zip(p, want)))
 d = sys.argv[1]
-seen = [count(f"{d}/step{k}.png", rgb[k]) for k in range(12)]
-kept = [count(f"{d}/step11.png", rgb[k]) for k in range(12)]
-print("each step's colour, px:", " ".join(map(str, seen)))
-print("all colours at the end, px:", " ".join(map(str, kept)))
+shots = [f"{d}/start.png"] + [f"{d}/step{k}.png" for k in range(12)]
+seen = [count(shots[k + 1], rgb[k]) - count(shots[k], rgb[k]) for k in range(12)]
+kept = [count(shots[12], rgb[k]) - count(shots[0], rgb[k]) for k in range(12)]
+print("each step's colour, px more than the shot before:", " ".join(map(str, seen)))
+print("all colours at the end, px more than at the start:", " ".join(map(str, kept)))
 print("regions:", "ok" if min(seen) > 500 and min(kept) > 500 else "MISSING")
 PY
 }
