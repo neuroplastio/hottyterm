@@ -1,0 +1,210 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Sat, 10 Oct 2026 18:59:29 +0200
+Subject: [PATCH 23/23] hottyterm: a frame's rectangles go straight into the
+ surface's image
+
+A damaged rectangle went through a kitty a=f command: hotty.zig
+converted it to straight alpha in a new buffer, the command copied that
+into a LoadingImage, and completing it composed it into the image, two
+more copies and allocations a rectangle. It is now converted from the
+frame into the image's pixels in place, and the region logged for the
+renderer (Image.changesSince) as the a=f edit did. An image that cannot
+take that (animated, not RGBA) is replaced whole, as a failed edit was.
+
+The conversion copies a row at once and fixes only translucent pixels,
+found 8 at a time: it called memcpy for each opaque pixel. A replaced
+image takes the converted buffer instead of a copy of it.
+
+dash.py: the delivery's instructions fell from ~4.8M to ~1.9M a frame.
+
+Upstream lines: none (hotty.zig only).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig | 133 ++++++++++++++++++++++++++++---------------
+ 1 file changed, 88 insertions(+), 45 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 0f1166afd..8457e5ab8 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -877,42 +877,35 @@ pub const Hotty = struct {
+         // An update of the same size on the active screen: kitty frame edits
+         // of the damaged rectangles only.
+         if (!full and img.width == w and img.height == h and placed.screen == t.screens.active_key) {
+-            if (self.edit(t, placed.image_id, frame, stride, rects[0..nrects])) return;
++            if (self.edit(storage, img, frame, stride, rects[0..nrects])) return;
+         }
+ 
+         // Everything changed, the size did, or the screen is not showing:
+         // replace the pixels whole, keeping the placement.
+         const data = straight(self.alloc, frame, stride, .{ .x = 0, .y = 0, .w = w, .h = h }) catch return;
+-        defer self.alloc.free(data);
+-        replaceImage(self.alloc, storage, img, w, h, data) catch |err|
++        replaceImage(self.alloc, storage, img, w, h, data) catch |err| {
++            self.alloc.free(data);
+             log.warn("hotty: surface {s} not updated: {}", .{ name, err });
++        };
+     }
+ 
+-    /// Writes each rectangle with an `a=f` edit of the image's first frame.
+-    /// False if one failed: the caller then replaces the image whole.
+-    fn edit(self: *Hotty, t: *terminal.Terminal, id: u32, frame: []const u8, stride: usize, rects: []const Rect) bool {
++    /// Writes each rectangle into the image's pixels, as an `a=f` edit of
++    /// its first frame would, without the command's copies. False if the
++    /// image cannot take edits in place: the caller then replaces it whole.
++    fn edit(self: *Hotty, storage: *kitty.graphics.ImageStorage, img: *kitty.graphics.Image, frame: []const u8, stride: usize, rects: []const Rect) bool {
++        if (img.format != .rgba or img.compression != .none) return false;
++        if (img.animation) |anim| if (anim.frames.items.len > 0) return false;
++        const pixels = img.data.bytes() orelse return false;
++        const img_stride = @as(usize, img.width) * 4;
++        if (pixels.len != img_stride * img.height) return false;
++        // The image's pixels are owned by its storage (as the renderer's
++        // uploads reason too).
++        const dst = @constCast(pixels);
+         for (rects) |r| {
+             if (r.w == 0 or r.h == 0) continue;
+-            const data = straight(self.alloc, frame, stride, r) catch return false;
+-            defer self.alloc.free(data);
+-            var cmd: kitty.graphics.Command = .{
+-                .control = .{ .transmit_animation_frame = .{
+-                    .transmission = .{
+-                        .format = .rgba,
+-                        .medium = .direct,
+-                        .width = r.w,
+-                        .height = r.h,
+-                        .image_id = id,
+-                    },
+-                    .x = r.x,
+-                    .y = r.y,
+-                    .edit_frame = 1,
+-                    .composition_mode = .overwrite,
+-                } },
+-                .quiet = .ok,
+-                .data = data,
+-            };
+-            if (!self.exec(t, &cmd)) return false;
++            if (@as(u64, r.x) + r.w > img.width or @as(u64, r.y) + r.h > img.height) return false;
++            straightInto(dst[@as(usize, r.y) * img_stride + @as(usize, r.x) * 4 ..], img_stride, frame, stride, r);
++            storage.markImageRegionChanged(global.io(), self.alloc, img, .{ .x = r.x, .y = r.y, .width = r.w, .height = r.h });
+         }
+         return true;
+     }
+@@ -934,14 +927,14 @@ pub const Hotty = struct {
+ 
+     /// Replaces an image's pixels, possibly at a new size, keeping its
+     /// placements. The kitty protocol cannot do this: sending an image id
+-    /// again deletes its placements.
+-    fn replaceImage(alloc: Allocator, storage: *kitty.graphics.ImageStorage, img: *kitty.graphics.Image, w: u32, h: u32, data: []const u8) !void {
++    /// again deletes its placements. The image takes `data`, unless this
++    /// fails.
++    fn replaceImage(alloc: Allocator, storage: *kitty.graphics.ImageStorage, img: *kitty.graphics.Image, w: u32, h: u32, data: []u8) !void {
+         if (img.animation) |anim| if (anim.frames.items.len > 0) return error.Animated;
+         const old_len = img.data.len();
+         if (storage.total_bytes - old_len + data.len > storage.total_limit) return error.StorageFull;
+-        const copy = try alloc.dupe(u8, data);
+         img.data.deinit(alloc);
+-        img.data = .{ .complete = copy };
++        img.data = .{ .complete = data };
+         img.width = w;
+         img.height = h;
+         img.format = .rgba;
+@@ -955,25 +948,52 @@ pub const Hotty = struct {
+     fn straight(alloc: Allocator, frame: []const u8, stride: usize, r: Rect) ![]u8 {
+         const row_len = @as(usize, r.w) * 4;
+         const out = try alloc.alloc(u8, row_len * r.h);
++        straightInto(out, row_len, frame, stride, r);
++        return out;
++    }
++
++    /// Copies rectangle `r` of a premultiplied frame to `dst`, rows
++    /// `dst_stride` apart, in straight alpha.
++    fn straightInto(dst: []u8, dst_stride: usize, frame: []const u8, stride: usize, r: Rect) void {
++        const row_len = @as(usize, r.w) * 4;
+         var y: usize = 0;
+         while (y < r.h) : (y += 1) {
+-            const s_row = frame[(r.y + y) * stride + @as(usize, r.x) * 4 ..][0..row_len];
+-            const d_row = out[y * row_len ..][0..row_len];
+-            var i: usize = 0;
+-            while (i < s_row.len) : (i += 4) {
+-                const a = s_row[i + 3];
+-                if (a == 255 or a == 0) {
+-                    @memcpy(d_row[i .. i + 4], s_row[i .. i + 4]);
+-                } else {
+-                    const af: u32 = a;
+-                    inline for (0..3) |c| {
+-                        d_row[i + c] = @intCast(@min(255, (@as(u32, s_row[i + c]) * 255 + af / 2) / af));
+-                    }
+-                    d_row[i + 3] = a;
+-                }
++            const d_row = dst[y * dst_stride ..][0..row_len];
++            @memcpy(d_row, frame[(r.y + y) * stride + @as(usize, r.x) * 4 ..][0..row_len]);
++            unpremultiply(d_row);
++        }
++    }
++
++    /// Converts premultiplied pixels to straight alpha in place. Most are
++    /// opaque or clear, which stay as they are: they are skipped 8 at a
++    /// time.
++    fn unpremultiply(px: []u8) void {
++        const V = @Vector(32, u8);
++        const alphas: V = comptime alphas: {
++            var m: [32]u8 = @splat(0);
++            for (0..8) |p| m[p * 4 + 3] = 0xff;
++            break :alphas m;
++        };
++        var i: usize = 0;
++        while (i + 32 <= px.len) : (i += 32) {
++            // Masked, an alpha of 0 or 255 and every colour byte become 1
++            // or 0 once 1 is added; a translucent alpha stays above 1.
++            const v: V = px[i..][0..32].*;
++            if (@reduce(.Max, (v & alphas) +% @as(V, @splat(1))) > 1) unpremultiplyEach(px[i..][0..32]);
++        }
++        unpremultiplyEach(px[i..]);
++    }
++
++    fn unpremultiplyEach(px: []u8) void {
++        var i: usize = 0;
++        while (i + 4 <= px.len) : (i += 4) {
++            const a = px[i + 3];
++            if (a == 255 or a == 0) continue;
++            const af: u32 = a;
++            inline for (0..3) |c| {
++                px[i + c] = @intCast(@min(255, (@as(u32, px[i + c]) * 255 + af / 2) / af));
+             }
+         }
+-        return out;
+     }
+ 
+     /// The next image id that no surface holds and no image on either
+@@ -1491,6 +1511,29 @@ fn programHolds(held: bool, first_press: bool, taken: bool, any_down: bool) bool
+     return held;
+ }
+ 
++test "Hotty.unpremultiply" {
++    // Translucent pixels anywhere, in the blocks of 8 skipped whole and in
++    // the tail after them, come out as converting each pixel would.
++    var prng = std.Random.DefaultPrng.init(0x484f54);
++    const rand = prng.random();
++    var px: [4 * 77]u8 = undefined;
++    for (0..200) |_| {
++        for (0..77) |p| {
++            const a: u8 = switch (rand.uintLessThan(u8, 4)) {
++                0 => 0,
++                1, 2 => 255,
++                else => rand.int(u8),
++            };
++            for (0..3) |c| px[p * 4 + c] = rand.uintAtMost(u8, a);
++            px[p * 4 + 3] = a;
++        }
++        var want = px;
++        Hotty.unpremultiplyEach(&want);
++        Hotty.unpremultiply(&px);
++        try std.testing.expectEqualSlices(u8, &want, &px);
++    }
++}
++
+ test programHolds {
+     const t = std.testing;
+     // A press on the cells holds the pointer for the program...

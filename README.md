@@ -65,7 +65,7 @@ here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK); `0015` a surface names a key from the bytes the program would read; `0016` a touch taps and scrolls where the finger touched (GTK); `0017` a touch drags what opts out of panning; `0018` a zoom is a browser's zoom; `0019` the pty learns a new size only after the grid has it (termio, generic); `0020` a kitty frame edit uploads only the rectangle it changed (renderer, generic; OpenGL); `0021` a surface is offered a key as pressed first; `0022` no tabs, and windows and full screen are the window manager's |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK); `0015` a surface names a key from the bytes the program would read; `0016` a touch taps and scrolls where the finger touched (GTK); `0017` a touch drags what opts out of panning; `0018` a zoom is a browser's zoom; `0019` the pty learns a new size only after the grid has it (termio, generic); `0020` a kitty frame edit uploads only the rectangle it changed (renderer, generic; OpenGL); `0021` a surface is offered a key as pressed first; `0022` no tabs, and windows and full screen are the window manager's; `0023` a frame's rectangles go straight into the surface's image |
 | new code | `src/termio/hotty.zig`, 1628 lines: all of the logic |
 | upstream files touched | 10 files, 246 lines added and 4 changed — hooks, settings and the GTK touch gesture |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
@@ -411,6 +411,12 @@ On a private headless display (hotty-blitz's `scripts/headless.sh`):
   `dash.py` at 3.5 Mpx, about 0.45 Mpx changing a frame, the terminal went
   from 14.6–16.1% CPU to 12.8–12.9%, alternating runs on a loaded machine
   (gov R-5). It is written as its own patch so it can go upstream.
+- Since `0023` (2026-10-10), a damaged rectangle is converted from the frame
+  into the image's pixels in place, not sent as a kitty `a=f` edit (two more
+  copies and allocations), and the conversion skips opaque and clear pixels 8
+  at a time. On `dash.py` the delivery's instructions fell from ~4.8M to ~1.9M
+  a frame (`perf`, counted instructions: the machine was too loaded for CPU
+  time).
 
 Headless clicks need a keyboard: Ghostty takes a left click on an unfocused
 surface as a focus click and does not report it, and the headless display has no

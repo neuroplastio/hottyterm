@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
 Date: Fri, 2 Oct 2026 12:28:31 +0200
-Subject: [PATCH 03/22] hottyterm: surface image ids never collide
+Subject: [PATCH 03/23] hottyterm: surface image ids never collide
 
 Every placement at a new size takes a fresh kitty image id, and ids
 cycled through 256 values. A program that resizes its surfaces went

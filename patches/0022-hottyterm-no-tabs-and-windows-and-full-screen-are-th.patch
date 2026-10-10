@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 18:52:10 +0200
-Subject: [PATCH 22/22] hottyterm: no tabs, and windows and full screen are the
+Subject: [PATCH 22/23] hottyterm: no tabs, and windows and full screen are the
  window manager's
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
