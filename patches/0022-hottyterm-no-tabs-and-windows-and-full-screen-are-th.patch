@@ -1,0 +1,305 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Sat, 10 Oct 2026 18:52:10 +0200
+Subject: [PATCH 22/22] hottyterm: no tabs, and windows and full screen are the
+ window manager's
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Tabs are plx's, and windows and full screen belong to the window
+manager (the maintainer, 2026-10-10). Default keys for tabs (new, close,
+previous/next, by number, move, the overview), for quitting, for closing
+windows and for full screen are gone. The Mac keeps Cmd+Q, Cmd+W and
+Ctrl+Cmd+F, which no window manager gives there.
+
+A new tab, from a binding, a menu or `+new-tab`, is a new window. GTK:
+the menus lose their tab items, the header bar's button is New Window
+and the tab overview button is hidden. macOS: windows never group as
+tabs, even with the system's "prefer tabs" setting, and the File menu
+loses New Tab and Close Tab.
+
+hottyterm stops keeping tab, close-window and close-all-windows keys
+from a surface (SPEC §10.4).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ macos/Sources/App/AppDelegate.swift           |  5 +++
+ .../Window Styles/TerminalWindow.swift        | 11 ++---
+ src/apprt/gtk/class/application.zig           | 20 +++------
+ src/apprt/gtk/ui/1.2/surface.blp              | 20 ---------
+ src/apprt/gtk/ui/1.5/window.blp               | 30 +++----------
+ src/config/Config.zig                         | 43 +++++++++++++++++++
+ src/termio/hotty.zig                          | 10 +----
+ 7 files changed, 66 insertions(+), 73 deletions(-)
+
+diff --git a/macos/Sources/App/AppDelegate.swift b/macos/Sources/App/AppDelegate.swift
+index 599bd8fb0..34959158e 100644
+--- a/macos/Sources/App/AppDelegate.swift
++++ b/macos/Sources/App/AppDelegate.swift
+@@ -194,6 +194,8 @@ class AppDelegate: NSObject,
+             UserDefaults.ghostty.removePersistentDomain(forName: suite)
+         }
+         #endif
++        // hottyterm: no tabs, so the Window menu has no tab items either.
++        NSWindow.allowsAutomaticWindowTabbing = false
+         UserDefaults.ghostty.register(defaults: [
+             // Disable the automatic full screen menu item because we handle
+             // it manually.
+@@ -1191,6 +1193,9 @@ extension AppDelegate {
+         syncMenuShortcut(config, action: "new_tab", menuItem: self.menuNewTab)
+         syncMenuShortcut(config, action: "close_surface", menuItem: self.menuClose)
+         syncMenuShortcut(config, action: "close_tab", menuItem: self.menuCloseTab)
++        // hottyterm: no tabs.
++        self.menuNewTab?.isHidden = true
++        self.menuCloseTab?.isHidden = true
+         syncMenuShortcut(config, action: "close_window", menuItem: self.menuCloseWindow)
+         syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
+         syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
+diff --git a/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift b/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift
+index 81b6666a1..d972d9a1a 100644
+--- a/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift	
++++ b/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift	
+@@ -95,13 +95,10 @@ class TerminalWindow: NSWindow {
+             self.configureTabContextMenuIfNeeded(menu)
+         }
+ 
+-        // This is required so that window restoration properly creates our tabs
+-        // again. I'm not sure why this is required. If you don't do this, then
+-        // tabs restore as separate windows.
+-        tabbingMode = .preferred
+-        DispatchQueue.main.async {
+-            self.tabbingMode = .automatic
+-        }
++        // hottyterm: no tabs (plx has them). A new tab is a new window
++        // (TerminalController.newTab), and macOS's own "prefer tabs" setting
++        // does not group windows either.
++        tabbingMode = .disallowed
+ 
+         // All new windows are based on the app config at the time of creation.
+         guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
+diff --git a/src/apprt/gtk/class/application.zig b/src/apprt/gtk/class/application.zig
+index 80cc8bddc..c51879f1d 100644
+--- a/src/apprt/gtk/class/application.zig
++++ b/src/apprt/gtk/class/application.zig
+@@ -2570,24 +2570,14 @@ const Action = struct {
+                 return false;
+             },
+ 
++            // hottyterm: no tabs (plx has them). A new tab, from a binding,
++            // a menu or `+new-tab`, is a new window, which the window
++            // manager places.
+             .surface => |core| {
+-                // Get the window ancestor of the surface. Surfaces shouldn't
+-                // be aware they might be in windows but at the app level we
+-                // can do this.
+-                const surface = core.rt_surface.surface;
+-                const window = ext.getAncestor(
+-                    Window,
+-                    surface.as(gtk.Widget),
+-                ) orelse {
+-                    log.warn("surface is not in a window, ignoring new_tab", .{});
++                newWindow(Application.default(), core, overrides) catch |err| {
++                    log.warn("unable to open a window for a new tab err={}", .{err});
+                     return false;
+                 };
+-                window.newTab(core, .{
+-                    .command = overrides.command,
+-                    .shell_integration = overrides.shell_integration,
+-                    .working_directory = overrides.working_directory,
+-                    .title = overrides.title,
+-                });
+                 return true;
+             },
+         }
+diff --git a/src/apprt/gtk/ui/1.2/surface.blp b/src/apprt/gtk/ui/1.2/surface.blp
+index 8dd0427ea..7c13e75de 100644
+--- a/src/apprt/gtk/ui/1.2/surface.blp
++++ b/src/apprt/gtk/ui/1.2/surface.blp
+@@ -382,26 +382,6 @@ menu context_menu_model {
+       }
+     }
+ 
+-    submenu {
+-      label: _("Tab");
+-
+-      item {
+-        label: _("Change Tab Title…");
+-        action: "tab.prompt-tab-title";
+-      }
+-
+-      item {
+-        label: _("New Tab");
+-        action: "win.new-tab";
+-      }
+-
+-      item {
+-        label: _("Close Tab");
+-        action: "tab.close";
+-        target: "this";
+-      }
+-    }
+-
+     submenu {
+       label: _("Window");
+ 
+diff --git a/src/apprt/gtk/ui/1.5/window.blp b/src/apprt/gtk/ui/1.5/window.blp
+index 32d1bf370..f1ec8817b 100644
+--- a/src/apprt/gtk/ui/1.5/window.blp
++++ b/src/apprt/gtk/ui/1.5/window.blp
+@@ -24,7 +24,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
+     create-tab => $overview_create_tab();
+     notify::open => $overview_notify_open();
+     view: tab_view;
+-    enable-new-tab: true;
++    enable-new-tab: false;
+     // Disable the title buttons (close, maximize, minimize, ...)
+     // *inside* the tab overview if CSDs are disabled.
+     // We do spare the search button, though.
+@@ -56,8 +56,8 @@ template $GhosttyWindow: Adw.ApplicationWindow {
+         [start]
+         Adw.SplitButton {
+           clicked => $new_tab();
+-          icon-name: "tab-new-symbolic";
+-          tooltip-text: _("New Tab");
++          icon-name: "window-new-symbolic";
++          tooltip-text: _("New Window");
+           dropdown-tooltip: _("New Split");
+           menu-model: split_menu;
+           can-focus: false;
+@@ -67,6 +67,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
+         [end]
+         Gtk.Box {
+           Gtk.ToggleButton {
++            visible: false; // hottyterm: no tabs
+             icon-name: "view-grid-symbolic";
+             tooltip-text: _("View Open Tabs");
+             active: bind tab_overview.open bidirectional;
+@@ -106,8 +107,8 @@ template $GhosttyWindow: Adw.ApplicationWindow {
+             ]
+ 
+             clicked => $new_tab();
+-            icon-name: "tab-new-symbolic";
+-            tooltip-text: _("New Tab");
++            icon-name: "window-new-symbolic";
++            tooltip-text: _("New Window");
+             dropdown-tooltip: _("New Split");
+             menu-model: split_menu;
+             can-focus: false;
+@@ -125,6 +126,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
+               "flat",
+             ]
+ 
++            visible: false; // hottyterm: no tabs
+             icon-name: "view-grid-symbolic";
+             tooltip-text: _("View Open Tabs");
+             active: bind tab_overview.open bidirectional;
+@@ -227,24 +229,6 @@ menu main_menu {
+     }
+   }
+ 
+-  section {
+-    item {
+-      label: _("Change Tab Title…");
+-      action: "win.prompt-tab-title";
+-    }
+-
+-    item {
+-      label: _("New Tab");
+-      action: "win.new-tab";
+-    }
+-
+-    item {
+-      label: _("Close Tab");
+-      action: "win.close-tab";
+-      target: "this";
+-    }
+-  }
+-
+   section {
+     submenu {
+       label: _("Split");
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index d8e86d43c..010084d5e 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -7453,6 +7453,49 @@ pub const Keybinds = struct {
+                 .{ .esc = "f" },
+             );
+         }
++
++        try hottytermDefaults(&self.set, alloc);
++    }
++
++    /// hottyterm: no tabs, since plx has them, and windows and full screen
++    /// are the window manager's: no default keys for tabs, for quitting,
++    /// for closing windows or for full screen. The Mac keeps Cmd+Q, Cmd+W
++    /// and Ctrl+Cmd+F, which no window manager gives there.
++    fn hottytermDefaults(set: *inputpkg.Binding.Set, alloc: Allocator) !void {
++        const mac = comptime builtin.target.os.tag.isDarwin();
++        var drop: std.ArrayList(inputpkg.Binding.Trigger) = .empty;
++        defer drop.deinit(alloc);
++        var it = set.bindings.iterator();
++        while (it.next()) |entry| {
++            const t = entry.key_ptr.*;
++            const action = switch (entry.value_ptr.*) {
++                .leaf => |leaf| leaf.action,
++                else => continue,
++            };
++            const ctrl_cmd_f = t.mods.ctrl and t.mods.super and !t.mods.shift and !t.mods.alt and
++                switch (t.key) {
++                    .unicode => |cp| cp == 'f',
++                    else => false,
++                };
++            const gone = switch (action) {
++                .new_tab,
++                .close_tab,
++                .previous_tab,
++                .next_tab,
++                .last_tab,
++                .goto_tab,
++                .move_tab,
++                .toggle_tab_overview,
++                .close_window,
++                .close_all_windows,
++                => true,
++                .quit => !mac,
++                .toggle_fullscreen => !(mac and ctrl_cmd_f),
++                else => false,
++            };
++            if (gone) try drop.append(alloc, t);
++        }
++        for (drop.items) |t| set.remove(alloc, t);
+     }
+ 
+     pub fn parseCLI(self: *Keybinds, alloc: Allocator, input: ?[]const u8) !void {
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 6d2b75b93..0f1166afd 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -1751,8 +1751,8 @@ fn namedKey(key: input.Key) ?[]const u8 {
+ /// The keys hottyterm keeps from a surface (SPEC §10.4 lets a host keep
+ /// some): every key while a key sequence or a key table is under way, a key
+ /// that starts a sequence, and a key bound to what a browser keeps too:
+-/// opening, closing and picking windows, tabs and splits by number,
+-/// quitting, the config, key tables.
++/// opening windows and splits, closing them, quitting, full screen, the
++/// config, key tables. hottyterm has no tabs.
+ fn reserved(s: *Surface, event: input.KeyEvent) bool {
+     if (s.keyboard.sequence_set != null or s.keyboard.table_stack.items.len > 0) return true;
+     const entry = s.config.keybind.set.getEvent(event) orelse return false;
+@@ -1763,14 +1763,8 @@ fn reserved(s: *Surface, event: input.KeyEvent) bool {
+     for (leaf.actionsSlice()) |a| switch (a) {
+         .quit,
+         .new_window,
+-        .new_tab,
+         .new_split,
+         .close_surface,
+-        .close_tab,
+-        .close_window,
+-        .close_all_windows,
+-        .goto_tab,
+-        .last_tab,
+         .toggle_fullscreen,
+         .toggle_maximize,
+         .toggle_quick_terminal,

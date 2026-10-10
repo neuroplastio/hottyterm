@@ -65,7 +65,7 @@ here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK); `0015` a surface names a key from the bytes the program would read; `0016` a touch taps and scrolls where the finger touched (GTK); `0017` a touch drags what opts out of panning; `0018` a zoom is a browser's zoom; `0019` the pty learns a new size only after the grid has it (termio, generic); `0020` a kitty frame edit uploads only the rectangle it changed (renderer, generic; OpenGL); `0021` a surface is offered a key as pressed first |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK); `0015` a surface names a key from the bytes the program would read; `0016` a touch taps and scrolls where the finger touched (GTK); `0017` a touch drags what opts out of panning; `0018` a zoom is a browser's zoom; `0019` the pty learns a new size only after the grid has it (termio, generic); `0020` a kitty frame edit uploads only the rectangle it changed (renderer, generic; OpenGL); `0021` a surface is offered a key as pressed first; `0022` no tabs, and windows and full screen are the window manager's |
 | new code | `src/termio/hotty.zig`, 1628 lines: all of the logic |
 | upstream files touched | 10 files, 246 lines added and 4 changed — hooks, settings and the GTK touch gesture |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
@@ -157,8 +157,13 @@ The hooks:
   would, whatever the layout or a remap made of it. What the surface does
   not use reaches the program as it came. hottyterm keeps for itself, as a
   browser keeps Control+t: every key during a key sequence or a key table,
-  a key that starts a sequence, and keys bound to opening, closing or
-  picking windows, tabs and splits by number, quitting and the config.
+  a key that starts a sequence, and keys bound to opening windows and
+  splits, closing them, quitting, full screen and the config.
+- **No tabs:** plx has them, and windows and full screen are the window
+  manager's. hottyterm has no default keys for tabs, quitting, closing
+  windows or full screen (the Mac keeps Cmd+Q, Cmd+W and Ctrl+Cmd+F, which
+  no window manager gives there), and a new tab, from a binding, a menu or
+  `+new-tab`, opens a window. Splits stay.
 - **Input:** clicks and
   hover on a surface go to it and are not reported to the program as mouse
   input, except where it takes no pointer (`pointer-events: none`, SPEC
