@@ -4,6 +4,13 @@
 # scarcest runners, so only on demand:
 #
 #   gh workflow run probe-macos.yml -f release=26.10.08-dev.ef9ca36
+#
+# `run` probes a CI run's macOS build instead, before it is released: a ci
+# run dispatched on a branch builds both platforms and releases nothing.
+# `regions` probes partial frames and their CPU, against `baseline` (a
+# release) when given:
+#
+#   gh workflow run probe-macos.yml -f run=<ci run id> -f regions=true -f baseline=<tag>
 name: probe-macos
 
 on:
@@ -11,11 +18,24 @@ on:
     inputs:
       release:
         description: The release tag to probe
-        required: true
+        required: false
+        default: ""
+      run:
+        description: Or a ci run whose macOS build to probe (kept 7 days)
+        required: false
+        default: ""
       remap:
         description: Swap Cmd and Ctrl (key-remap) and probe the menu with them
         type: boolean
         default: false
+      regions:
+        description: Probe partial frames and their CPU instead of the text input
+        type: boolean
+        default: false
+      baseline:
+        description: With regions, a release tag to measure the same way
+        required: false
+        default: ""
 
 jobs:
   probe:
@@ -24,25 +44,38 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Install the release
+      - name: Install the build
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ inputs.release }}
+          RUN: ${{ inputs.run }}
+          BASE: ${{ inputs.baseline }}
         run: |
-          gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p '*macos-arm64.zip' -D dl
+          if [ -n "$RUN" ]; then
+            gh run download "$RUN" -R "$GITHUB_REPOSITORY" -n hottyterm-macos-arm64 -D dl
+          else
+            gh release download "$TAG" -R "$GITHUB_REPOSITORY" -p '*macos-arm64.zip' -D dl
+          fi
           ditto -x -k dl/*.zip /Applications
           xattr -dr com.apple.quarantine /Applications/hottyterm.app || true
+          if [ -n "$BASE" ]; then
+            gh release download "$BASE" -R "$GITHUB_REPOSITORY" -p '*macos-arm64.zip' -D dl-base
+            mkdir -p "$RUNNER_TEMP/base" && ditto -x -k dl-base/*.zip "$RUNNER_TEMP/base"
+            xattr -dr com.apple.quarantine "$RUNNER_TEMP/base/hottyterm.app" || true
+          fi
 
       - name: Probe
         env:
-          MODE: ${{ inputs.remap && 'remap' || '' }}
-        run: scripts/probe-macos.sh /Applications/hottyterm.app probe "$MODE"
+          MODE: ${{ inputs.regions && 'regions' || inputs.remap && 'remap' || '' }}
+          BASE: ${{ inputs.baseline && format('{0}/base/hottyterm.app', runner.temp) || '' }}
+        run: scripts/probe-macos.sh /Applications/hottyterm.app probe "$MODE" "$BASE"
 
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: probe-${{ inputs.release }}
+          name: probe-${{ inputs.release || inputs.run }}
           path: |
             probe/*.png
+            probe/*/*.png
             probe/replies.log
           retention-days: 3
