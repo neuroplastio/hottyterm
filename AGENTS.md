@@ -46,6 +46,10 @@ neuroplastio/hotty) through hotty-blitz's C ABI, and nothing else.
   on a new component, check the component's upstream licence and add it to
   `notices/overrides.toml` with the upstream file under `notices/upstream/`;
   never drop the check.
+- **Measure performance as [docs/performance.md](docs/performance.md)
+  says:** `scripts/perf.sh`, counting instructions per thread over
+  alternating rounds with the load in view, not CPU time on a busy machine.
+  Add what a change saves there.
 - **The gate is `make check`:** the patches apply cleanly to `ghostty-ref`
   and the branding finds its anchors, the fork builds against hotty-blitz,
   and the smoke test renders a surface.

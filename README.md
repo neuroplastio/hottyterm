@@ -19,6 +19,7 @@ Everything else is Ghostty.
 [Settings](#settings) ·
 [Build](#build-and-run) ·
 [Branding](#branding) ·
+[Performance](docs/performance.md) ·
 [hotty-blitz](https://github.com/neuroplastio/hotty-blitz)
 
 </div>
@@ -319,6 +320,7 @@ mise install
 make build                    # sets up ../ghostty, builds hotty-blitz and the fork
 scripts/run.sh -e python3 ../../hotty/main/examples/dash.py
 make check                    # patches apply, build, smoke test
+scripts/perf.sh               # what dash.py costs, per thread (docs/performance.md)
 ```
 
 The binary is `../ghostty/zig-out/bin/hottyterm`. Its application id is its own,
@@ -413,24 +415,12 @@ On a private headless display (hotty-blitz's `scripts/headless.sh`):
   through the kitty keyboard protocol.
 - Cost: the terminal process uses 8–9% CPU on the 10 Hz dashboard. An earlier
   fork, which uploaded only the changed rectangles to the GPU, used 6–7%.
-- Since `0020` (2026-10-10), a kitty frame edit uploads only its rectangle
-  into the existing texture (OpenGL; Metal since `0025`). On
-  `dash.py` at 3.5 Mpx, about 0.45 Mpx changing a frame, the terminal went
-  from 14.6–16.1% CPU to 12.8–12.9%, alternating runs on a loaded machine
-  (gov R-5). It is written as its own patch so it can go upstream. Its log of
-  edits used to start again empty after 64, so with `dash.py`'s 7–8
-  rectangles a frame one frame in nine uploaded the whole 14 MB image; a full
-  log now forgets only its older half (the renderer thread's cycles −20%).
-- Since `0025` (2026-10-10), Metal writes the rectangles too, with a blit
-  from a staging buffer in a command buffer of its own, committed before the
-  frame's, so frames in flight keep their texture. The probe-macos `regions`
-  mode checks it: every cell drawn as with whole uploads.
-- Since `0023` (2026-10-10), a damaged rectangle is converted from the frame
-  into the image's pixels in place, not sent as a kitty `a=f` edit (two more
-  copies and allocations), and the conversion skips opaque and clear pixels 8
-  at a time. On `dash.py` the delivery's instructions fell from ~4.8M to ~1.9M
-  a frame (`perf`, counted instructions: the machine was too loaded for CPU
-  time).
+- Measured again on 2026-10-10 at 3.5 Mpx, release by release: the dashboard
+  went from about 15% of a core to 8%. The fork contributes region uploads on OpenGL (`0020`) and
+  Metal (`0025`), and rectangles written straight into the image (`0023`);
+  hotty-blitz contributes its own changes.
+  [docs/performance.md](docs/performance.md) has the numbers, what was tried,
+  and how to measure.
 
 Headless clicks need a keyboard: Ghostty takes a left click on an unfocused
 surface as a focus click and does not report it, and the headless display has no
