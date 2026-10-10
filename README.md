@@ -65,7 +65,7 @@ here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK); `0015` a surface names a key from the bytes the program would read; `0016` a touch taps and scrolls where the finger touched (GTK); `0017` a touch drags what opts out of panning; `0018` a zoom is a browser's zoom; `0019` the pty learns a new size only after the grid has it (termio, generic); `0020` a kitty frame edit uploads only the rectangle it changed (renderer, generic; OpenGL); `0021` a surface is offered a key as pressed first; `0022` no tabs, and windows and full screen are the window manager's; `0023` a frame's rectangles go straight into the surface's image; `0024` the macOS menu sees keys as `key-remap` makes them |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK); `0015` a surface names a key from the bytes the program would read; `0016` a touch taps and scrolls where the finger touched (GTK); `0017` a touch drags what opts out of panning; `0018` a zoom is a browser's zoom; `0019` the pty learns a new size only after the grid has it (termio, generic); `0020` a kitty frame edit uploads only the rectangle it changed (renderer, generic); `0021` a surface is offered a key as pressed first; `0022` no tabs, and windows and full screen are the window manager's; `0023` a frame's rectangles go straight into the surface's image; `0024` the macOS menu sees keys as `key-remap` makes them; `0025` Metal writes those rectangles with a blit (renderer, generic) |
 | new code | `src/termio/hotty.zig`, 1628 lines: all of the logic |
 | upstream files touched | 10 files, 246 lines added and 4 changed — hooks, settings and the GTK touch gesture |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
@@ -414,10 +414,17 @@ On a private headless display (hotty-blitz's `scripts/headless.sh`):
 - Cost: the terminal process uses 8–9% CPU on the 10 Hz dashboard. An earlier
   fork, which uploaded only the changed rectangles to the GPU, used 6–7%.
 - Since `0020` (2026-10-10), a kitty frame edit uploads only its rectangle
-  into the existing texture (OpenGL; Metal still uploads whole images). On
+  into the existing texture (OpenGL; Metal since `0025`). On
   `dash.py` at 3.5 Mpx, about 0.45 Mpx changing a frame, the terminal went
   from 14.6–16.1% CPU to 12.8–12.9%, alternating runs on a loaded machine
-  (gov R-5). It is written as its own patch so it can go upstream.
+  (gov R-5). It is written as its own patch so it can go upstream. Its log of
+  edits used to start again empty after 64, so with `dash.py`'s 7–8
+  rectangles a frame one frame in nine uploaded the whole 14 MB image; a full
+  log now forgets only its older half (the renderer thread's cycles −20%).
+- Since `0025` (2026-10-10), Metal writes the rectangles too, with a blit
+  from a staging buffer in a command buffer of its own, committed before the
+  frame's, so frames in flight keep their texture. The probe-macos `regions`
+  mode checks it: every cell drawn as with whole uploads.
 - Since `0023` (2026-10-10), a damaged rectangle is converted from the frame
   into the image's pixels in place, not sent as a kitty `a=f` edit (two more
   copies and allocations), and the conversion skips opaque and clear pixels 8
