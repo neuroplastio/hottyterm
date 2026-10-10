@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 18:59:29 +0200
-Subject: [PATCH 23/24] hottyterm: a frame's rectangles go straight into the
+Subject: [PATCH 23/25] hottyterm: a frame's rectangles go straight into the
  surface's image
 
 A damaged rectangle went through a kitty a=f command: hotty.zig

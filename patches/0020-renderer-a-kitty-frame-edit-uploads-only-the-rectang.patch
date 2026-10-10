@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 16:52:33 +0200
-Subject: [PATCH 20/24] renderer: a kitty frame edit uploads only the rectangle
+Subject: [PATCH 20/25] renderer: a kitty frame edit uploads only the rectangle
  it changed
 
 A frame edit of the displayed frame (a=f with r) composes a rectangle

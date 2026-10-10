@@ -1,0 +1,152 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Sat, 10 Oct 2026 19:54:30 +0200
+Subject: [PATCH 25/25] renderer: Metal writes a kitty frame edit's rectangles
+ with a blit
+
+Region updates of kitty images (texture_region_updates) were OpenGL
+only: Metal's Texture.replaceRegion writes from the CPU at once, while
+frames in flight may still draw with the texture, so Metal uploaded a
+changed image whole into a new texture. Each backend now has
+replaceTextureRegions: OpenGL writes the rectangles as before, and Metal
+encodes a blit from a staging buffer per rectangle into a command buffer
+of its own, committed before the frame's. The queue runs it after the
+command buffers committed before it, and hazard tracking orders the
+write against their reads of the texture.
+
+Lines added outside tests: Metal.zig 50, OpenGL.zig 14, renderer/image.zig
+2 (8 removed).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/renderer/Metal.zig  | 60 ++++++++++++++++++++++++++++++++++++++---
+ src/renderer/OpenGL.zig | 14 ++++++++++
+ src/renderer/image.zig  | 12 ++-------
+ 3 files changed, 72 insertions(+), 14 deletions(-)
+
+diff --git a/src/renderer/Metal.zig b/src/renderer/Metal.zig
+index f092070de..a97049e3d 100644
+--- a/src/renderer/Metal.zig
++++ b/src/renderer/Metal.zig
+@@ -37,10 +37,10 @@ pub const custom_shader_y_is_down = true;
+ /// Triple buffering.
+ pub const swap_chain_count = 3;
+ 
+-/// Texture.replaceRegion writes from the CPU without waiting for frames
+-/// in flight that draw with the texture, so a changed image gets a new
+-/// texture instead.
+-pub const texture_region_updates = false;
++/// Changed rectangles of an image go into its texture with a blit
++/// (replaceTextureRegions), which the GPU orders after the frames in
++/// flight that draw with it.
++pub const texture_region_updates = true;
+ 
+ const log = std.log.scoped(.metal);
+ 
+@@ -379,6 +379,58 @@ pub fn initAtlasTexture(
+     );
+ }
+ 
++/// Writes changed rectangles (x, y, width, height and data each) into a
++/// texture that frames in flight may still draw with. Texture.replaceRegion
++/// would write from the CPU at once, under them; a blit on the queue runs
++/// after the command buffers committed before it, which hazard tracking
++/// orders against their reads of the texture.
++pub fn replaceTextureRegions(
++    self: *const Metal,
++    texture: Texture,
++    regions: anytype,
++) Texture.Error!void {
++    const buffer = self.queue.msgSend(objc.Object, objc.sel("commandBuffer"), .{});
++    const blit = buffer.msgSend(objc.Object, objc.sel("blitCommandEncoder"), .{});
++    defer {
++        blit.msgSend(void, objc.sel("endEncoding"), .{});
++        buffer.msgSend(void, objc.sel("commit"), .{});
++    }
++    for (regions) |r| {
++        if (r.width == 0 or r.height == 0) continue;
++        const row: c_ulong = @intCast(texture.bpp * r.width);
++        // The command buffer keeps what it uses until it completes.
++        const staging = self.device.device.msgSend(
++            ?*anyopaque,
++            objc.sel("newBufferWithBytes:length:options:"),
++            .{
++                @as(*const anyopaque, r.data.ptr),
++                @as(c_ulong, row * r.height),
++                mtl.MTLResourceOptions{
++                    .cpu_cache_mode = .write_combined,
++                    .storage_mode = .shared,
++                },
++            },
++        ) orelse return error.MetalFailed;
++        const source = objc.Object.fromId(staging);
++        defer source.release();
++        blit.msgSend(
++            void,
++            objc.sel("copyFromBuffer:sourceOffset:sourceBytesPerRow:sourceBytesPerImage:sourceSize:toTexture:destinationSlice:destinationLevel:destinationOrigin:"),
++            .{
++                source,
++                @as(c_ulong, 0),
++                row,
++                @as(c_ulong, row * r.height),
++                mtl.MTLSize{ .width = r.width, .height = r.height, .depth = 1 },
++                texture.texture,
++                @as(c_ulong, 0),
++                @as(c_ulong, 0),
++                mtl.MTLOrigin{ .x = r.x, .y = r.y, .z = 0 },
++            },
++        );
++    }
++}
++
+ /// Begin a frame.
+ pub inline fn beginFrame(
+     self: *const Metal,
+diff --git a/src/renderer/OpenGL.zig b/src/renderer/OpenGL.zig
+index 540f86f3e..43cad8901 100644
+--- a/src/renderer/OpenGL.zig
++++ b/src/renderer/OpenGL.zig
+@@ -37,6 +37,20 @@ pub const swap_chain_count = 3;
+ /// draw with: OpenGL orders the write after them.
+ pub const texture_region_updates = true;
+ 
++/// Writes changed rectangles (x, y, width, height and data each) into a
++/// texture that earlier frames may still draw with.
++pub fn replaceTextureRegions(
++    self: *const OpenGL,
++    texture: Texture,
++    regions: anytype,
++) Texture.Error!void {
++    _ = self;
++    for (regions) |r| {
++        if (r.width == 0 or r.height == 0) continue;
++        try texture.replaceRegion(r.x, r.y, r.width, r.height, r.data);
++    }
++}
++
+ const log = std.log.scoped(.opengl);
+ 
+ /// We require at least OpenGL 4.3
+diff --git a/src/renderer/image.zig b/src/renderer/image.zig
+index c9bcc1586..d6d80fb1c 100644
+--- a/src/renderer/image.zig
++++ b/src/renderer/image.zig
+@@ -1180,16 +1180,8 @@ pub const Image = union(enum) {
+         // Changed rectangles go into the existing texture.
+         switch (self.*) {
+             .update => |u| {
+-                for (u.regions) |r| {
+-                    if (r.width == 0 or r.height == 0) continue;
+-                    u.texture.replaceRegion(
+-                        r.x,
+-                        r.y,
+-                        r.width,
+-                        r.height,
+-                        r.data,
+-                    ) catch return error.UploadFailed;
+-                }
++                api.replaceTextureRegions(u.texture, u.regions) catch
++                    return error.UploadFailed;
+                 u.free(alloc);
+                 self.* = .{ .ready = u.texture };
+                 return;

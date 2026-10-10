@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 19:17:45 +0200
-Subject: [PATCH 24/24] hottyterm: the macOS menu sees keys as key-remap makes
+Subject: [PATCH 24/25] hottyterm: the macOS menu sees keys as key-remap makes
  them; no Mac keys for quit, close or full screen
 
 The maintainer, 2026-10-10: kill Cmd+Q, Cmd+W and Ctrl+Cmd+F on the Mac
