@@ -1,0 +1,257 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Sat, 10 Oct 2026 18:06:45 +0200
+Subject: [PATCH 21/21] =?UTF-8?q?hottyterm:=20a=20surface=20is=20offered?=
+ =?UTF-8?q?=20a=20key=20as=20pressed=20first=20(SPEC=20=C2=A710.4)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Ghostty's shortcuts ran before a surface had a key: Shift+Home and
+Shift+End scrolled the terminal, Control+Shift+arrows switched tabs and
+jumped between prompts, and on macOS Command+ArrowLeft became the 0x01 a
+binding writes, which a field read as Control+a. Now the surface holding
+the keyboard is offered a key that types no text first, named from the
+key event with Super as Meta (hotty_host_key_pressed); a key it does not
+use goes on to the shortcuts and is then offered as bytes, as before.
+
+hottyterm keeps for itself every key during a key sequence or a key
+table, a key that starts a sequence, and keys bound to windows, tabs and
+splits opening, closing or picked by number, quitting and the config.
+On macOS such a key's binding is not `consumed` for keyEventIsBinding,
+so the menu does not perform it before the surface had the key.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/Surface.zig      |   8 +-
+ src/termio/hotty.zig | 170 ++++++++++++++++++++++++++++++++++++++++---
+ 2 files changed, 167 insertions(+), 11 deletions(-)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 8d8eadb37..17b5095d6 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -2752,7 +2752,7 @@ pub fn keyEventIsBinding(
+     // Return flags based on the
+     return switch (entry.value_ptr.*) {
+         .leader => .{},
+-        inline .leaf, .leaf_chained => |v| v.flags,
++        inline .leaf, .leaf_chained => |v| hotty.bindingFlags(self, event, v.flags), // hottyterm
+     };
+ }
+ 
+@@ -2800,6 +2800,10 @@ pub fn keyCallback(
+         }
+     };
+ 
++    // hottyterm: a surface holding the keyboard is offered the key as
++    // pressed, before the shortcuts (SPEC §10.4).
++    if (hotty.surfaceKeyPressed(self, event)) return .consumed;
++
+     // Handle keybindings first. We need to handle this on all events
+     // (press, repeat, release) because a press may perform a binding but
+     // a release should not encode if we consumed the press.
+@@ -2814,7 +2818,7 @@ pub fn keyCallback(
+         if (self.io.terminal.modes.get(.disable_keyboard)) return .consumed;
+     }
+ 
+-    // hottyterm: a surface holding the keyboard gets the key first.
++    // hottyterm: then as the bytes the program would read.
+     if (hotty.surfaceKey(self, event)) return .consumed;
+ 
+     // If this input event has text, then we hide the mouse if configured.
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 62a25841f..6d2b75b93 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -90,6 +90,7 @@ extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;
+ extern fn hotty_host_reset(h: *Host, fx: ?*const Effects) void;
+ extern fn hotty_host_pointer(h: *Host, surface: [*:0]const u8, kind: u32, x: f32, y: f32, mods: u32, fx: *const Effects) void;
+ extern fn hotty_host_key_bytes(h: *Host, data: [*]const u8, len: usize, fx: *const Effects) bool;
++extern fn hotty_host_key_pressed(h: *Host, name: [*]const u8, len: usize, fx: *const Effects) bool;
+ extern fn hotty_host_wheel(h: *Host, surface: ?[*:0]const u8, x: f32, y: f32, dx: f32, dy: f32, mods: u32, fx: *const Effects) bool;
+ extern fn hotty_host_end_gesture(h: *Host) void;
+ extern fn hotty_host_touch(h: *Host, surface: [*:0]const u8, phase: u32, x: f32, y: f32, mods: u32, fx: *const Effects) u32;
+@@ -1207,7 +1208,18 @@ pub const Hotty = struct {
+         if (self.render(t)) self.drew = true;
+     }
+ 
+-    /// A key for the surface holding the keyboard. True if it used it.
++    /// A key for the surface holding the keyboard as the user pressed it,
++    /// by its name (SPEC §10.4). True if it used it.
++    fn keyPressed(self: *Hotty, t: *terminal.Terminal, name: []const u8) bool {
++        const h = self.host orelse return false;
++        const fx = self.effects();
++        const consumed = hotty_host_key_pressed(h, name.ptr, name.len, &fx);
++        if (self.render(t)) self.drew = true;
++        // A key that scrolled shows scrollbars, which fade.
++        self.schedule(t);
++        return consumed;
++    }
++
+     /// Keys for the surface holding the keyboard, as the bytes the program
+     /// would read for them (SPEC §10.4). True if it used any; the others
+     /// then reach the program as replies, in order.
+@@ -1633,14 +1645,154 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
+     return r;
+ }
+ 
+-/// Surface.keyCallback: the surface holding the keyboard gets the key first,
+-/// named from the bytes the program would read for it (SPEC §10.4): Ghostty's
+-/// own encoding, in the modes the program set, so a key is what a TUI would
+-/// see, whatever the keyboard layout or remapping made of it. Keys its
+-/// focused element has no use for go to the program as usual. The press
+-/// decides, and its release goes where the press went, so a program that
+-/// asked for event types never hears a release without its press, nor a
+-/// press without its release.
++/// Surface.keyCallback, before the terminal's shortcuts: the surface holding
++/// the keyboard is offered a key that types no text as the user pressed it,
++/// named from the key event (SPEC §10.4), so Shift+Home selects in a field
++/// rather than scrolling the terminal, and Command+ArrowLeft goes to the
++/// line's start rather than becoming the 0x01 a binding writes. A key it
++/// does not use goes on to the shortcuts, and then to surfaceKey. A release
++/// goes where its press went.
++pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
++    if (s.readonly) return false;
++    const hs = &s.io.terminal_stream.handler.hotty;
++    if (event.action == .release) {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        if (!hs.held_keys.contains(event.key)) return false;
++        hs.held_keys.remove(event.key);
++        return true;
++    }
++    var buf: [64]u8 = undefined;
++    const name = pressedName(event, &buf) orelse return false;
++    if (reserved(s, event) or !holdsKeyboard(s)) return false;
++    var drew = false;
++    const used = used: {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const used = hs.keyPressed(&s.io.terminal, name);
++        hs.held_keys.setPresent(event.key, used);
++        drew = hs.drew;
++        hs.drew = false;
++        break :used used;
++    };
++    deliver(s, used or drew);
++    return used;
++}
++
++/// Surface.keyEventIsBinding, which macOS asks before a key reaches
++/// keyCallback: a binding on a key the surface holding the keyboard is
++/// offered first is not `consumed`, so the menu does not perform it
++/// (Command+a's Select All) before the surface had the key. keyCallback
++/// still does, if the surface does not use it.
++pub fn bindingFlags(s: *Surface, event: input.KeyEvent, flags: input.Binding.Flags) input.Binding.Flags {
++    var f = flags;
++    var buf: [64]u8 = undefined;
++    if (!s.readonly and pressedName(event, &buf) != null and !reserved(s, event) and holdsKeyboard(s)) f.consumed = false;
++    return f;
++}
++
++/// The key `event` is, named as SPEC §10.4 writes it, from the key itself,
++/// with the command key (Super) as Meta, if it types no text: a key that is
++/// not a character, or a character with Control or Meta. Null for the
++/// others, which a surface is offered only as bytes, and for a character
++/// with Shift that is not a letter, which the event does not name.
++fn pressedName(event: input.KeyEvent, buf: []u8) ?[]const u8 {
++    if (event.composing or event.key.modifier()) return null;
++    const m = event.mods;
++    var w: std.Io.Writer = .fixed(buf);
++    if (namedKey(event.key)) |key| {
++        writeMods(&w, m.ctrl, m.alt, m.super, m.shift) catch return null;
++        w.writeAll(key) catch return null;
++        return w.buffered();
++    }
++    if (!m.ctrl and !m.super) return null;
++    var cp: u21 = event.unshifted_codepoint;
++    if (cp == 0) cp = event.key.codepoint() orelse return null;
++    if (cp < 0x20 or cp == 0x7f) return null;
++    // Shift shows in the character: Control+A.
++    if (m.shift) {
++        if (cp < 'a' or cp > 'z') return null;
++        cp -= 'a' - 'A';
++    }
++    writeMods(&w, m.ctrl, m.alt, m.super, false) catch return null;
++    if (cp == ' ') w.writeAll("Space") catch return null else w.print("{u}", .{cp}) catch return null;
++    return w.buffered();
++}
++
++fn writeMods(w: *std.Io.Writer, ctrl: bool, alt: bool, meta: bool, shift: bool) !void {
++    if (ctrl) try w.writeAll("Control+");
++    if (alt) try w.writeAll("Alt+");
++    if (meta) try w.writeAll("Meta+");
++    if (shift) try w.writeAll("Shift+");
++}
++
++/// The W3C key value of a key that is not a character.
++fn namedKey(key: input.Key) ?[]const u8 {
++    return switch (key) {
++        .arrow_left, .numpad_left => "ArrowLeft",
++        .arrow_right, .numpad_right => "ArrowRight",
++        .arrow_up, .numpad_up => "ArrowUp",
++        .arrow_down, .numpad_down => "ArrowDown",
++        .home, .numpad_home => "Home",
++        .end, .numpad_end => "End",
++        .page_up, .numpad_page_up => "PageUp",
++        .page_down, .numpad_page_down => "PageDown",
++        .insert, .numpad_insert => "Insert",
++        .delete, .numpad_delete => "Delete",
++        .backspace, .numpad_backspace => "Backspace",
++        .enter, .numpad_enter => "Enter",
++        .tab => "Tab",
++        .escape => "Escape",
++        inline .f1, .f2, .f3, .f4, .f5, .f6, .f7, .f8, .f9, .f10, .f11, .f12, .f13, .f14, .f15, .f16, .f17, .f18, .f19, .f20, .f21, .f22, .f23, .f24 => |k| comptime k.w3c(),
++        else => null,
++    };
++}
++
++/// The keys hottyterm keeps from a surface (SPEC §10.4 lets a host keep
++/// some): every key while a key sequence or a key table is under way, a key
++/// that starts a sequence, and a key bound to what a browser keeps too:
++/// opening, closing and picking windows, tabs and splits by number,
++/// quitting, the config, key tables.
++fn reserved(s: *Surface, event: input.KeyEvent) bool {
++    if (s.keyboard.sequence_set != null or s.keyboard.table_stack.items.len > 0) return true;
++    const entry = s.config.keybind.set.getEvent(event) orelse return false;
++    const leaf: input.Binding.Set.GenericLeaf = switch (entry.value_ptr.*) {
++        .leader => return true,
++        inline .leaf, .leaf_chained => |v| v.generic(),
++    };
++    for (leaf.actionsSlice()) |a| switch (a) {
++        .quit,
++        .new_window,
++        .new_tab,
++        .new_split,
++        .close_surface,
++        .close_tab,
++        .close_window,
++        .close_all_windows,
++        .goto_tab,
++        .last_tab,
++        .toggle_fullscreen,
++        .toggle_maximize,
++        .toggle_quick_terminal,
++        .toggle_command_palette,
++        .open_config,
++        .reload_config,
++        .activate_key_table,
++        .activate_key_table_once,
++        => return true,
++        else => {},
++    };
++    return false;
++}
++
++/// Surface.keyCallback, after the terminal's shortcuts: the surface holding
++/// the keyboard is offered the key a second time, named from the bytes the
++/// program would read for it (SPEC §10.4): Ghostty's own encoding, in the
++/// modes the program set, so a key is what a TUI would see, whatever the
++/// keyboard layout or remapping made of it. Keys its focused element has no
++/// use for go to the program as usual. The press decides, and its release
++/// goes where the press went, so a program that asked for event types never
++/// hears a release without its press, nor a press without its release.
+ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+     if (s.readonly) return false;
+     const hs = &s.io.terminal_stream.handler.hotty;

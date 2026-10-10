@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
 Date: Fri, 2 Oct 2026 18:04:57 +0200
-Subject: [PATCH 05/20] hottyterm: animated images play
+Subject: [PATCH 05/21] hottyterm: animated images play
 
 hotty-blitz plays animated GIFs, APNGs and WebPs and says when the next
 frame is due (hotty_host_next_frame). A timer on the IO thread's loop

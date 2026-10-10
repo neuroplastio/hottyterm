@@ -9,12 +9,14 @@
 #     shots and not in others;
 #   - types "abc", then Backspace, with System Events: the input events the
 #     program hears carry the input's value, "a", "ab", "abc", "ab";
-#   - presses the keys Ghostty's macOS bindings write bytes for, which a
-#     field's keymap reads (HOTTY SPEC §10.2, §10.4): " cd", Option+Left
-#     (ESC b, Alt+b: word back), "X", Cmd+Left (0x01, Control+a: line
-#     start), "Y", Cmd+Backspace (0x15, Control+u: delete to line start),
-#     then Control+s, which the field leaves to the program. The values go
-#     "ab cd", "ab Xcd", "Yab Xcd", "ab Xcd", and the program hears 0x13;
+#   - presses the keys Ghostty's macOS bindings and menu would take, which
+#     the field is offered first as pressed, Cmd as Meta (HOTTY SPEC §10.2,
+#     §10.4): " cd", Option+Left (Alt+ArrowLeft: word back), "X", Cmd+Left
+#     (Meta+ArrowLeft: line start), "Y", Cmd+Shift+Right (selects to the
+#     line's end), "Z", Cmd+A (select all), "W", Cmd+Backspace (delete to
+#     line start), then Control+s, which the field leaves to the program.
+#     The values go "ab cd", "ab Xcd", "Yab Xcd", "YZ", "W", "", and the
+#     program hears 0x13;
 #   - prints hottyterm's log lines about HOTTY.
 # The runner's own settings decide whether screenshots and keystrokes are
 # allowed; the probe says when they are not.
@@ -32,8 +34,7 @@ fd = sys.stdin.fileno()
 tty.setraw(fd)
 html = ("<style>body{margin:0;background:#223;color:#eee}"
         "input{font:20px monospace;width:300px;background:#fff;color:#000;caret-color:#f00}</style>"
-        "<input id=t data-on=input data-keys='Control+a=line-start Control+e=line-end"
-        " Alt+b=word-backward Alt+f=word-forward Control+u=delete-to-line-start'>")
+        "<input id=t data-on=input>")
 b64 = base64.b64encode(html.encode()).decode()
 os.write(1, ("\x1b[2J\x1b[H"
              f"\x1b]7279;a=doc:s=x:q=2;{b64}\x1b\\"
@@ -92,13 +93,17 @@ sleep 0.5
 osascript -e 'tell application "System Events" to key code 51' 2>&1
 sleep 1
 
-echo "== keys: Ghostty's macOS bindings, through the field's keymap"
+echo "== keys: offered to the field first, before Ghostty's bindings and menu"
 se() { osascript -e "tell application \"System Events\" to $1" 2>&1; sleep 0.5; }
 se 'keystroke " cd"'
 se 'key code 123 using option down'
 se 'keystroke "X"'
 se 'key code 123 using command down'
 se 'keystroke "Y"'
+se 'key code 124 using {command down, shift down}'
+se 'keystroke "Z"'
+se 'keystroke "a" using command down'
+se 'keystroke "W"'
 se 'key code 51 using command down'
 se 'keystroke "s" using control down'
 sleep 1
