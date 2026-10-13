@@ -1,0 +1,185 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Wed, 14 Oct 2026 00:27:25 +0200
+Subject: [PATCH 27/27] =?UTF-8?q?hottyterm:=20Control+c=20and=20Command+c?=
+ =?UTF-8?q?=20copy=20a=20surface's=20selection=20too=20(SPEC=20=C2=A711)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+copy_to_clipboard takes the text selected in a surface when the terminal
+has no selection; a release on a surface copies it per copy-on-select,
+into PRIMARY by default. There is one selection: a press on a surface
+drops the terminal's, and one on the cells drops the surfaces'.
+performable ctrl+c and super+c copy only while something is selected, so
+Control+c still interrupts without a selection; the user's keybind
+changes them. While something is selected, the copy keys are kept from
+the surface holding the keyboard.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/Surface.zig       |  5 ++--
+ src/config/Config.zig | 13 ++++++++++
+ src/termio/hotty.zig  | 59 +++++++++++++++++++++++++++++++++++++++++--
+ 3 files changed, 73 insertions(+), 4 deletions(-)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 17b5095d6..e0c6cac8a 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -2416,7 +2416,7 @@ fn copySelectionToClipboards(
+ /// also copy per `copy_on_select`, use `setSelectionAndCopy`.
+ ///
+ /// This must be called with the renderer mutex held.
+-fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void {
++pub fn setSelection(self: *Surface, sel_: ?terminal.Selection) !void { // hottyterm: pub
+     // Compute the transition before `select` below, which untracks (frees)
+     // the previous selection's tracked pins; reading them after would be a
+     // use-after-free.
+@@ -5170,7 +5170,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+                 return true;
+             }
+ 
+-            return false;
++            // hottyterm: else the text selected in a surface (SPEC §11).
++            return hotty.copySelection(self);
+         },
+ 
+         .copy_url_to_clipboard => {
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index 4e1ba52dd..9ee236e1e 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -6736,6 +6736,19 @@ pub const Keybinds = struct {
+                 );
+             }
+ 
++            // hottyterm: Control+c and Command+c copy what is selected, on
++            // the cells or in a surface, and reach the program when nothing
++            // is (SPEC §11). Before the platform's own keys below, which the
++            // menu shows.
++            for ([_]inputpkg.Mods{ .{ .ctrl = true }, .{ .super = true } }) |m| {
++                try self.set.putFlags(
++                    alloc,
++                    .{ .key = .{ .unicode = 'c' }, .mods = m },
++                    .{ .copy_to_clipboard = .mixed },
++                    .{ .performable = true },
++                );
++            }
++
+             // On macOS we default to super but Linux ctrl+shift since
+             // ctrl+c is to kill the process.
+             const mods: inputpkg.Mods = if (builtin.target.os.tag.isDarwin())
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 2db28bde7..52b1124d2 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -101,6 +101,8 @@ extern fn hotty_host_hyperlink(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
+ extern fn hotty_host_takes_pointer(h: *Host, surface: [*:0]const u8, x: f32, y: f32) bool;
+ extern fn hotty_host_set_passthrough(h: *Host, on: bool) void;
+ extern fn hotty_host_set_counts(h: *Host, on: bool) void;
++extern fn hotty_host_selected_text(h: *Host) ?[*:0]const u8;
++extern fn hotty_host_clear_selection(h: *Host) void;
+ extern fn hotty_host_set_network(h: *Host, policy: ?[*:0]const u8) void;
+ extern fn hotty_host_set_waker(h: *Host, wake: ?*const fn (?*anyopaque) callconv(.c) void, ctx: ?*anyopaque) void;
+ 
+@@ -1194,6 +1196,7 @@ pub const Hotty = struct {
+             }
+             if (kind == .down) {
+                 if (hotty_host_focused(h)) |name| hotty_host_blur(h, name, &fx);
++                hotty_host_clear_selection(h); // one selection (SPEC §11)
+             }
+             if (self.render(t)) self.drew = true;
+             return false;
+@@ -1241,8 +1244,10 @@ pub const Hotty = struct {
+                 else => {},
+             }
+         } else if (kind == .down) {
+-            // A click outside every surface takes the keyboard back.
++            // A click outside every surface takes the keyboard back, and
++            // drops the selection: there is one (SPEC §11).
+             if (hotty_host_focused(h)) |name| hotty_host_blur(h, name, &fx);
++            hotty_host_clear_selection(h);
+         }
+         if (self.render(t)) self.drew = true;
+         // A thumb hovered or dragged holds its scrollbars; left, they fade.
+@@ -1460,6 +1465,11 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M
+         // A press's count in its run of clicks, and its release's (SPEC §9).
+         const count = hs.clickCount(kind, pos, s.config.mouse_interval, @floatFromInt(s.size.cell.width));
+         const took = hs.pointer(&s.io.terminal, kind, tp.x, tp.y, hostMods(mods), count);
++        // One selection (SPEC §11): a press on a surface drops the
++        // terminal's, and its release copies the surface's as Ghostty
++        // copies its own on select.
++        if (took and kind == .down) s.setSelection(null) catch {};
++        if (took and kind == .up) copyOnSelect(s);
+         shape = hs.shapeChange(s.io.terminal.mouse_shape, osc8, false);
+         if (hs.previewChange(osc8 and s.config.link_previews != .false, false)) |p| preview = s.alloc.dupeZ(u8, p) catch null;
+         drew = hs.drew;
+@@ -1472,6 +1482,49 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M
+     return took;
+ }
+ 
++/// The text selected in a surface, to the clipboards `copy-on-select`
++/// names, at a release on it (SPEC §11). The renderer mutex is held.
++fn copyOnSelect(s: *Surface) void {
++    const clipboards: []const apprt.Clipboard = switch (s.config.copy_on_select) {
++        .none => return,
++        .primary => &.{.selection},
++        .clipboard => &.{.standard},
++        .both => &.{ .standard, .selection },
++    };
++    const h = s.io.terminal_stream.handler.hotty.host orelse return;
++    const text = hotty_host_selected_text(h) orelse return;
++    setClipboards(s, clipboards, std.mem.span(text));
++}
++
++/// Surface's copy_to_clipboard when the terminal has no selection: the
++/// text selected in a surface, which stays selected (SPEC §11). False if
++/// none is, and the key then reaches the program (`performable`). The
++/// renderer mutex is held.
++pub fn copySelection(s: *Surface) bool {
++    const h = s.io.terminal_stream.handler.hotty.host orelse return false;
++    const text = hotty_host_selected_text(h) orelse return false;
++    setClipboards(s, &.{.standard}, std.mem.span(text));
++    return true;
++}
++
++fn setClipboards(s: *Surface, clipboards: []const apprt.Clipboard, text: [:0]const u8) void {
++    const contents: []const apprt.ClipboardContent = &.{.{ .mime = "text/plain", .data = text }};
++    for (clipboards) |c| s.rt_surface.setClipboard(c, contents, false) catch |err| {
++        log.warn("error setting clipboard={} err={}", .{ c, err });
++    };
++}
++
++/// Whether something is selected, the terminal's or a surface's: a copy
++/// key is then the host's, kept from the surface holding the keyboard
++/// (SPEC §11).
++fn selects(s: *Surface) bool {
++    s.renderer_state.mutex.lockUncancelable(global.io());
++    defer s.renderer_state.mutex.unlock(global.io());
++    if (s.io.terminal.screens.active.selection != null) return true;
++    const h = s.io.terminal_stream.handler.hotty.host orelse return false;
++    return hotty_host_selected_text(h) != null;
++}
++
+ /// The OSC 8 gesture: Ctrl (Cmd on macOS) held, or with `hotty-link-click
+ /// = plain` no modifier, and Ghostty's link-osc8 on. Shift may be held
+ /// too: a surface never reports the mouse, so shift has nothing to
+@@ -1846,7 +1899,8 @@ fn namedKey(key: input.Key) ?[]const u8 {
+ /// some): every key while a key sequence or a key table is under way, a key
+ /// that starts a sequence, and a key bound to what a browser keeps too:
+ /// opening windows and splits, closing them, quitting, full screen, the
+-/// config, key tables. hottyterm has no tabs.
++/// config, key tables; and a copy key while something is selected (SPEC
++/// §11). hottyterm has no tabs.
+ fn reserved(s: *Surface, event: input.KeyEvent) bool {
+     if (s.keyboard.sequence_set != null or s.keyboard.table_stack.items.len > 0) return true;
+     const entry = s.config.keybind.set.getEvent(event) orelse return false;
+@@ -1868,6 +1922,7 @@ fn reserved(s: *Surface, event: input.KeyEvent) bool {
+         .activate_key_table,
+         .activate_key_table_once,
+         => return true,
++        .copy_to_clipboard => if (selects(s)) return true,
+         else => {},
+     };
+     return false;
