@@ -23,7 +23,7 @@ hovering underlines), Config.zig 14 (the option and its enum).
  3 files changed, 37 insertions(+), 5 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index b63bc9a55..2745ad3ac 100644
+index de9400f5b..18186d194 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -344,6 +344,7 @@ const DerivedConfig = struct {
@@ -42,7 +42,7 @@ index b63bc9a55..2745ad3ac 100644
              .link_previews = config.@"link-previews",
              .scroll_to_bottom = config.@"scroll-to-bottom",
              .notify_on_command_finish = config.@"notify-on-command-finish",
-@@ -1620,6 +1622,7 @@ fn mouseRefreshLinks(
+@@ -1628,6 +1630,7 @@ fn mouseRefreshLinks(
      // Update the last point that we checked for links so we don't
      // recheck if the mouse moves some pixels to the same point.
      self.mouse.link_point = pos_vp;
@@ -50,7 +50,7 @@ index b63bc9a55..2745ad3ac 100644
  
      // We use an arena for everything below to make things easy to clean up.
      // In the case we don't do any allocs this is very cheap to setup
-@@ -4505,6 +4508,7 @@ fn linkAtPin(
+@@ -4513,6 +4516,7 @@ fn linkAtPin(
  ///
  /// The renderer state mutex must be held.
  fn mouseModsWithCapture(self: *Surface, mods: input.Mods) input.Mods {
@@ -59,7 +59,7 @@ index b63bc9a55..2745ad3ac 100644
      // are preserved.
      if (self.io.terminal.flags.mouse_event == .none) return mods;
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 55ec77b39..c23a5f28c 100644
+index c80855ad0..a350f515d 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -3948,6 +3948,17 @@ term: []const u8 = "xterm-ghostty",

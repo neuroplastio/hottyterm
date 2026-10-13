@@ -34,7 +34,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  7 files changed, 66 insertions(+), 73 deletions(-)
 
 diff --git a/macos/Sources/App/AppDelegate.swift b/macos/Sources/App/AppDelegate.swift
-index 599bd8fb0..34959158e 100644
+index d559e547a..a9e068c66 100644
 --- a/macos/Sources/App/AppDelegate.swift
 +++ b/macos/Sources/App/AppDelegate.swift
 @@ -194,6 +194,8 @@ class AppDelegate: NSObject,
@@ -46,7 +46,7 @@ index 599bd8fb0..34959158e 100644
          UserDefaults.ghostty.register(defaults: [
              // Disable the automatic full screen menu item because we handle
              // it manually.
-@@ -1191,6 +1193,9 @@ extension AppDelegate {
+@@ -1214,6 +1216,9 @@ extension AppDelegate {
          syncMenuShortcut(config, action: "new_tab", menuItem: self.menuNewTab)
          syncMenuShortcut(config, action: "close_surface", menuItem: self.menuClose)
          syncMenuShortcut(config, action: "close_tab", menuItem: self.menuCloseTab)
@@ -79,10 +79,10 @@ index 81b6666a1..d972d9a1a 100644
          // All new windows are based on the app config at the time of creation.
          guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
 diff --git a/src/apprt/gtk/class/application.zig b/src/apprt/gtk/class/application.zig
-index 80cc8bddc..c51879f1d 100644
+index cd07efaec..1f2fc65ff 100644
 --- a/src/apprt/gtk/class/application.zig
 +++ b/src/apprt/gtk/class/application.zig
-@@ -2570,24 +2570,14 @@ const Action = struct {
+@@ -2574,24 +2574,14 @@ const Action = struct {
                  return false;
              },
  
@@ -220,7 +220,7 @@ index 32d1bf370..f1ec8817b 100644
      submenu {
        label: _("Split");
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index d8e86d43c..010084d5e 100644
+index 26568b02b..471a2672c 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -7453,6 +7453,49 @@ pub const Keybinds = struct {

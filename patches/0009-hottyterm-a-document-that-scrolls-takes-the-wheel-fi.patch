@@ -37,10 +37,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 63 insertions(+)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 5b14e7cab..b63bc9a55 100644
+index ffdb66cc2..de9400f5b 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -3566,6 +3566,9 @@ pub fn scrollCallback(
+@@ -3574,6 +3574,9 @@ pub fn scrollCallback(
      // Always show the mouse again if it is hidden
      if (self.mouse.hidden) self.showMouse();
  

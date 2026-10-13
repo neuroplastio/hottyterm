@@ -27,10 +27,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 57 insertions(+), 38 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 74e0c1865..8d8eadb37 100644
+index 50142f3f3..80e291f37 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -3371,7 +3371,7 @@ fn encodeKey(
+@@ -3379,7 +3379,7 @@ fn encodeKey(
      return write_req;
  }
  
@@ -39,7 +39,7 @@ index 74e0c1865..8d8eadb37 100644
      self.renderer_state.mutex.lockUncancelable(global.io());
      defer self.renderer_state.mutex.unlock(global.io());
      const t = &self.io.terminal;
-@@ -4964,6 +4964,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+@@ -4972,6 +4972,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
                  .esc => try std.fmt.bufPrint(&buf, "\x1b{s}", .{data}),
                  else => unreachable,
              };
@@ -47,7 +47,7 @@ index 74e0c1865..8d8eadb37 100644
              self.queueIo(try termio.Message.writeReq(
                  self.alloc,
                  full_data,
-@@ -4991,6 +4992,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+@@ -4999,6 +5000,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
                  );
                  return true;
              };
@@ -55,7 +55,7 @@ index 74e0c1865..8d8eadb37 100644
              self.queueIo(try termio.Message.writeReq(
                  self.alloc,
                  text,
-@@ -5023,6 +5025,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+@@ -5031,6 +5033,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
                  break :normal !self.io.terminal.modes.get(.cursor_keys);
              };
  

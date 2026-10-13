@@ -46,7 +46,7 @@ index 78cc9024d..bd244fdf0 100644
              let defaultValue = MacOSTitlebarStyle.transparent
              guard let config = self.config else { return defaultValue }
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index f77985f7e..36ad8f100 100644
+index edbbd61cd..02ff4bd3e 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 @@ -692,7 +692,7 @@ extension Ghostty {
@@ -71,7 +71,7 @@ index f77985f7e..36ad8f100 100644
          override func mouseDown(with event: NSEvent) {
              guard let surface = self.surface else { return }
              let mods = Ghostty.ghosttyMods(event.modifierFlags)
-@@ -1835,6 +1841,7 @@ extension Ghostty {
+@@ -1846,6 +1852,7 @@ extension Ghostty {
              let windowTitleFontFamily: String?
              let windowAppearance: NSAppearance?
              let scrollbar: Ghostty.Config.Scrollbar
@@ -79,7 +79,7 @@ index f77985f7e..36ad8f100 100644
  
              init() {
                  self.backgroundColor = Color(NSColor.windowBackgroundColor)
-@@ -1844,6 +1851,7 @@ extension Ghostty {
+@@ -1855,6 +1862,7 @@ extension Ghostty {
                  self.windowTitleFontFamily = nil
                  self.windowAppearance = nil
                  self.scrollbar = .system
@@ -87,7 +87,7 @@ index f77985f7e..36ad8f100 100644
              }
  
              init(_ config: Ghostty.Config) {
-@@ -1854,6 +1862,7 @@ extension Ghostty {
+@@ -1865,6 +1873,7 @@ extension Ghostty {
                  self.windowTitleFontFamily = config.windowTitleFontFamily
                  self.windowAppearance = .init(ghosttyConfig: config)
                  self.scrollbar = config.scrollbar
@@ -96,7 +96,7 @@ index f77985f7e..36ad8f100 100644
          }
  
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 2745ad3ac..74e0c1865 100644
+index 18186d194..50142f3f3 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -345,6 +345,7 @@ const DerivedConfig = struct {
@@ -116,10 +116,10 @@ index 2745ad3ac..74e0c1865 100644
              .scroll_to_bottom = config.@"scroll-to-bottom",
              .notify_on_command_finish = config.@"notify-on-command-finish",
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 6a2403556..8b0faeb47 100644
+index fb4b07168..8637df236 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
-@@ -2862,7 +2862,7 @@ pub const Surface = extern struct {
+@@ -2888,7 +2888,7 @@ pub const Surface = extern struct {
  
          // If this click is only transitioning split focus, suppress it so
          // it doesn't get forwarded to the terminal as a mouse event.
@@ -129,7 +129,7 @@ index 6a2403556..8b0faeb47 100644
              return;
          }
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index c23a5f28c..d8e86d43c 100644
+index a350f515d..26568b02b 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -3959,6 +3959,16 @@ term: []const u8 = "xterm-ghostty",

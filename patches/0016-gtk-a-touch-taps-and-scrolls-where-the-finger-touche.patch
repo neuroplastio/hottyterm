@@ -18,10 +18,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 15 insertions(+), 2 deletions(-)
 
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 0ab68fe8d..3f7b22ead 100644
+index 38ef2bc18..4c8103c20 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
-@@ -669,6 +669,10 @@ pub const Surface = extern struct {
+@@ -670,6 +670,10 @@ pub const Surface = extern struct {
          touch_scroll_x: f64 = 0,
          touch_scroll_y: f64 = 0,
  
@@ -32,7 +32,7 @@ index 0ab68fe8d..3f7b22ead 100644
          /// True when the child has exited.
          child_exited: bool = false,
  
-@@ -3058,13 +3062,19 @@ pub const Surface = extern struct {
+@@ -3084,13 +3088,19 @@ pub const Surface = extern struct {
      // The gesture is touch-only, so a mouse drag still selects text.
      fn touchScrollBegin(
          _: *gtk.GestureDrag,
@@ -54,7 +54,7 @@ index 0ab68fe8d..3f7b22ead 100644
      }
  
      fn touchScrollUpdate(
-@@ -3081,6 +3091,9 @@ pub const Surface = extern struct {
+@@ -3107,6 +3117,9 @@ pub const Surface = extern struct {
  
          const core_surface = priv.core_surface orelse return;
          const scaled = self.scaledCoordinates(dx, dy);

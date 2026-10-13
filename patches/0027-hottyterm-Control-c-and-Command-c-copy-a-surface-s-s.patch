@@ -24,10 +24,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 73 insertions(+), 4 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 17b5095d6..e0c6cac8a 100644
+index bf47779f2..982377bfe 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -2416,7 +2416,7 @@ fn copySelectionToClipboards(
+@@ -2424,7 +2424,7 @@ fn copySelectionToClipboards(
  /// also copy per `copy_on_select`, use `setSelectionAndCopy`.
  ///
  /// This must be called with the renderer mutex held.
@@ -36,7 +36,7 @@ index 17b5095d6..e0c6cac8a 100644
      // Compute the transition before `select` below, which untracks (frees)
      // the previous selection's tracked pins; reading them after would be a
      // use-after-free.
-@@ -5170,7 +5170,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+@@ -5178,7 +5178,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
                  return true;
              }
  
@@ -47,7 +47,7 @@ index 17b5095d6..e0c6cac8a 100644
  
          .copy_url_to_clipboard => {
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 4e1ba52dd..9ee236e1e 100644
+index 2b97c6d77..4997a7e5a 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -6736,6 +6736,19 @@ pub const Keybinds = struct {

@@ -28,10 +28,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 167 insertions(+), 11 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 8d8eadb37..17b5095d6 100644
+index 80e291f37..bf47779f2 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -2752,7 +2752,7 @@ pub fn keyEventIsBinding(
+@@ -2760,7 +2760,7 @@ pub fn keyEventIsBinding(
      // Return flags based on the
      return switch (entry.value_ptr.*) {
          .leader => .{},
@@ -40,7 +40,7 @@ index 8d8eadb37..17b5095d6 100644
      };
  }
  
-@@ -2800,6 +2800,10 @@ pub fn keyCallback(
+@@ -2808,6 +2808,10 @@ pub fn keyCallback(
          }
      };
  
@@ -51,7 +51,7 @@ index 8d8eadb37..17b5095d6 100644
      // Handle keybindings first. We need to handle this on all events
      // (press, repeat, release) because a press may perform a binding but
      // a release should not encode if we consumed the press.
-@@ -2814,7 +2818,7 @@ pub fn keyCallback(
+@@ -2822,7 +2826,7 @@ pub fn keyCallback(
          if (self.io.terminal.modes.get(.disable_keyboard)) return .consumed;
      }
  

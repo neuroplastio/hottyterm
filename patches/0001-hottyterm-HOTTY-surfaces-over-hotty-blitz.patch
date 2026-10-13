@@ -27,7 +27,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 22e4ae413..5b14e7cab 100644
+index 4b5b71020..ffdb66cc2 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -27,6 +27,7 @@ const crash = @import("crash/main.zig");
@@ -38,7 +38,7 @@ index 22e4ae413..5b14e7cab 100644
  const font = @import("font/main.zig");
  const Command = @import("Command.zig");
  const terminal = @import("terminal/main.zig");
-@@ -695,6 +696,7 @@ pub fn init(
+@@ -703,6 +704,7 @@ pub fn init(
      // Outside the block, IO has now taken ownership of our temporary state
      // so we can just defer this and not the subcomponents.
      errdefer self.io.deinit();
@@ -46,7 +46,7 @@ index 22e4ae413..5b14e7cab 100644
  
      // Report initial cell size on surface creation
      _ = try rt_app.performAction(
-@@ -2499,6 +2501,7 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
+@@ -2507,6 +2509,7 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
  
      // Update our font size so future changes work
      self.font_size = size;
@@ -54,7 +54,7 @@ index 22e4ae413..5b14e7cab 100644
  
      // We need to build up a new font stack for this font size.
      const font_grid_key, const font_grid = try self.app.font_grid_set.ref(
-@@ -2806,6 +2809,9 @@ pub fn keyCallback(
+@@ -2814,6 +2817,9 @@ pub fn keyCallback(
          if (self.io.terminal.modes.get(.disable_keyboard)) return .consumed;
      }
  
@@ -64,7 +64,7 @@ index 22e4ae413..5b14e7cab 100644
      // If this input event has text, then we hide the mouse if configured.
      // We only do this on pressed events to avoid hiding the mouse when we
      // change focus due to a keybinding (i.e. switching tabs).
-@@ -2873,6 +2879,9 @@ pub fn keyCallback(
+@@ -2881,6 +2887,9 @@ pub fn keyCallback(
          shape,
      );
  
@@ -74,7 +74,7 @@ index 22e4ae413..5b14e7cab 100644
      // We've processed a key event that produced some data so we want to
      // track the last pressed key.
      self.pressed_key = event: {
-@@ -3902,6 +3911,9 @@ pub fn mouseButtonCallback(
+@@ -3910,6 +3919,9 @@ pub fn mouseButtonCallback(
      // Update our modifiers if they changed
      self.modsChanged(mods);
  
@@ -84,7 +84,7 @@ index 22e4ae413..5b14e7cab 100644
      // This is set to true if the terminal is allowed to capture the shift
      // modifier. Note we can do this more efficiently probably with less
      // locking/unlocking but clicking isn't that frequent enough to be a
-@@ -4643,6 +4655,9 @@ pub fn cursorPosCallback(
+@@ -4651,6 +4663,9 @@ pub fn cursorPosCallback(
  
      // log.debug("cursor pos x={} y={} mods={?}", .{ pos.x, pos.y, mods });
  
@@ -1366,7 +1366,7 @@ index 000000000..483a51530
 +    return consumed;
 +}
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index bc4f27ddc..dc1db7ba7 100644
+index 5d549d807..f1fa2f859 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
 @@ -11,6 +11,7 @@ const internal_os = @import("../os/main.zig");
@@ -1403,7 +1403,7 @@ index bc4f27ddc..dc1db7ba7 100644
          self.terminal.setDefaultCursorStyle(config.cursor_style);
          self.terminal.setDefaultCursorBlink(config.cursor_blink);
          self.terminal.setDefaultXtChecksum(config.xt_checksum_extension);
-@@ -387,9 +393,10 @@ pub const StreamHandler = struct {
+@@ -388,9 +394,10 @@ pub const StreamHandler = struct {
              .title_push,
              .title_pop,
              .kitty_dnd,
@@ -1415,7 +1415,7 @@ index bc4f27ddc..dc1db7ba7 100644
          }
      }
  
-@@ -916,6 +923,7 @@ pub const StreamHandler = struct {
+@@ -935,6 +942,7 @@ pub const StreamHandler = struct {
          self: *StreamHandler,
      ) !void {
          self.terminal.fullReset();

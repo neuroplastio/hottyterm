@@ -25,10 +25,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 63 insertions(+), 11 deletions(-)
 
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index fa901f948..2a9f449e4 100644
+index e684cb259..a84a4b1b8 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
-@@ -2850,7 +2850,7 @@ pub const Surface = extern struct {
+@@ -2876,7 +2876,7 @@ pub const Surface = extern struct {
  
      fn gcMouseDown(
          gesture: *gtk.GestureClick,
@@ -37,7 +37,7 @@ index fa901f948..2a9f449e4 100644
          x: f64,
          y: f64,
          self: *Self,
-@@ -2873,6 +2873,7 @@ pub const Surface = extern struct {
+@@ -2899,6 +2899,7 @@ pub const Surface = extern struct {
  
          // hottyterm: a touch a HOTTY surface has is not a click.
          if (priv.touch_hotty and gesture.as(gtk.GestureSingle).getCurrentSequence() != null) return;

@@ -25,10 +25,10 @@ lines: 68 (GTK apprt only).
  3 files changed, 68 insertions(+)
 
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 8b0faeb47..0ab68fe8d 100644
+index 8637df236..38ef2bc18 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
-@@ -664,6 +664,11 @@ pub const Surface = extern struct {
+@@ -665,6 +665,11 @@ pub const Surface = extern struct {
          /// True when we have a precision scroll in progress
          precision_scroll: bool = false,
  
@@ -40,7 +40,7 @@ index 8b0faeb47..0ab68fe8d 100644
          /// True when the child has exited.
          child_exited: bool = false,
  
-@@ -3047,6 +3052,55 @@ pub const Surface = extern struct {
+@@ -3073,6 +3078,55 @@ pub const Surface = extern struct {
          self.private().precision_scroll = false;
      }
  
@@ -96,7 +96,7 @@ index 8b0faeb47..0ab68fe8d 100644
      fn ecMouseScrollVertical(
          _: *gtk.EventControllerScroll,
          x: f64,
-@@ -3847,6 +3901,9 @@ pub const Surface = extern struct {
+@@ -3873,6 +3927,9 @@ pub const Surface = extern struct {
              class.bindTemplateCallback("scroll_vertical_begin", &ecMouseScrollVerticalPrecisionBegin);
              class.bindTemplateCallback("scroll_vertical_end", &ecMouseScrollVerticalPrecisionEnd);
              class.bindTemplateCallback("scroll_horizontal", &ecMouseScrollHorizontal);
