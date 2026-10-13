@@ -1,0 +1,206 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Tue, 13 Oct 2026 21:05:50 +0200
+Subject: [PATCH 26/26] =?UTF-8?q?hottyterm:=20a=20HOTTY=20click=20carries?=
+ =?UTF-8?q?=20the=20platform's=20count=20(SPEC=20=C2=A79)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+GTK's click gesture counts presses by the user's double-click time and
+distance (n_press), which Ghostty ignored. gcMouseDown hands it to
+hotty.surfaceClickCount, and the next press on a surface passes it to
+hotty_host_pointer, which keeps the run to one element (hotty-blitz
+13300e2). Where no count comes from the platform, as on macOS today,
+hotty.zig counts presses as Ghostty's own selection does:
+click-repeat-interval (the OS value on macOS) and a cell's width.
+ensureHost turns counts on, so the caps report `count`.
+
+Lines added outside tests: apprt/gtk/class/surface.zig 1 (1 changed).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/apprt/gtk/class/surface.zig |  3 +-
+ src/termio/hotty.zig            | 71 ++++++++++++++++++++++++++++-----
+ 2 files changed, 63 insertions(+), 11 deletions(-)
+
+diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
+index fa901f948..2a9f449e4 100644
+--- a/src/apprt/gtk/class/surface.zig
++++ b/src/apprt/gtk/class/surface.zig
+@@ -2850,7 +2850,7 @@ pub const Surface = extern struct {
+ 
+     fn gcMouseDown(
+         gesture: *gtk.GestureClick,
+-        _: c_int,
++        n_press: c_int,
+         x: f64,
+         y: f64,
+         self: *Self,
+@@ -2873,6 +2873,7 @@ pub const Surface = extern struct {
+ 
+         // hottyterm: a touch a HOTTY surface has is not a click.
+         if (priv.touch_hotty and gesture.as(gtk.GestureSingle).getCurrentSequence() != null) return;
++        hotty.surfaceClickCount(core_surface, n_press); // hottyterm: the platform's count (SPEC §9)
+ 
+         // Report the event
+         const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 8457e5ab8..2db28bde7 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -88,7 +88,7 @@ extern fn hotty_host_redeliver(h: *Host, surface: [*:0]const u8) void;
+ extern fn hotty_host_render(h: *Host, ctx: ?*anyopaque, cb: FrameFn) void;
+ extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;
+ extern fn hotty_host_reset(h: *Host, fx: ?*const Effects) void;
+-extern fn hotty_host_pointer(h: *Host, surface: [*:0]const u8, kind: u32, x: f32, y: f32, mods: u32, fx: *const Effects) void;
++extern fn hotty_host_pointer(h: *Host, surface: [*:0]const u8, kind: u32, x: f32, y: f32, mods: u32, count: u32, fx: *const Effects) void;
+ extern fn hotty_host_key_bytes(h: *Host, data: [*]const u8, len: usize, fx: *const Effects) bool;
+ extern fn hotty_host_key_pressed(h: *Host, name: [*]const u8, len: usize, fx: *const Effects) bool;
+ extern fn hotty_host_wheel(h: *Host, surface: ?[*:0]const u8, x: f32, y: f32, dx: f32, dy: f32, mods: u32, fx: *const Effects) bool;
+@@ -100,6 +100,7 @@ extern fn hotty_host_cursor(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
+ extern fn hotty_host_hyperlink(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
+ extern fn hotty_host_takes_pointer(h: *Host, surface: [*:0]const u8, x: f32, y: f32) bool;
+ extern fn hotty_host_set_passthrough(h: *Host, on: bool) void;
++extern fn hotty_host_set_counts(h: *Host, on: bool) void;
+ extern fn hotty_host_set_network(h: *Host, policy: ?[*:0]const u8) void;
+ extern fn hotty_host_set_waker(h: *Host, wake: ?*const fn (?*anyopaque) callconv(.c) void, ctx: ?*anyopaque) void;
+ 
+@@ -318,6 +319,14 @@ pub const Hotty = struct {
+     /// A press on a hyperlink with the OSC 8 gesture: it and its release
+     /// are the terminal's, never the surface's.
+     link_press: bool = false,
++    /// The platform's count of the left press under way in a run of
++    /// clicks, as the apprt hands it over (GTK's n_press,
++    /// `surfaceClickCount`); 0 where it hands none over, and the press is
++    /// counted here as Ghostty counts one (`clickCount`).
++    platform_count: u32 = 0,
++    /// The last left press: when and where it was, and its count, which
++    /// its release carries too (SPEC §9).
++    last_press: ?struct { time: std.Io.Timestamp, x: f32, y: f32, count: u32 } = null,
+     /// The keys whose press a surface took: their releases are the
+     /// surface's too, wherever the keyboard is by then (`surfaceKey`).
+     held_keys: std.EnumSet(input.Key) = .initEmpty(),
+@@ -453,6 +462,8 @@ pub const Hotty = struct {
+             // The pointer passes through what a surface does not take
+             // (SPEC §9.3): `hit` asks the surface.
+             hotty_host_set_passthrough(h, true);
++            // Clicks carry the platform's count (SPEC §9): `clickCount`.
++            hotty_host_set_counts(h, true);
+             hotty_host_set_network(h, self.settings.net.ptr);
+             if (self.wakeup != null) hotty_host_set_waker(h, wake, self);
+         } else log.warn("hotty-blitz failed to start", .{});
+@@ -1132,9 +1143,37 @@ pub const Hotty = struct {
+         return .{ .name = e.key_ptr.*, .x = @floatCast(px - b.x0 + b.dx), .y = @floatCast(py - b.y0 + b.dy) };
+     }
+ 
+-    /// A pointer event at viewport pixel (`px`, `py`). True if a surface took
+-    /// it; replies for the program stay in `replies`.
+-    fn pointer(self: *Hotty, t: *terminal.Terminal, kind: PointerKind, px: f64, py: f64, mods: u32) bool {
++    /// A left press's or release's count in its run of clicks (SPEC §9),
++    /// for hotty_host_pointer: the apprt's (`platform_count`), or else
++    /// counted as Ghostty counts a press: within the platform's repeat
++    /// interval (`click-repeat-interval`, macOS's own by default) and a
++    /// cell's width of the last. A release carries its press's; anything
++    /// else none.
++    fn clickCount(self: *Hotty, kind: PointerKind, pos: apprt.CursorPos, interval: u64, distance: f32) u32 {
++        switch (kind) {
++            .up => return if (self.last_press) |p| p.count else 1,
++            .down => {},
++            else => return 0,
++        }
++        const now = std.Io.Timestamp.now(global.io(), .awake);
++        const n: u32 = if (self.platform_count > 0) self.platform_count else n: {
++            const p = self.last_press orelse break :n 1;
++            const since = p.time.durationTo(now).toNanoseconds();
++            if (since < 0 or since > interval) break :n 1;
++            const dx = pos.x - p.x;
++            const dy = pos.y - p.y;
++            if (@sqrt(dx * dx + dy * dy) > distance) break :n 1;
++            break :n p.count + 1;
++        };
++        self.platform_count = 0;
++        self.last_press = .{ .time = now, .x = pos.x, .y = pos.y, .count = n };
++        return n;
++    }
++
++    /// A pointer event at viewport pixel (`px`, `py`), a press or a release
++    /// the `count`th of its run of clicks (0 for another). True if a
++    /// surface took it; replies for the program stay in `replies`.
++    fn pointer(self: *Hotty, t: *terminal.Terminal, kind: PointerKind, px: f64, py: f64, mods: u32, count: u32) bool {
+         self.shape = null;
+         self.setLink(null);
+         const h = self.host orelse return false;
+@@ -1150,7 +1189,7 @@ pub const Hotty = struct {
+             if (self.hover_len > 0) {
+                 var buf: [73]u8 = undefined;
+                 const old = std.fmt.bufPrintZ(&buf, "{s}", .{self.hover[0..self.hover_len]}) catch "";
+-                hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
++                hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, 0, &fx);
+                 self.hover_len = 0;
+             }
+             if (kind == .down) {
+@@ -1170,7 +1209,7 @@ pub const Hotty = struct {
+         if (self.hover_len > 0 and !std.mem.eql(u8, self.hover[0..self.hover_len], over)) {
+             var buf: [73]u8 = undefined;
+             const old = std.fmt.bufPrintZ(&buf, "{s}", .{self.hover[0..self.hover_len]}) catch "";
+-            hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
++            hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, 0, &fx);
+             self.hover_len = 0;
+         }
+         if (target) |tg| {
+@@ -1180,7 +1219,7 @@ pub const Hotty = struct {
+             }
+             var name_buf: [73]u8 = undefined;
+             const name = std.fmt.bufPrintZ(&name_buf, "{s}", .{tg.name}) catch return false;
+-            hotty_host_pointer(h, name.ptr, @intFromEnum(kind), tg.x, tg.y, mods, &fx);
++            hotty_host_pointer(h, name.ptr, @intFromEnum(kind), tg.x, tg.y, mods, count, &fx);
+             const css = hotty_host_cursor(h, name.ptr);
+             self.shape = if (css) |c| terminal.MouseShape.fromString(std.mem.span(c)) orelse .default else .default;
+             self.setLink(if (hotty_host_hyperlink(h, name.ptr)) |u| std.mem.span(u) else null);
+@@ -1194,7 +1233,7 @@ pub const Hotty = struct {
+                     // Released outside it: the pointer has left it.
+                     const now = self.hit(t, px, py);
+                     if (now == null or !std.mem.eql(u8, now.?.name, tg.name)) {
+-                        hotty_host_pointer(h, name.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
++                        hotty_host_pointer(h, name.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, 0, &fx);
+                         self.hover_len = 0;
+                         self.shape = null;
+                     }
+@@ -1221,7 +1260,7 @@ pub const Hotty = struct {
+         const fx = self.effects();
+         var buf: [73]u8 = undefined;
+         const old = std.fmt.bufPrintZ(&buf, "{s}", .{self.hover[0..self.hover_len]}) catch "";
+-        hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
++        hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, 0, &fx);
+         self.hover_len = 0;
+         self.shape = null;
+         self.setLink(null);
+@@ -1418,7 +1457,9 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M
+             },
+             else => {},
+         }
+-        const took = hs.pointer(&s.io.terminal, kind, tp.x, tp.y, hostMods(mods));
++        // A press's count in its run of clicks, and its release's (SPEC §9).
++        const count = hs.clickCount(kind, pos, s.config.mouse_interval, @floatFromInt(s.size.cell.width));
++        const took = hs.pointer(&s.io.terminal, kind, tp.x, tp.y, hostMods(mods), count);
+         shape = hs.shapeChange(s.io.terminal.mouse_shape, osc8, false);
+         if (hs.previewChange(osc8 and s.config.link_previews != .false, false)) |p| preview = s.alloc.dupeZ(u8, p) catch null;
+         drew = hs.drew;
+@@ -1604,6 +1645,16 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
+     return took;
+ }
+ 
++/// The apprt's count of the press it is about to hand over in a run of
++/// clicks (GTK's n_press): the platform's, by the user's own settings,
++/// which a click on a surface carries (SPEC §9). An apprt that hands none
++/// over leaves the press to be counted as Ghostty counts one.
++pub fn surfaceClickCount(s: *Surface, n: c_int) void {
++    s.renderer_state.mutex.lockUncancelable(global.io());
++    defer s.renderer_state.mutex.unlock(global.io());
++    s.io.terminal_stream.handler.hotty.platform_count = @intCast(@max(n, 0));
++}
++
+ /// Surface.cursorPosCallback: hovering a surface restyles it, and a
+ /// placement that asked hears it as hover (SPEC §9.4). A negative position
+ /// is the pointer leaving the window (the apprts send -1, -1): the surface
