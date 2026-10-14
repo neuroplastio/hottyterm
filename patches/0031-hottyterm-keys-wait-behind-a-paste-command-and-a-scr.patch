@@ -1,0 +1,185 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Wed, 14 Oct 2026 17:31:01 +0200
+Subject: [PATCH 31/31] =?UTF-8?q?hottyterm:=20keys=20wait=20behind=20a=20p?=
+ =?UTF-8?q?aste=20command,=20and=20a=20screen=20switch=20drops=20its=20com?=
+ =?UTF-8?q?mands=20at=20once=20(SPEC=20=C2=A710.6)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Keys pressed while a paste command waits for the clipboard wait too, and
+reach the program after it, in order; a paste whose clipboard has not come
+in 2 s goes without text. The stream handler syncs the screen at each
+switch, so leaving the alternate screen and coming back within a frame
+still drops the commands taken there. Both found by plexos.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig          | 89 +++++++++++++++++++++++++++++++++--
+ src/termio/stream_handler.zig |  3 ++
+ 2 files changed, 89 insertions(+), 3 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index d43d0bde3..2be97f7e9 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -391,10 +391,24 @@ pub const Hotty = struct {
+     menu_place: ?Place = null,
+     menu_shown: bool = false,
+     /// A paste command waits for the clipboard (`commandPaste`), with its
+-    /// key.
++    /// key, and since when.
+     paste_pending: bool = false,
+     paste_key: [64]u8 = undefined,
+     paste_key_len: usize = 0,
++    paste_since: i96 = 0,
++    /// The paste went without text after `paste_wait_ms`: a clipboard
++    /// that comes after all, within `paste_late_ms` of the key, is dropped.
++    paste_abandoned: bool = false,
++    /// The keys pressed while a paste command waits (SPEC §10.6): they
++    /// reach the program after it, in order (`releaseHeld`).
++    paste_held: [64]HeldKey = undefined,
++    paste_held_len: usize = 0,
++
++    const HeldKey = struct {
++        event: input.KeyEvent,
++        text: [32]u8,
++        len: u8,
++    };
+ 
+     const Place = struct {
+         surface: [:0]u8,
+@@ -483,8 +497,9 @@ pub const Hotty = struct {
+ 
+     /// The program's screen changed (SPEC §10.6): leaving the alternate
+     /// screen drops the commands taken there, and the program's menu
+-    /// hides.
+-    fn syncScreen(self: *Hotty, t: *terminal.Terminal) void {
++    /// hides. The stream handler calls it at each switch, so leaving and
++    /// coming back between two frames still drops them.
++    pub fn syncScreen(self: *Hotty, t: *terminal.Terminal) void {
+         const now = t.screens.active_key;
+         if (now == self.screen) return;
+         if (self.screen == .alternate) self.taken[1] = 0;
+@@ -2087,6 +2102,7 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
+ /// goes where its press went.
+ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
+     if (s.readonly) return false;
++    if (holdForPaste(s, event)) return true;
+     const hs = &s.io.terminal_stream.handler.hotty;
+     if (event.action == .release) {
+         s.renderer_state.mutex.lockUncancelable(global.io());
+@@ -2153,6 +2169,8 @@ fn editCommand(s: *Surface, event: input.KeyEvent, name: []const u8) bool {
+             @memcpy(hs.paste_key[0..n], name[0..n]);
+             hs.paste_key_len = n;
+             hs.paste_pending = true;
++            hs.paste_abandoned = false;
++            hs.paste_since = std.Io.Timestamp.now(global.io(), .awake).nanoseconds;
+         }
+         const started = s.performBindingAction(.paste_from_clipboard) catch false;
+         // Nothing to read: the paste goes without text.
+@@ -2177,6 +2195,13 @@ pub fn commandPaste(s: *Surface, data: []const u8) bool {
+         s.renderer_state.mutex.lockUncancelable(global.io());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const hs = &s.io.terminal_stream.handler.hotty;
++        if (hs.paste_abandoned) {
++            // It went without text already; a paste of the terminal's own,
++            // later, goes on.
++            hs.paste_abandoned = false;
++            const now = std.Io.Timestamp.now(global.io(), .awake).nanoseconds;
++            if (now - hs.paste_since < paste_late_ms * std.time.ns_per_ms) return true;
++        }
+         if (!hs.paste_pending) return false;
+         hs.paste_pending = false;
+         const fx = hs.effects();
+@@ -2184,9 +2209,67 @@ pub fn commandPaste(s: *Surface, data: []const u8) bool {
+         hotty_host_command("paste", &hs.paste_key, hs.paste_key_len, text, data.len, &fx);
+     }
+     deliver(s, false);
++    releaseHeld(s);
+     return true;
+ }
+ 
++/// How long a paste command waits for the clipboard before it goes without
++/// text (`holdForPaste`): a read that fails never completes.
++const paste_wait_ms = 2000;
++/// How late a clipboard read that a paste command gave up on may still
++/// come, and be dropped.
++const paste_late_ms = 10_000;
++
++/// A key while a paste command waits for the clipboard (SPEC §10.6) waits
++/// too, so that it reaches the program after the paste, as it was typed.
++/// Once the paste has waited `paste_wait_ms`, it goes without text, the
++/// keys held go on, and so does this one.
++fn holdForPaste(s: *Surface, event: input.KeyEvent) bool {
++    {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const hs = &s.io.terminal_stream.handler.hotty;
++        if (!hs.paste_pending) return false;
++        const now = std.Io.Timestamp.now(global.io(), .awake).nanoseconds;
++        if (now - hs.paste_since < paste_wait_ms * std.time.ns_per_ms) {
++            if (hs.paste_held_len < hs.paste_held.len) {
++                const h = &hs.paste_held[hs.paste_held_len];
++                const n = @min(event.utf8.len, h.text.len);
++                @memcpy(h.text[0..n], event.utf8[0..n]);
++                h.len = @intCast(n);
++                h.event = event;
++                hs.paste_held_len += 1;
++            } else log.warn("a key dropped while a paste command waits", .{});
++            return true;
++        }
++    }
++    _ = commandPaste(s, "");
++    s.renderer_state.mutex.lockUncancelable(global.io());
++    defer s.renderer_state.mutex.unlock(global.io());
++    s.io.terminal_stream.handler.hotty.paste_abandoned = true;
++    return false;
++}
++
++/// The keys held while a paste command waited go on, in order, as if typed
++/// now. One that is another paste command's holds those after it again.
++fn releaseHeld(s: *Surface) void {
++    var held: [64]Hotty.HeldKey = undefined;
++    const n = n: {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const hs = &s.io.terminal_stream.handler.hotty;
++        const n = hs.paste_held_len;
++        @memcpy(held[0..n], hs.paste_held[0..n]);
++        hs.paste_held_len = 0;
++        break :n n;
++    };
++    for (held[0..n]) |*h| {
++        var event = h.event;
++        event.utf8 = h.text[0..h.len];
++        _ = s.keyCallback(event) catch |err| log.warn("a held key failed err={}", .{err});
++    }
++}
++
+ /// A key pressed while the cells have the keyboard and a menu shows: the
+ /// program's hides on Escape and on a key it does not list (SPEC §10.6).
+ /// The key goes on.
+diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
+index 82324e1c3..3de3b1dde 100644
+--- a/src/termio/stream_handler.zig
++++ b/src/termio/stream_handler.zig
+@@ -709,14 +709,17 @@ pub const StreamHandler = struct {
+ 
+             .alt_screen_legacy => {
+                 try self.terminal.switchScreenMode(.@"47", enabled);
++                self.hotty.syncScreen(self.terminal); // hottyterm
+             },
+ 
+             .alt_screen => {
+                 try self.terminal.switchScreenMode(.@"1047", enabled);
++                self.hotty.syncScreen(self.terminal); // hottyterm
+             },
+ 
+             .alt_screen_save_cursor_clear_enter => {
+                 try self.terminal.switchScreenMode(.@"1049", enabled);
++                self.hotty.syncScreen(self.terminal); // hottyterm
+             },
+ 
+             // Mode 1048 is xterm's conditional save cursor depending
