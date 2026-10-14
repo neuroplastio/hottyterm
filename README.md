@@ -66,7 +66,7 @@ here, and no GitHub fork.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK); `0015` a surface names a key from the bytes the program would read; `0016` a touch taps and scrolls where the finger touched (GTK); `0017` a touch drags what opts out of panning; `0018` a zoom is a browser's zoom; `0019` the pty learns a new size only after the grid has it (termio, generic); `0020` a kitty frame edit uploads only the rectangle it changed (renderer, generic); `0021` a surface is offered a key as pressed first; `0022` no tabs, and windows and full screen are the window manager's; `0023` a frame's rectangles go straight into the surface's image; `0024` the macOS menu sees keys as `key-remap` makes them; `0025` Metal writes those rectangles with a blit (renderer, generic); `0026` a HOTTY click carries the platform's count; `0027` Control+c and Command+c copy a surface's selection too |
+| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK); `0015` a surface names a key from the bytes the program would read; `0016` a touch taps and scrolls where the finger touched (GTK); `0017` a touch drags what opts out of panning; `0018` a zoom is a browser's zoom; `0019` the pty learns a new size only after the grid has it (termio, generic); `0020` a kitty frame edit uploads only the rectangle it changed (renderer, generic); `0021` a surface is offered a key as pressed first; `0022` no tabs, and windows and full screen are the window manager's; `0023` a frame's rectangles go straight into the surface's image; `0024` the macOS menu sees keys as `key-remap` makes them; `0025` Metal writes those rectangles with a blit (renderer, generic); `0026` a HOTTY click carries the platform's count; `0027` Control+c and Command+c copy a surface's selection too; `0028` a text field cuts, pastes and undoes |
 | new code | `src/termio/hotty.zig`, 1628 lines: all of the logic |
 | upstream files touched | 10 files, 246 lines added and 4 changed — hooks, settings and the GTK touch gesture |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
@@ -170,6 +170,15 @@ The hooks:
   double click selects a word and a triple click a block, and there is one
   selection: a press on a surface drops the terminal's, and one on the
   cells the surfaces'.
+- **Cutting, pasting and undo** (SPEC §10.2, §11): in a surface's focused
+  text field, Control+x and Cmd+x cut, Control+v and Cmd+v paste,
+  Control+z and Cmd+z undo, and Control+Shift+z, Control+y and
+  Cmd+Shift+z redo, each field with its own history. Outside a field they
+  reach the program as before, and so does a cut with nothing selected.
+  While a field has the keyboard, the terminal's own paste
+  (Control+Shift+v, Cmd+v, the menu) types into it, not into the pty. A
+  program reading the clipboard with OSC 52 still asks first
+  (`clipboard-read`).
 - **No tabs:** plx has them, and windows and full screen are the window
   manager's. hottyterm has no default keys for tabs, quitting, closing
   windows or full screen, on the Mac too, and a new tab, from a binding, a

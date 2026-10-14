@@ -1,0 +1,189 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Wed, 14 Oct 2026 12:22:25 +0200
+Subject: [PATCH 28/28] =?UTF-8?q?hottyterm:=20a=20text=20field=20cuts,=20p?=
+ =?UTF-8?q?astes=20and=20undoes=20(SPEC=20=C2=A710.2,=20=C2=A711)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+hotty-blitz's new effects: a field's cut puts its text on the clipboard,
+and a field's paste reads the clipboard with paste_from_clipboard, after
+the key, once the renderer lock is let go. While a surface's text field
+has the keyboard, completeClipboardPaste types what is pasted into it,
+the terminal's own paste included (Control+Shift+v, Command+v), instead
+of writing it to the pty; a paste then asks for text, not kitty's paste
+event. Undo is the field's own, in hotty-blitz.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/Surface.zig      |  3 +-
+ src/termio/hotty.zig | 78 +++++++++++++++++++++++++++++++++++++++++++-
+ 2 files changed, 79 insertions(+), 2 deletions(-)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 982377bfe..8ffe41dc4 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -6225,7 +6225,7 @@ fn startClipboardRequest(
+             const event = self.io.terminal.modes.get(.kitty_paste_events);
+             self.renderer_state.mutex.unlock(global.io());
+ 
+-            break :effective if (event)
++            break :effective if (event and !hotty.pastesText(self))
+                 .{ .list = clipboard }
+             else
+                 req;
+@@ -6262,6 +6262,7 @@ fn completeClipboardPaste(
+     allow_unsafe: bool,
+ ) !void {
+     if (data.len == 0) return;
++    if (hotty.pasteInto(self, data)) return;
+ 
+     const encode_opts: input.paste.Options = encode_opts: {
+         self.renderer_state.mutex.lockUncancelable(global.io());
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 52b1124d2..d19e322e1 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -70,6 +70,10 @@ pub const Effects = extern struct {
+     place: ?*const fn (?*anyopaque, [*:0]const u8, u16, u16, u16, u16, u16, u16, i32, u32, bool) callconv(.c) void,
+     remove: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) void,
+     hide: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) void,
++    /// A text field's cut, for the clipboard (SPEC §10.2).
++    clipboard: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void,
++    /// A text field's paste: read the clipboard, for hotty_host_paste.
++    paste: ?*const fn (?*anyopaque) callconv(.c) void,
+ };
+ 
+ pub const Rect = extern struct { x: u32, y: u32, w: u32, h: u32 };
+@@ -103,6 +107,7 @@ extern fn hotty_host_set_passthrough(h: *Host, on: bool) void;
+ extern fn hotty_host_set_counts(h: *Host, on: bool) void;
+ extern fn hotty_host_selected_text(h: *Host) ?[*:0]const u8;
+ extern fn hotty_host_clear_selection(h: *Host) void;
++extern fn hotty_host_paste(h: *Host, text: [*]const u8, len: usize, fx: *const Effects) bool;
+ extern fn hotty_host_set_network(h: *Host, policy: ?[*:0]const u8) void;
+ extern fn hotty_host_set_waker(h: *Host, wake: ?*const fn (?*anyopaque) callconv(.c) void, ctx: ?*anyopaque) void;
+ 
+@@ -271,6 +276,11 @@ pub const Hotty = struct {
+     places: std.ArrayListUnmanaged(Place) = .empty,
+     removes: std.ArrayListUnmanaged([]u8) = .empty,
+     hides: std.ArrayListUnmanaged([]u8) = .empty,
++    /// A text field's cut, for the clipboard, and whether a field's paste
++    /// asked for the clipboard (SPEC §10.2): `clipboard` carries them out
++    /// once the renderer lock is let go.
++    cut: ?[:0]u8 = null,
++    paste_wanted: bool = false,
+ 
+     /// The surface under the pointer, so leaving it clears its hover state.
+     hover: [72]u8 = undefined,
+@@ -368,6 +378,8 @@ pub const Hotty = struct {
+         self.removes.deinit(self.alloc);
+         self.clearHides();
+         self.hides.deinit(self.alloc);
++        if (self.cut) |c| self.alloc.free(c);
++        self.cut = null;
+     }
+ 
+     fn clearPlaces(self: *Hotty) void {
+@@ -386,7 +398,18 @@ pub const Hotty = struct {
+     }
+ 
+     fn effects(self: *Hotty) Effects {
+-        return .{ .ctx = self, .reply = onReply, .place = onPlace, .remove = onRemove, .hide = onHide };
++        return .{ .ctx = self, .reply = onReply, .place = onPlace, .remove = onRemove, .hide = onHide, .clipboard = onClipboard, .paste = onPaste };
++    }
++
++    fn onClipboard(ctx: ?*anyopaque, text: [*]const u8, len: usize) callconv(.c) void {
++        const self: *Hotty = @ptrCast(@alignCast(ctx.?));
++        if (self.cut) |c| self.alloc.free(c);
++        self.cut = self.alloc.dupeZ(u8, text[0..len]) catch null;
++    }
++
++    fn onPaste(ctx: ?*anyopaque) callconv(.c) void {
++        const self: *Hotty = @ptrCast(@alignCast(ctx.?));
++        self.paste_wanted = true;
+     }
+ 
+     fn onReply(ctx: ?*anyopaque, data: [*]const u8, len: usize) callconv(.c) void {
+@@ -1507,6 +1530,56 @@ pub fn copySelection(s: *Surface) bool {
+     return true;
+ }
+ 
++/// What a text field's cut and paste ask of the clipboard (SPEC §10.2),
++/// after a key, once the renderer lock is let go: a paste's request may
++/// complete at once, and takes the lock to type into the field.
++fn clipboard(s: *Surface) void {
++    const hs = &s.io.terminal_stream.handler.hotty;
++    const cut, const paste = taken: {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        defer hs.cut = null;
++        defer hs.paste_wanted = false;
++        break :taken .{ hs.cut, hs.paste_wanted };
++    };
++    if (cut) |c| {
++        defer hs.alloc.free(c);
++        setClipboards(s, &.{.standard}, c);
++    }
++    if (paste) _ = s.performBindingAction(.paste_from_clipboard) catch |err|
++        log.warn("hotty: a field's paste could not read the clipboard err={}", .{err});
++}
++
++/// Surface.completeClipboardPaste: while a text field has the keyboard,
++/// what the terminal pastes types into it, a field's paste and the
++/// terminal's own alike, and does not reach the program (SPEC §11). False
++/// when none has it: the terminal pastes to the program as usual.
++pub fn pasteInto(s: *Surface, data: []const u8) bool {
++    if (s.readonly or !holdsKeyboard(s)) return false;
++    var drew = false;
++    const took = took: {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const hs = &s.io.terminal_stream.handler.hotty;
++        const h = hs.host orelse break :took false;
++        const fx = hs.effects();
++        const took = hotty_host_paste(h, data.ptr, data.len, &fx);
++        if (hs.render(&s.io.terminal)) hs.drew = true;
++        drew = hs.drew;
++        hs.drew = false;
++        break :took took;
++    };
++    deliver(s, took or drew);
++    return took;
++}
++
++/// Surface.startClipboardRequest: a paste asks for text, not for kitty's
++/// paste event, while a surface has the keyboard, so that a text field can
++/// take it (SPEC §11).
++pub fn pastesText(s: *Surface) bool {
++    return holdsKeyboard(s);
++}
++
+ fn setClipboards(s: *Surface, clipboards: []const apprt.Clipboard, text: [:0]const u8) void {
+     const contents: []const apprt.ClipboardContent = &.{.{ .mime = "text/plain", .data = text }};
+     for (clipboards) |c| s.rt_surface.setClipboard(c, contents, false) catch |err| {
+@@ -1823,6 +1896,7 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
+         break :used used;
+     };
+     deliver(s, used or drew);
++    clipboard(s);
+     return used;
+ }
+ 
+@@ -1958,6 +2032,7 @@ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+         break :consumed used;
+     };
+     deliver(s, consumed or drew);
++    clipboard(s);
+     return consumed;
+ }
+ 
+@@ -1980,6 +2055,7 @@ pub fn surfaceBindingBytes(s: *Surface, bytes: []const u8) bool {
+         break :used used;
+     };
+     deliver(s, used or drew);
++    clipboard(s);
+     return used;
+ }
+ 
