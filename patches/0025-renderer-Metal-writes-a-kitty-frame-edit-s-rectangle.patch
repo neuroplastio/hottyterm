@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 19:54:30 +0200
-Subject: [PATCH 25/29] renderer: Metal writes a kitty frame edit's rectangles
+Subject: [PATCH 25/30] renderer: Metal writes a kitty frame edit's rectangles
  with a blit
 
 Region updates of kitty images (texture_region_updates) were OpenGL

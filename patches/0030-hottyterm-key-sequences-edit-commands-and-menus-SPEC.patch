@@ -1,0 +1,495 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Wed, 14 Oct 2026 14:57:15 +0200
+Subject: [PATCH 30/30] =?UTF-8?q?hottyterm:=20key=20sequences,=20edit=20co?=
+ =?UTF-8?q?mmands=20and=20menus=20(SPEC=20=C2=A710.4=E2=80=93=C2=A710.6)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Mod is Command on macOS and Control elsewhere; hotty-leader and
+hotty-key-timeout set the leader and the timeout of key sequences. A key
+of an edit command the program took (a=edit, per screen, dropped on
+leaving the alternate screen and on RIS) reaches it as the event
+command: a copy with a selection on the cells copies it instead, and a
+paste reads the clipboard first. The which-key menu, a waiting
+sequence's or the program's, shows at the bottom right of the screen,
+and a key the program's does not list hides it.
+
+Upstream files: Config.zig +13 (two settings), Surface.zig +1 (the
+paste command's hook).
+---
+ src/Surface.zig       |   1 +
+ src/config/Config.zig |  13 ++
+ src/termio/hotty.zig  | 284 ++++++++++++++++++++++++++++++++++++++++--
+ 3 files changed, 291 insertions(+), 7 deletions(-)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 8ffe41dc4..5c67afa68 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -6261,6 +6261,7 @@ fn completeClipboardPaste(
+     data: []const u8,
+     allow_unsafe: bool,
+ ) !void {
++    if (hotty.commandPaste(self, data)) return; // hottyterm
+     if (data.len == 0) return;
+     if (hotty.pasteInto(self, data)) return;
+ 
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index 4997a7e5a..bbf8b65b5 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -3969,6 +3969,19 @@ term: []const u8 = "xterm-ghostty",
+ ///   * `focus` - it only focuses; the program hears nothing of it.
+ @"hotty-focus-click": HottyFocusClick = .pass,
+ 
++// hottyterm: the leader of HOTTY key sequences.
++/// The leader of key sequences in HOTTY surfaces: the keys `<leader>`
++/// stands for in a document's `data-key`, named as HOTTY names keys and
++/// separated by spaces, such as `Space`, `Control+Space` or `Control+x
++/// Control+x`. (HOTTY SPEC §10.5.)
++@"hotty-leader": []const u8 = "Space",
++
++// hottyterm: how long a HOTTY key sequence waits.
++/// How long a key sequence in a HOTTY surface waits for its next key, in
++/// milliseconds, before the keys typed go on (or run the sequence they
++/// finish). Its menu shows a moment after it begins.
++@"hotty-key-timeout": u32 = 2000,
++
+ /// Configures the low-level API to use for async IO, eventing, etc.
+ ///
+ /// Most users should leave this set to `auto`. This will automatically detect
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index fd230f8f9..d43d0bde3 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -29,6 +29,7 @@
+ //! loop's own thread touches it (`schedule`).
+ 
+ const std = @import("std");
++const builtin = @import("builtin");
+ const Allocator = std.mem.Allocator;
+ const global = @import("../global.zig");
+ const terminal = @import("../terminal/main.zig");
+@@ -74,6 +75,15 @@ pub const Effects = extern struct {
+     clipboard: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void,
+     /// A text field's paste: read the clipboard, for hotty_host_paste.
+     paste: ?*const fn (?*anyopaque) callconv(.c) void,
++    /// A key a key sequence's wait typed, by name, for the program: none
++    /// comes, since keys reach a sequence as bytes (`keyBytes`).
++    key: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void = null,
++    /// `a=edit` (SPEC §10.6): the edit commands the program takes on its
++    /// screen, comma-separated.
++    edit: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void,
++    /// The which-key menu (SPEC §10.5, §10.6): show the surface, cols×rows,
++    /// at the bottom right of the screen.
++    menu: ?*const fn (?*anyopaque, [*:0]const u8, u16, u16) callconv(.c) void,
+ };
+ 
+ pub const Rect = extern struct { x: u32, y: u32, w: u32, h: u32 };
+@@ -110,6 +120,11 @@ extern fn hotty_host_clear_selection(h: *Host) void;
+ extern fn hotty_host_paste(h: *Host, text: [*]const u8, len: usize, fx: *const Effects) bool;
+ extern fn hotty_host_copy_key(h: *Host, name: [*]const u8, len: usize, text: *?[*:0]const u8) c_int;
+ extern fn hotty_host_set_network(h: *Host, policy: ?[*:0]const u8) void;
++extern fn hotty_host_set_keys(h: *Host, meta: bool, edit: ?[*:0]const u8, leader: ?[*:0]const u8, timeout_ms: u32, commands: bool, menus: bool, fx: ?*const Effects) void;
++extern fn hotty_host_edit_command(h: *Host, name: [*]const u8, len: usize) ?[*:0]const u8;
++extern fn hotty_host_command(name: [*:0]const u8, key: ?[*]const u8, key_len: usize, text: ?[*]const u8, text_len: usize, fx: ?*const Effects) void;
++extern fn hotty_host_cells_key(h: *Host, name: [*]const u8, len: usize) void;
++extern fn hotty_host_hide_menu(h: *Host) void;
+ extern fn hotty_host_set_waker(h: *Host, wake: ?*const fn (?*anyopaque) callconv(.c) void, ctx: ?*anyopaque) void;
+ 
+ // --- wiring ------------------------------------------------------------------
+@@ -123,6 +138,17 @@ const osc_prefix = "7279;";
+ /// Surfaces get kitty image ids from here up ("HOT\x00"), clear of the ids
+ /// programs pick and of Ghostty's implicit ones in the upper half.
+ const id_base: u32 = 0x484F_5400;
++/// The surface hotty-blitz draws the which-key menu in (MENU).
++const menu_name = "hotty:menu";
++
++/// The edit actions (SPEC §10.2), each a bit of `Hotty.taken`.
++const edit_actions = [_][]const u8{ "select-all", "copy", "cut", "paste", "undo", "redo" };
++
++fn editBit(name: []const u8) u8 {
++    for (edit_actions, 0..) |a, i| if (std.mem.eql(u8, a, name)) return @as(u8, 1) << @intCast(i);
++    return 0;
++}
++
+ /// How many ids surfaces cycle through. Every placement at a new size takes
+ /// a fresh one, so a program resizing its surfaces goes through them fast.
+ const id_span: u32 = 0x1_0000;
+@@ -133,12 +159,19 @@ pub const Settings = struct {
+     font_family: [:0]const u8 = "",
+     /// What surfaces may fetch from the network (`hotty-net`, SPEC §7.2).
+     net: [:0]const u8 = "",
++    /// The leader of key sequences (`hotty-leader`, SPEC §10.5).
++    leader: [:0]const u8 = "Space",
++    /// How long a key sequence waits for its next key, in milliseconds
++    /// (`hotty-key-timeout`).
++    key_timeout: u32 = 2000,
+ 
+     pub fn init(alloc: Allocator, config: *const configpkg.Config) Allocator.Error!Settings {
+         const families = config.@"font-family".list.items;
+         return .{
+             .font_family = try alloc.dupeZ(u8, if (families.len > 0) families[0] else ""),
+             .net = try alloc.dupeZ(u8, config.@"hotty-net"),
++            .leader = try alloc.dupeZ(u8, config.@"hotty-leader"),
++            .key_timeout = config.@"hotty-key-timeout",
+         };
+     }
+ };
+@@ -347,6 +380,21 @@ pub const Hotty = struct {
+     /// The keys whose press a surface took: their releases are the
+     /// surface's too, wherever the keyboard is by then (`surfaceKey`).
+     held_keys: std.EnumSet(input.Key) = .initEmpty(),
++    /// The edit commands the program took (`a=edit`, SPEC §10.6) on the
++    /// main screen and on the alternate one, a bit for each of
++    /// `edit_actions`.
++    taken: [2]u8 = .{ 0, 0 },
++    /// The screen the program was last seen on (`syncScreen`).
++    screen: terminal.ScreenSet.Key = .primary,
++    /// The which-key menu shown anew, placed with its first frame
++    /// (`onFrame`), and whether one shows.
++    menu_place: ?Place = null,
++    menu_shown: bool = false,
++    /// A paste command waits for the clipboard (`commandPaste`), with its
++    /// key.
++    paste_pending: bool = false,
++    paste_key: [64]u8 = undefined,
++    paste_key_len: usize = 0,
+ 
+     const Place = struct {
+         surface: [:0]u8,
+@@ -403,7 +451,51 @@ pub const Hotty = struct {
+     }
+ 
+     fn effects(self: *Hotty) Effects {
+-        return .{ .ctx = self, .reply = onReply, .place = onPlace, .remove = onRemove, .hide = onHide, .clipboard = onClipboard, .paste = onPaste };
++        return .{ .ctx = self, .reply = onReply, .place = onPlace, .remove = onRemove, .hide = onHide, .clipboard = onClipboard, .paste = onPaste, .edit = onEdit, .menu = onMenu };
++    }
++
++    /// `a=edit` (SPEC §10.6): what the program takes on the screen it is
++    /// on, in place of what it took there before.
++    fn onEdit(ctx: ?*anyopaque, names: [*]const u8, len: usize) callconv(.c) void {
++        const self: *Hotty = @ptrCast(@alignCast(ctx.?));
++        var bits: u8 = 0;
++        var it = std.mem.splitScalar(u8, names[0..len], ',');
++        while (it.next()) |n| bits |= editBit(n);
++        self.taken[@intFromBool(self.screen == .alternate)] = bits;
++    }
++
++    /// The which-key menu shows anew: its frame places it (`applyMenu`).
++    fn onMenu(ctx: ?*anyopaque, surface: [*:0]const u8, cols: u16, rows: u16) callconv(.c) void {
++        const self: *Hotty = @ptrCast(@alignCast(ctx.?));
++        const name = self.alloc.dupeZ(u8, std.mem.span(surface)) catch return;
++        if (self.menu_place) |p| self.alloc.free(p.surface);
++        self.menu_place = .{
++            .surface = name,
++            .cols = cols,
++            .rows = rows,
++            .win = .{ .x = 0, .y = 0, .w = cols, .h = rows },
++            // Above every surface.
++            .z = 1000,
++            .created = 0xFFFFF,
++            .move_cursor = false,
++        };
++    }
++
++    /// The program's screen changed (SPEC §10.6): leaving the alternate
++    /// screen drops the commands taken there, and the program's menu
++    /// hides.
++    fn syncScreen(self: *Hotty, t: *terminal.Terminal) void {
++        const now = t.screens.active_key;
++        if (now == self.screen) return;
++        if (self.screen == .alternate) self.taken[1] = 0;
++        self.screen = now;
++        if (self.host) |h| hotty_host_hide_menu(h);
++    }
++
++    /// Whether the program took the edit command `name` on its screen.
++    fn takes(self: *Hotty, t: *terminal.Terminal, name: []const u8) bool {
++        self.syncScreen(t);
++        return self.taken[@intFromBool(self.screen == .alternate)] & editBit(name) != 0;
+     }
+ 
+     fn onClipboard(ctx: ?*anyopaque, text: [*]const u8, len: usize) callconv(.c) void {
+@@ -496,15 +588,30 @@ pub const Hotty = struct {
+             hotty_host_set_counts(h, true);
+             hotty_host_set_network(h, self.settings.net.ptr);
+             if (self.wakeup != null) hotty_host_set_waker(h, wake, self);
++            self.setKeys(h);
+         } else log.warn("hotty-blitz failed to start", .{});
+         return self.host;
+     }
+ 
+     /// The configuration changed: a new network policy reaches the host
+-    /// (surfaces shown keep what they fetched).
++    /// (surfaces shown keep what they fetched), and the keys: a program
++    /// that asked hears what changed (`caps`, SPEC §9).
+     pub fn configure(self: *Hotty, settings: Settings) void {
+         self.settings = settings;
+-        if (self.host) |h| hotty_host_set_network(h, settings.net.ptr);
++        if (self.host) |h| {
++            hotty_host_set_network(h, settings.net.ptr);
++            self.setKeys(h);
++            self.sendReplies();
++        }
++    }
++
++    /// How the host reads keys (SPEC §10.4–§10.6): Mod is Command on
++    /// macOS and Control elsewhere, with the default edit shortcuts; the
++    /// leader and the timeout are the settings'. hottyterm takes edit
++    /// commands and shows menus.
++    fn setKeys(self: *Hotty, h: *Host) void {
++        const fx = self.effects();
++        hotty_host_set_keys(h, comptime builtin.os.tag.isDarwin(), null, self.settings.leader.ptr, self.settings.key_timeout, true, true, &fx);
+     }
+ 
+     // --- from the stream handler ---------------------------------------------
+@@ -520,6 +627,8 @@ pub const Hotty = struct {
+         }
+         const t: *terminal.Terminal = handler.terminal;
+         const h = self.ensureHost(t) orelse return;
++        // `a=edit` is the screen's the program is on now.
++        self.syncScreen(t);
+         const body = value.content[osc_prefix.len..];
+         const fx = self.effects();
+         hotty_host_osc(h, body.ptr, body.len, &fx);
+@@ -545,6 +654,13 @@ pub const Hotty = struct {
+         self.capture_len = 0;
+         self.touch_len = 0;
+         self.setLink(null);
++        // RIS drops the commands taken on both screens (SPEC §10.6), and
++        // the menu with its image.
++        self.taken = .{ 0, 0 };
++        self.menu_shown = false;
++        self.paste_pending = false;
++        if (self.menu_place) |p| self.alloc.free(p.surface);
++        self.menu_place = null;
+     }
+ 
+     /// Carries out what the host asked for: deletions, then placements (which
+@@ -688,6 +804,7 @@ pub const Hotty = struct {
+     pub fn flush(self: *Hotty, t: *terminal.Terminal) void {
+         const h = self.host orelse return;
+         self.prune(t);
++        self.syncScreen(t);
+         defer self.schedule(t);
+         if (t.modes.get(.synchronized_output)) return;
+         if (!hotty_host_has_dirty(h)) return;
+@@ -880,9 +997,51 @@ pub const Hotty = struct {
+         // replies, which every caller sends on.
+         const fx = self.effects();
+         hotty_host_events(h, &fx);
++        self.applyMenu(t, h, &ctx);
+         return ctx.drew;
+     }
+ 
++    /// The which-key menu (SPEC §10.5, §10.6): hidden, its image goes;
++    /// shown anew, it is drawn again, and its frame places it.
++    fn applyMenu(self: *Hotty, t: *terminal.Terminal, h: *Host, ctx: *RenderCtx) void {
++        var i: usize = 0;
++        while (i < self.removes.items.len) {
++            const name = self.removes.items[i];
++            if (!std.mem.eql(u8, name, menu_name)) {
++                i += 1;
++                continue;
++            }
++            if (self.placed.fetchRemove(name)) |kv| {
++                self.deleteImage(t, kv.value);
++                self.alloc.free(kv.key);
++            }
++            self.menu_shown = false;
++            ctx.drew = true;
++            self.alloc.free(name);
++            _ = self.removes.swapRemove(i);
++        }
++        if (self.menu_place == null) return;
++        hotty_host_redeliver(h, menu_name);
++        hotty_host_render(h, ctx, onFrame);
++    }
++
++    /// Places the menu at the bottom right of the screen, over the cells,
++    /// and puts the cursor back.
++    fn placeMenu(self: *Hotty, t: *terminal.Terminal, p: Place, w: u32, h: u32, data: []const u8) !void {
++        const screen = t.screens.active;
++        var shown = p;
++        shown.win.w = @min(p.cols, @as(u16, @intCast(t.cols)));
++        shown.win.h = @min(p.rows, @as(u16, @intCast(t.rows)));
++        const cur = screen.cursor;
++        screen.cursorAbsolute(@intCast(t.cols - shown.win.w), @intCast(t.rows - shown.win.h));
++        defer {
++            screen.cursorAbsolute(cur.x, cur.y);
++            screen.cursor.pending_wrap = cur.pending_wrap;
++        }
++        try self.place(t, p.surface, shown, w, h, data);
++        self.menu_shown = true;
++    }
++
+     fn onFrame(
+         ctx_ptr: ?*anyopaque,
+         surface: [*:0]const u8,
+@@ -901,6 +1060,16 @@ pub const Hotty = struct {
+         const name = std.mem.span(surface);
+         const frame = rgba[0 .. stride * h];
+ 
++        // The menu shown anew: at the bottom right.
++        if (self.menu_place) |p| if (std.mem.eql(u8, p.surface, name)) {
++            self.menu_place = null;
++            defer self.alloc.free(p.surface);
++            const data = straight(self.alloc, frame, stride, .{ .x = 0, .y = 0, .w = w, .h = h }) catch return;
++            defer self.alloc.free(data);
++            self.placeMenu(t, p, w, h, data) catch |err| log.warn("hotty menu failed: {}", .{err});
++            return;
++        };
++
+         // A new placement: transmit and display at the cursor.
+         for (self.places.items) |p| {
+             if (p.shown or !std.mem.eql(u8, p.surface, name)) continue;
+@@ -1587,7 +1756,11 @@ pub fn pasteInto(s: *Surface, data: []const u8) bool {
+ /// paste event, while a surface has the keyboard, so that a text field can
+ /// take it (SPEC §11).
+ pub fn pastesText(s: *Surface) bool {
+-    return holdsKeyboard(s);
++    if (holdsKeyboard(s)) return true;
++    // A paste command (SPEC §10.6) reads the text too.
++    s.renderer_state.mutex.lockUncancelable(global.io());
++    defer s.renderer_state.mutex.unlock(global.io());
++    return s.io.terminal_stream.handler.hotty.paste_pending;
+ }
+ 
+ fn setClipboards(s: *Surface, clipboards: []const apprt.Clipboard, text: [:0]const u8) void {
+@@ -1923,11 +2096,13 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
+         return true;
+     }
+     var buf: [64]u8 = undefined;
++    cellsKey(s, event);
+     const name = pressedName(event, &buf) orelse return false;
+     hs.copy_denied = false;
+     if (reserved(s, event)) return false;
+     if (selectionCopy(s, event, name)) return true;
+     if (!holdsKeyboard(s)) {
++        if (editCommand(s, event, name)) return true;
+         hs.copy_denied = keymapCopyKey(name);
+         return false;
+     }
+@@ -1941,10 +2116,93 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
+         hs.drew = false;
+         break :used used;
+     };
+-    if (!used) hs.copy_denied = keymapCopyKey(name);
+     deliver(s, used or drew);
+     clipboard(s);
+-    return used;
++    if (used) return true;
++    if (editCommand(s, event, name)) return true;
++    hs.copy_denied = keymapCopyKey(name);
++    return false;
++}
++
++/// A key of an edit command the program took (SPEC §10.6) reaches it as
++/// the event `command`, with its key, in place of its bytes, and so does
++/// each of its repeats; its release goes nowhere. A copy while the cells
++/// have a selection copies it instead, as the terminal's own copy does,
++/// and a paste reads the clipboard first (`commandPaste`). True if the key
++/// was one.
++fn editCommand(s: *Surface, event: input.KeyEvent, name: []const u8) bool {
++    const hs = &s.io.terminal_stream.handler.hotty;
++    const command = command: {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const h = hs.host orelse return false;
++        const c = hotty_host_edit_command(h, name.ptr, name.len) orelse return false;
++        if (!hs.takes(&s.io.terminal, std.mem.span(c))) return false;
++        hs.held_keys.insert(event.key);
++        break :command c;
++    };
++    if (std.mem.eql(u8, std.mem.span(command), "copy") and cellsSelect(s)) {
++        _ = s.performBindingAction(.{ .copy_to_clipboard = .default }) catch {};
++        return true;
++    }
++    if (std.mem.eql(u8, std.mem.span(command), "paste")) {
++        {
++            s.renderer_state.mutex.lockUncancelable(global.io());
++            defer s.renderer_state.mutex.unlock(global.io());
++            const n = @min(name.len, hs.paste_key.len);
++            @memcpy(hs.paste_key[0..n], name[0..n]);
++            hs.paste_key_len = n;
++            hs.paste_pending = true;
++        }
++        const started = s.performBindingAction(.paste_from_clipboard) catch false;
++        // Nothing to read: the paste goes without text.
++        if (!started) _ = commandPaste(s, "");
++        return true;
++    }
++    {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const fx = hs.effects();
++        hotty_host_command(command, name.ptr, name.len, null, 0, &fx);
++    }
++    deliver(s, false);
++    return true;
++}
++
++/// Surface.completeClipboardPaste: the clipboard a paste command waited
++/// for (SPEC §10.6) goes to the program with the command, as its text, and
++/// none when it holds none. False when no paste command waits.
++pub fn commandPaste(s: *Surface, data: []const u8) bool {
++    {
++        s.renderer_state.mutex.lockUncancelable(global.io());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const hs = &s.io.terminal_stream.handler.hotty;
++        if (!hs.paste_pending) return false;
++        hs.paste_pending = false;
++        const fx = hs.effects();
++        const text: ?[*]const u8 = if (data.len > 0) data.ptr else null;
++        hotty_host_command("paste", &hs.paste_key, hs.paste_key_len, text, data.len, &fx);
++    }
++    deliver(s, false);
++    return true;
++}
++
++/// A key pressed while the cells have the keyboard and a menu shows: the
++/// program's hides on Escape and on a key it does not list (SPEC §10.6).
++/// The key goes on.
++fn cellsKey(s: *Surface, event: input.KeyEvent) void {
++    if (event.action == .release) return;
++    var buf: [64]u8 = undefined;
++    const name = pressedName(event, &buf) orelse
++        if (std.mem.eql(u8, event.utf8, " ")) "Space" else event.utf8;
++    if (name.len == 0) return;
++    s.renderer_state.mutex.lockUncancelable(global.io());
++    defer s.renderer_state.mutex.unlock(global.io());
++    const hs = &s.io.terminal_stream.handler.hotty;
++    if (!hs.menu_shown or hs.hasKeyboard()) return;
++    const h = hs.host orelse return;
++    hotty_host_cells_key(h, name.ptr, name.len);
++    if (hotty_host_has_dirty(h) and hs.render(&s.io.terminal)) hs.drew = true;
+ }
+ 
+ /// Surface.keyEventIsBinding, which macOS asks before a key reaches
+@@ -1955,10 +2213,22 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
+ pub fn bindingFlags(s: *Surface, event: input.KeyEvent, flags: input.Binding.Flags) input.Binding.Flags {
+     var f = flags;
+     var buf: [64]u8 = undefined;
+-    if (!s.readonly and pressedName(event, &buf) != null and !reserved(s, event) and (holdsKeyboard(s) or surfaceSelects(s))) f.consumed = false;
++    const name = pressedName(event, &buf) orelse return f;
++    if (!s.readonly and !reserved(s, event) and (holdsKeyboard(s) or surfaceSelects(s) or takesCommand(s, name))) f.consumed = false;
+     return f;
+ }
+ 
++/// Whether a key is one of an edit command the program took (SPEC
++/// §10.6).
++fn takesCommand(s: *Surface, name: []const u8) bool {
++    s.renderer_state.mutex.lockUncancelable(global.io());
++    defer s.renderer_state.mutex.unlock(global.io());
++    const hs = &s.io.terminal_stream.handler.hotty;
++    const h = hs.host orelse return false;
++    const c = hotty_host_edit_command(h, name.ptr, name.len) orelse return false;
++    return hs.takes(&s.io.terminal, std.mem.span(c));
++}
++
+ /// The key `event` is, named as SPEC §10.4 writes it, from the key itself,
+ /// with the command key (Super) as Meta, if it types no text: a key that is
+ /// not a character, or a character with Control or Meta. Null for the
