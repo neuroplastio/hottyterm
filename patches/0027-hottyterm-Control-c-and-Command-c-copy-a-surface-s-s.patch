@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Wed, 14 Oct 2026 00:27:25 +0200
-Subject: [PATCH 27/28] =?UTF-8?q?hottyterm:=20Control+c=20and=20Command+c?=
+Subject: [PATCH 27/29] =?UTF-8?q?hottyterm:=20Control+c=20and=20Command+c?=
  =?UTF-8?q?=20copy=20a=20surface's=20selection=20too=20(SPEC=20=C2=A711)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
