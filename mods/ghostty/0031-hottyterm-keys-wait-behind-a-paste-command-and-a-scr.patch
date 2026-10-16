@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Wed, 14 Oct 2026 17:31:01 +0200
-Subject: [PATCH 31/33] =?UTF-8?q?hottyterm:=20keys=20wait=20behind=20a=20p?=
+Subject: [PATCH 31/34] =?UTF-8?q?hottyterm:=20keys=20wait=20behind=20a=20p?=
  =?UTF-8?q?aste=20command,=20and=20a=20screen=20switch=20drops=20its=20com?=
  =?UTF-8?q?mands=20at=20once=20(SPEC=20=C2=A710.6)?=
 MIME-Version: 1.0
@@ -21,10 +21,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 89 insertions(+), 3 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index d43d0bde3..2be97f7e9 100644
+index 4ca93862e..45069d975 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -391,10 +391,24 @@ pub const Hotty = struct {
+@@ -381,10 +381,24 @@ pub const Hotty = struct {
      menu_place: ?Place = null,
      menu_shown: bool = false,
      /// A paste command waits for the clipboard (`commandPaste`), with its
@@ -50,7 +50,7 @@ index d43d0bde3..2be97f7e9 100644
  
      const Place = struct {
          surface: [:0]u8,
-@@ -483,8 +497,9 @@ pub const Hotty = struct {
+@@ -473,8 +487,9 @@ pub const Hotty = struct {
  
      /// The program's screen changed (SPEC §10.6): leaving the alternate
      /// screen drops the commands taken there, and the program's menu
@@ -62,7 +62,7 @@ index d43d0bde3..2be97f7e9 100644
          const now = t.screens.active_key;
          if (now == self.screen) return;
          if (self.screen == .alternate) self.taken[1] = 0;
-@@ -2087,6 +2102,7 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
+@@ -2076,6 +2091,7 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
  /// goes where its press went.
  pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
      if (s.readonly) return false;
@@ -70,7 +70,7 @@ index d43d0bde3..2be97f7e9 100644
      const hs = &s.io.terminal_stream.handler.hotty;
      if (event.action == .release) {
          s.renderer_state.mutex.lockUncancelable(global.io());
-@@ -2153,6 +2169,8 @@ fn editCommand(s: *Surface, event: input.KeyEvent, name: []const u8) bool {
+@@ -2142,6 +2158,8 @@ fn editCommand(s: *Surface, event: input.KeyEvent, name: []const u8) bool {
              @memcpy(hs.paste_key[0..n], name[0..n]);
              hs.paste_key_len = n;
              hs.paste_pending = true;
@@ -79,7 +79,7 @@ index d43d0bde3..2be97f7e9 100644
          }
          const started = s.performBindingAction(.paste_from_clipboard) catch false;
          // Nothing to read: the paste goes without text.
-@@ -2177,6 +2195,13 @@ pub fn commandPaste(s: *Surface, data: []const u8) bool {
+@@ -2166,6 +2184,13 @@ pub fn commandPaste(s: *Surface, data: []const u8) bool {
          s.renderer_state.mutex.lockUncancelable(global.io());
          defer s.renderer_state.mutex.unlock(global.io());
          const hs = &s.io.terminal_stream.handler.hotty;
@@ -93,7 +93,7 @@ index d43d0bde3..2be97f7e9 100644
          if (!hs.paste_pending) return false;
          hs.paste_pending = false;
          const fx = hs.effects();
-@@ -2184,9 +2209,67 @@ pub fn commandPaste(s: *Surface, data: []const u8) bool {
+@@ -2173,9 +2198,67 @@ pub fn commandPaste(s: *Surface, data: []const u8) bool {
          hotty_host_command("paste", &hs.paste_key, hs.paste_key_len, text, data.len, &fx);
      }
      deliver(s, false);

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Fri, 16 Oct 2026 19:23:27 +0200
-Subject: [PATCH 32/33] hottyterm: a plain click opens a link though the
+Subject: [PATCH 32/34] hottyterm: a plain click opens a link though the
  program reports the mouse
 
 With `hotty-link-click = plain`, a click with no modifier opened a URL
@@ -96,7 +96,7 @@ index 5c67afa68..1c63ca712 100644
          // This only applies if there is a mouse button pressed so that
          // movement reports are not affected.
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index bbf8b65b5..ad3080c3f 100644
+index 4997a7e5a..e9a5d754d 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -3953,9 +3953,10 @@ term: []const u8 = "xterm-ghostty",
@@ -114,10 +114,10 @@ index bbf8b65b5..ad3080c3f 100644
  @"hotty-link-click": HottyLinkClick = .plain,
  
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 2be97f7e9..c69b9c8e6 100644
+index 45069d975..6dc7fcbd2 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -369,6 +369,11 @@ pub const Hotty = struct {
+@@ -359,6 +359,11 @@ pub const Hotty = struct {
      /// A press on a hyperlink with the OSC 8 gesture: it and its release
      /// are the terminal's, never the surface's.
      link_press: bool = false,
@@ -129,7 +129,7 @@ index 2be97f7e9..c69b9c8e6 100644
      /// The platform's count of the left press under way in a run of
      /// clicks, as the apprt hands it over (GTK's n_press,
      /// `surfaceClickCount`); 0 where it hands none over, and the press is
-@@ -1840,14 +1845,72 @@ fn osc8Gesture(s: *Surface, mods: input.Mods) bool {
+@@ -1829,14 +1834,72 @@ fn osc8Gesture(s: *Surface, mods: input.Mods) bool {
  /// Surface.mouseModsWithCapture, for the cells' links: with
  /// `hotty-link-click = plain`, no modifier held is the link gesture (Ctrl,
  /// Cmd on macOS), so a plain click opens a URL or an OSC 8 hyperlink and the

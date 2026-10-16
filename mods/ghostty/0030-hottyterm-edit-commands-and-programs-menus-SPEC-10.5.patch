@@ -1,28 +1,28 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Wed, 14 Oct 2026 14:57:15 +0200
-Subject: [PATCH 30/33] =?UTF-8?q?hottyterm:=20key=20sequences,=20edit=20co?=
- =?UTF-8?q?mmands=20and=20menus=20(SPEC=20=C2=A710.4=E2=80=93=C2=A710.6)?=
+Subject: [PATCH 30/34] =?UTF-8?q?hottyterm:=20edit=20commands=20and=20prog?=
+ =?UTF-8?q?rams'=20menus=20(SPEC=20=C2=A710.5,=20=C2=A710.6)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
-Mod is Command on macOS and Control elsewhere; hotty-leader and
-hotty-key-timeout set the leader and the timeout of key sequences. A key
-of an edit command the program took (a=edit, per screen, dropped on
-leaving the alternate screen and on RIS) reaches it as the event
-command: a copy with a selection on the cells copies it instead, and a
-paste reads the clipboard first. The which-key menu, a waiting
-sequence's or the program's, shows at the bottom right of the screen,
-and a key the program's does not list hides it.
+Mod is Command on macOS and Control elsewhere. A key of an edit command
+the program took (a=edit, per screen, dropped on leaving the alternate
+screen and on RIS) reaches it as the event command: a copy with a
+selection on the cells copies it instead, and a paste reads the
+clipboard first. A program's which-key menu (a=menu), from the cells or
+a surface, shows at the bottom right of the screen, and a key it does
+not list hides it. Key sequences are the program's (HOTTY 0.3): a key
+its keymap binds to prefix hands it the keys after it.
 
-Upstream files: Config.zig +13 (two settings), Surface.zig +1 (the
-paste command's hook).
+Upstream files: Surface.zig +1 (the paste command's hook).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- src/Surface.zig       |   1 +
- src/config/Config.zig |  13 ++
- src/termio/hotty.zig  | 284 ++++++++++++++++++++++++++++++++++++++++--
- 3 files changed, 291 insertions(+), 7 deletions(-)
+ src/Surface.zig      |   1 +
+ src/termio/hotty.zig | 279 +++++++++++++++++++++++++++++++++++++++++--
+ 2 files changed, 270 insertions(+), 10 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
 index 8ffe41dc4..5c67afa68 100644
@@ -36,32 +36,8 @@ index 8ffe41dc4..5c67afa68 100644
      if (data.len == 0) return;
      if (hotty.pasteInto(self, data)) return;
  
-diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 4997a7e5a..bbf8b65b5 100644
---- a/src/config/Config.zig
-+++ b/src/config/Config.zig
-@@ -3969,6 +3969,19 @@ term: []const u8 = "xterm-ghostty",
- ///   * `focus` - it only focuses; the program hears nothing of it.
- @"hotty-focus-click": HottyFocusClick = .pass,
- 
-+// hottyterm: the leader of HOTTY key sequences.
-+/// The leader of key sequences in HOTTY surfaces: the keys `<leader>`
-+/// stands for in a document's `data-key`, named as HOTTY names keys and
-+/// separated by spaces, such as `Space`, `Control+Space` or `Control+x
-+/// Control+x`. (HOTTY SPEC §10.5.)
-+@"hotty-leader": []const u8 = "Space",
-+
-+// hottyterm: how long a HOTTY key sequence waits.
-+/// How long a key sequence in a HOTTY surface waits for its next key, in
-+/// milliseconds, before the keys typed go on (or run the sequence they
-+/// finish). Its menu shows a moment after it begins.
-+@"hotty-key-timeout": u32 = 2000,
-+
- /// Configures the low-level API to use for async IO, eventing, etc.
- ///
- /// Most users should leave this set to `auto`. This will automatically detect
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index fd230f8f9..d43d0bde3 100644
+index fd230f8f9..4ca93862e 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -29,6 +29,7 @@
@@ -72,27 +48,24 @@ index fd230f8f9..d43d0bde3 100644
  const Allocator = std.mem.Allocator;
  const global = @import("../global.zig");
  const terminal = @import("../terminal/main.zig");
-@@ -74,6 +75,15 @@ pub const Effects = extern struct {
+@@ -74,6 +75,12 @@ pub const Effects = extern struct {
      clipboard: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void,
      /// A text field's paste: read the clipboard, for hotty_host_paste.
      paste: ?*const fn (?*anyopaque) callconv(.c) void,
-+    /// A key a key sequence's wait typed, by name, for the program: none
-+    /// comes, since keys reach a sequence as bytes (`keyBytes`).
-+    key: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void = null,
 +    /// `a=edit` (SPEC §10.6): the edit commands the program takes on its
 +    /// screen, comma-separated.
 +    edit: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void,
-+    /// The which-key menu (SPEC §10.5, §10.6): show the surface, cols×rows,
++    /// A program's which-key menu (SPEC §10.5): show the surface, cols×rows,
 +    /// at the bottom right of the screen.
 +    menu: ?*const fn (?*anyopaque, [*:0]const u8, u16, u16) callconv(.c) void,
  };
  
  pub const Rect = extern struct { x: u32, y: u32, w: u32, h: u32 };
-@@ -110,6 +120,11 @@ extern fn hotty_host_clear_selection(h: *Host) void;
+@@ -110,6 +117,11 @@ extern fn hotty_host_clear_selection(h: *Host) void;
  extern fn hotty_host_paste(h: *Host, text: [*]const u8, len: usize, fx: *const Effects) bool;
  extern fn hotty_host_copy_key(h: *Host, name: [*]const u8, len: usize, text: *?[*:0]const u8) c_int;
  extern fn hotty_host_set_network(h: *Host, policy: ?[*:0]const u8) void;
-+extern fn hotty_host_set_keys(h: *Host, meta: bool, edit: ?[*:0]const u8, leader: ?[*:0]const u8, timeout_ms: u32, commands: bool, menus: bool, fx: ?*const Effects) void;
++extern fn hotty_host_set_keys(h: *Host, meta: bool, edit: ?[*:0]const u8, commands: bool, menus: bool, fx: ?*const Effects) void;
 +extern fn hotty_host_edit_command(h: *Host, name: [*]const u8, len: usize) ?[*:0]const u8;
 +extern fn hotty_host_command(name: [*:0]const u8, key: ?[*]const u8, key_len: usize, text: ?[*]const u8, text_len: usize, fx: ?*const Effects) void;
 +extern fn hotty_host_cells_key(h: *Host, name: [*]const u8, len: usize) void;
@@ -100,7 +73,7 @@ index fd230f8f9..d43d0bde3 100644
  extern fn hotty_host_set_waker(h: *Host, wake: ?*const fn (?*anyopaque) callconv(.c) void, ctx: ?*anyopaque) void;
  
  // --- wiring ------------------------------------------------------------------
-@@ -123,6 +138,17 @@ const osc_prefix = "7279;";
+@@ -123,6 +135,17 @@ const osc_prefix = "7279;";
  /// Surfaces get kitty image ids from here up ("HOT\x00"), clear of the ids
  /// programs pick and of Ghostty's implicit ones in the upper half.
  const id_base: u32 = 0x484F_5400;
@@ -118,27 +91,7 @@ index fd230f8f9..d43d0bde3 100644
  /// How many ids surfaces cycle through. Every placement at a new size takes
  /// a fresh one, so a program resizing its surfaces goes through them fast.
  const id_span: u32 = 0x1_0000;
-@@ -133,12 +159,19 @@ pub const Settings = struct {
-     font_family: [:0]const u8 = "",
-     /// What surfaces may fetch from the network (`hotty-net`, SPEC §7.2).
-     net: [:0]const u8 = "",
-+    /// The leader of key sequences (`hotty-leader`, SPEC §10.5).
-+    leader: [:0]const u8 = "Space",
-+    /// How long a key sequence waits for its next key, in milliseconds
-+    /// (`hotty-key-timeout`).
-+    key_timeout: u32 = 2000,
- 
-     pub fn init(alloc: Allocator, config: *const configpkg.Config) Allocator.Error!Settings {
-         const families = config.@"font-family".list.items;
-         return .{
-             .font_family = try alloc.dupeZ(u8, if (families.len > 0) families[0] else ""),
-             .net = try alloc.dupeZ(u8, config.@"hotty-net"),
-+            .leader = try alloc.dupeZ(u8, config.@"hotty-leader"),
-+            .key_timeout = config.@"hotty-key-timeout",
-         };
-     }
- };
-@@ -347,6 +380,21 @@ pub const Hotty = struct {
+@@ -347,6 +370,21 @@ pub const Hotty = struct {
      /// The keys whose press a surface took: their releases are the
      /// surface's too, wherever the keyboard is by then (`surfaceKey`).
      held_keys: std.EnumSet(input.Key) = .initEmpty(),
@@ -160,7 +113,7 @@ index fd230f8f9..d43d0bde3 100644
  
      const Place = struct {
          surface: [:0]u8,
-@@ -403,7 +451,51 @@ pub const Hotty = struct {
+@@ -403,7 +441,51 @@ pub const Hotty = struct {
      }
  
      fn effects(self: *Hotty) Effects {
@@ -213,7 +166,7 @@ index fd230f8f9..d43d0bde3 100644
      }
  
      fn onClipboard(ctx: ?*anyopaque, text: [*]const u8, len: usize) callconv(.c) void {
-@@ -496,15 +588,30 @@ pub const Hotty = struct {
+@@ -496,15 +578,29 @@ pub const Hotty = struct {
              hotty_host_set_counts(h, true);
              hotty_host_set_network(h, self.settings.net.ptr);
              if (self.wakeup != null) hotty_host_set_waker(h, wake, self);
@@ -237,16 +190,15 @@ index fd230f8f9..d43d0bde3 100644
 +    }
 +
 +    /// How the host reads keys (SPEC §10.4–§10.6): Mod is Command on
-+    /// macOS and Control elsewhere, with the default edit shortcuts; the
-+    /// leader and the timeout are the settings'. hottyterm takes edit
-+    /// commands and shows menus.
++    /// macOS and Control elsewhere, with the default edit shortcuts.
++    /// hottyterm takes edit commands and shows programs' menus.
 +    fn setKeys(self: *Hotty, h: *Host) void {
 +        const fx = self.effects();
-+        hotty_host_set_keys(h, comptime builtin.os.tag.isDarwin(), null, self.settings.leader.ptr, self.settings.key_timeout, true, true, &fx);
++        hotty_host_set_keys(h, comptime builtin.os.tag.isDarwin(), null, true, true, &fx);
      }
  
      // --- from the stream handler ---------------------------------------------
-@@ -520,6 +627,8 @@ pub const Hotty = struct {
+@@ -520,6 +616,8 @@ pub const Hotty = struct {
          }
          const t: *terminal.Terminal = handler.terminal;
          const h = self.ensureHost(t) orelse return;
@@ -255,7 +207,7 @@ index fd230f8f9..d43d0bde3 100644
          const body = value.content[osc_prefix.len..];
          const fx = self.effects();
          hotty_host_osc(h, body.ptr, body.len, &fx);
-@@ -545,6 +654,13 @@ pub const Hotty = struct {
+@@ -545,6 +643,13 @@ pub const Hotty = struct {
          self.capture_len = 0;
          self.touch_len = 0;
          self.setLink(null);
@@ -269,7 +221,7 @@ index fd230f8f9..d43d0bde3 100644
      }
  
      /// Carries out what the host asked for: deletions, then placements (which
-@@ -688,6 +804,7 @@ pub const Hotty = struct {
+@@ -688,6 +793,7 @@ pub const Hotty = struct {
      pub fn flush(self: *Hotty, t: *terminal.Terminal) void {
          const h = self.host orelse return;
          self.prune(t);
@@ -277,7 +229,20 @@ index fd230f8f9..d43d0bde3 100644
          defer self.schedule(t);
          if (t.modes.get(.synchronized_output)) return;
          if (!hotty_host_has_dirty(h)) return;
-@@ -880,9 +997,51 @@ pub const Hotty = struct {
+@@ -854,9 +960,9 @@ pub const Hotty = struct {
+         hotty_host_configure(h, &cfg);
+         self.rewindow(t);
+         _ = self.render(t);
+-        // `resize` and `fit` (SPEC §9, §5.2) go out now: a resize runs
+-        // from the IO thread's coalescing timer, not from output, which
+-        // wakes the mailbox after it.
++        // `caps`, with the new `cellcss`, and `fit` (SPEC §4, §5.2) go out
++        // now: a resize runs from the IO thread's coalescing timer, not
++        // from output, which wakes the mailbox after it.
+         if (self.replies.items.len > 0) {
+             const handler: *StreamHandler = @fieldParentPtr("hotty", self);
+             self.sendReplies();
+@@ -880,9 +986,51 @@ pub const Hotty = struct {
          // replies, which every caller sends on.
          const fx = self.effects();
          hotty_host_events(h, &fx);
@@ -329,7 +294,7 @@ index fd230f8f9..d43d0bde3 100644
      fn onFrame(
          ctx_ptr: ?*anyopaque,
          surface: [*:0]const u8,
-@@ -901,6 +1060,16 @@ pub const Hotty = struct {
+@@ -901,6 +1049,16 @@ pub const Hotty = struct {
          const name = std.mem.span(surface);
          const frame = rgba[0 .. stride * h];
  
@@ -346,7 +311,7 @@ index fd230f8f9..d43d0bde3 100644
          // A new placement: transmit and display at the cursor.
          for (self.places.items) |p| {
              if (p.shown or !std.mem.eql(u8, p.surface, name)) continue;
-@@ -1587,7 +1756,11 @@ pub fn pasteInto(s: *Surface, data: []const u8) bool {
+@@ -1587,7 +1745,11 @@ pub fn pasteInto(s: *Surface, data: []const u8) bool {
  /// paste event, while a surface has the keyboard, so that a text field can
  /// take it (SPEC §11).
  pub fn pastesText(s: *Surface) bool {
@@ -359,7 +324,7 @@ index fd230f8f9..d43d0bde3 100644
  }
  
  fn setClipboards(s: *Surface, clipboards: []const apprt.Clipboard, text: [:0]const u8) void {
-@@ -1923,11 +2096,13 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
+@@ -1923,11 +2085,13 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
          return true;
      }
      var buf: [64]u8 = undefined;
@@ -373,7 +338,7 @@ index fd230f8f9..d43d0bde3 100644
          hs.copy_denied = keymapCopyKey(name);
          return false;
      }
-@@ -1941,10 +2116,93 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
+@@ -1941,10 +2105,93 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
          hs.drew = false;
          break :used used;
      };
@@ -469,7 +434,7 @@ index fd230f8f9..d43d0bde3 100644
  }
  
  /// Surface.keyEventIsBinding, which macOS asks before a key reaches
-@@ -1955,10 +2213,22 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
+@@ -1955,10 +2202,22 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
  pub fn bindingFlags(s: *Surface, event: input.KeyEvent, flags: input.Binding.Flags) input.Binding.Flags {
      var f = flags;
      var buf: [64]u8 = undefined;
