@@ -59,16 +59,18 @@ undoing them.
 
 ## What the fork is
 
-A soft fork: upstream Ghostty at the commit in [`ghostty-ref`](ghostty-ref),
-plus the patches in [`patches/`](patches/). There is no copy of Ghostty's tree
-here, and no GitHub fork.
+A mod of Ghostty (gov P-7): upstream Ghostty at the commit in
+[`ghostty-ref`](ghostty-ref), plus the patches in
+[`mods/ghostty/`](mods/ghostty/). There is no copy of Ghostty's tree here, and
+no GitHub fork. Each patch has a page beside it saying what it changes, why we
+carry it and whether Ghostty might want it; neuroplast.io/modding lists them.
 
 | | |
 | --- | --- |
-| upstream | `ghostty-org/ghostty` at `0538f753` (2026-09-29, "1.3.2-dev") |
-| patches | `0001` HOTTY surfaces over hotty-blitz; `0002` a relocatable rpath for packaged Linux builds; `0003` surface image ids never collide; `0004` the pointer passes through what a surface does not take; `0005` animated images play; `0006` fit reaches the program; `0007` surfaces fetch what `hotty-net` allows; `0008` hover reaches the program, and leaving the window leaves; `0009` a document that scrolls takes the wheel first; `0010` a key's release goes where its press went; `0011` a plain click opens a link (`hotty-link-click`); `0012` the click that focuses a terminal clicks too (`hotty-focus-click`); `0013` only the loop's thread sets the frame timer; `0014` a touch drag scrolls (GTK); `0015` a surface names a key from the bytes the program would read; `0016` a touch taps and scrolls where the finger touched (GTK); `0017` a touch drags what opts out of panning; `0018` a zoom is a browser's zoom; `0019` the pty learns a new size only after the grid has it (termio, generic); `0020` a kitty frame edit uploads only the rectangle it changed (renderer, generic); `0021` a surface is offered a key as pressed first; `0022` no tabs, and windows and full screen are the window manager's; `0023` a frame's rectangles go straight into the surface's image; `0024` the macOS menu sees keys as `key-remap` makes them; `0025` Metal writes those rectangles with a blit (renderer, generic); `0026` a HOTTY click carries the platform's count; `0027` Control+c and Command+c copy a surface's selection too; `0028` a text field cuts, pastes and undoes; `0029` copying follows the keymap |
-| new code | `src/termio/hotty.zig`, 1628 lines: all of the logic |
-| upstream files touched | 10 files, 246 lines added and 4 changed — hooks, settings and the GTK touch gesture |
+| upstream | `ghostty-org/ghostty` at `827d5c82` (2026-10-13, "1.3.2-dev") |
+| patches | 31, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
+| new code | `src/termio/hotty.zig`, 2476 lines: all of the HOTTY logic |
+| upstream files touched | 22 files, 902 lines added and 81 removed: hooks, settings, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, the resize race) |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
@@ -341,7 +343,7 @@ next to this repository (or `HOTTY_BLITZ_DIR`), and
 mise install
 make build                    # sets up ../ghostty, builds hotty-blitz and the fork
 scripts/run.sh -e python3 ../../hotty/main/examples/dash.py
-make check                    # patches apply, build, smoke test
+make check                    # mods described, patches apply, build, smoke test
 scripts/perf.sh               # what dash.py costs, per thread (docs/performance.md)
 ```
 
@@ -376,7 +378,7 @@ One workflow, `.github/workflows/ci.yml`:
 | job | when | what |
 | --- | --- | --- |
 | `linux` | every push and pull request | in an Arch Linux container: the patches apply, the branding finds its anchors, the fork builds; artifact `hottyterm-linux-x86_64` (`bin/`, `share/`, and `lib/libhotty_blitz.so`) |
-| `macos` | a push to main that changes the fork's inputs (`ghostty-ref`, `hotty-blitz-ref`, `patches/`, `brand/`, `notices/`, the scripts, the workflow), or on demand | `macos-26`, Xcode 26.6, `scripts/build-macos.sh`; artifact `hottyterm-macos-arm64` |
+| `macos` | a push to main that changes the fork's inputs (`ghostty-ref`, `hotty-blitz-ref`, `mods/`, `brand/`, `notices/`, the scripts, the workflow), or on demand | `macos-26`, Xcode 26.6, `scripts/build-macos.sh`; artifact `hottyterm-macos-arm64` |
 | `canary` | daily, or on demand | the patches and the branding against upstream's latest main |
 | `release` | on main, when both builds ran and passed | a GitHub prerelease with both artifacts and `SHA256SUMS` |
 | `homebrew` | after a release | `packaging/homebrew/publish.sh`: the cask `hottyterm` in [neuroplastio/homebrew-tap](https://github.com/neuroplastio/homebrew-tap), rendered from `packaging/homebrew/hottyterm.rb` with the release's app; writes with the `HOMEBREW_TAP_DEPLOY_KEY` secret, the private half of a deploy key on the tap |
@@ -410,7 +412,8 @@ local.
 2. Change it there and commit. Run `scripts/brand.py`, which moves the branding
    back to the top, then `scripts/export.sh`, which exports everything but the
    branding.
-3. Commit `patches/` here.
+3. Write a `.md` for a new patch (`make mods` names what is missing), and
+   commit `mods/ghostty/` here.
 
 To change the branding, edit `brand/` and run `scripts/brand.py`; never edit the
 branding commit.
@@ -419,7 +422,8 @@ branding commit.
 throwaway worktree, dry-runs the branding on it, and reports conflicts and moved
 anchors. Moving `ghostty-ref` is a deliberate step: canary; in the fork, `git
 reset --hard HEAD~1` (the branding) and `git rebase <new ref>`; `scripts/brand.py`;
-build, smoke test; export; then commit `ghostty-ref` and `patches/` together.
+build, smoke test; export; then commit `ghostty-ref`, `mods/ghostty/` and
+the `base` in its `mod.md` together.
 
 Moving `hotty-blitz-ref` is the same kind of step: `make pin-blitz` writes
 hotty-blitz's main as pushed (or `scripts/pin-blitz.sh <commit>`, one on that

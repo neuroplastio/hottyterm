@@ -1,5 +1,5 @@
 # hottyterm's branding, applied to the fork by scripts/brand.py as one
-# generated commit on top of patches/. It is regenerated, never rebased, so
+# generated commit on top of mods/ghostty/. It is regenerated, never rebased, so
 # pulling in upstream costs nothing here unless an anchor below moved; then
 # brand.py says which one, and the fix is a line in this file.
 #

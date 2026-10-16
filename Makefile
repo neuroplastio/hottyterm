@@ -1,9 +1,13 @@
 # hottyterm: the Ghostty fork is ../ghostty (scripts/fork.sh); hotty-blitz is
 # HOTTY_BLITZ_DIR or next to this repository, built as checked out (CI builds
 # the commit in hotty-blitz-ref).
-.PHONY: check fork apply brand build debug smoke notices canary export pin-blitz
+.PHONY: check mods fork apply brand build debug smoke notices canary export pin-blitz
 
-check: apply build smoke   ## the gate
+check: mods apply build smoke   ## the gate
+
+mods:   ## mods/ as gov P-7 has it: every patch described, and base is ghostty-ref
+	@python3 scripts/mods.py check
+	@test "$$(python3 scripts/mods.py base mods/ghostty)" = "$$(grep -v '^#' ghostty-ref | head -1)" || { echo "mods/ghostty/mod.md: base is not the commit in ghostty-ref" >&2; exit 1; }
 
 fork:
 	@scripts/fork.sh
@@ -31,7 +35,7 @@ smoke:   ## a surface renders natively, on a private headless display
 canary: fork   ## do the patches still apply to upstream's latest main?
 	@scripts/canary.sh
 
-export:   ## the fork's commits back into patches/
+export:   ## the fork's commits back into mods/ghostty/
 	@scripts/export.sh
 
 pin-blitz:   ## hotty-blitz-ref to hotty-blitz's main as pushed

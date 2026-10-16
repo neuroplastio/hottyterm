@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Brands the fork as hottyterm: one generated commit on top of patches/.
+"""Brands the fork as hottyterm: one generated commit on top of mods/ghostty/.
 
     scripts/brand.py [--dry-run] [fork dir]      # default: ../ghostty
 
@@ -55,7 +55,7 @@ def files(fork, globs):
 
 
 def drop_previous(fork):
-    """Leaves the fork at patches/ only: no branding commit anywhere."""
+    """Leaves the fork at mods/ghostty/ only: no branding commit anywhere."""
     if git(fork, "status", "--porcelain").strip():
         fail(f"{fork} has uncommitted changes; commit or discard them first")
     ref = open(os.path.join(HERE, "ghostty-ref")).read().split()[0]

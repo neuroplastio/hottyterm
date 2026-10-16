@@ -1,10 +1,11 @@
 # hottyterm's CI, one workflow:
 #
 # - linux: every push and pull request. In an Arch Linux container (the
-#   distribution hottyterm is developed on): the patches apply to
-#   ghostty-ref, the branding finds its anchors, and the fork builds against
-#   hotty-blitz at the commit in hotty-blitz-ref. The smoke test needs a
-#   display and a GPU and stays local.
+#   distribution hottyterm is developed on): every patch in mods/ has its
+#   description (gov P-7), the patches apply to ghostty-ref, the branding
+#   finds its anchors, and the fork builds against hotty-blitz at the commit
+#   in hotty-blitz-ref. The smoke test needs a display and a GPU and stays
+#   local.
 # - macos: hottyterm.app for Apple silicon (scripts/build-macos.sh). Macs
 #   are the scarcest runners, so it runs when a push to main changes the
 #   fork's inputs (the `changes` job decides), and on demand, not on every
@@ -58,7 +59,7 @@ jobs:
         env:
           BEFORE: ${{ github.event.before }}
         run: |
-          inputs='^(ghostty-ref|hotty-blitz-ref|patches/|brand/|notices/|scripts/(brand\.py|fork\.sh|build-macos\.sh|notices\.py)|\.github/workflows/ci\.yml)'
+          inputs='^(ghostty-ref|hotty-blitz-ref|mods/|brand/|notices/|scripts/(brand\.py|fork\.sh|build-macos\.sh|notices\.py)|\.github/workflows/ci\.yml)'
           if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             fork=true   # a new branch, or history rewritten: build
           elif git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -qE "$inputs"; then
@@ -127,9 +128,9 @@ jobs:
             hotty-blitz/main/target/release
             ~/.cargo/registry
             ~/.cache/zig
-          key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-${{ github.sha }}
+          key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-${{ github.sha }}
           restore-keys: |
-            linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-
+            linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-
             linux-
 
       # -Dcpu=baseline (Ghostty's PACKAGING.md): zig build targets the
@@ -137,7 +138,7 @@ jobs:
       # user's lacks. 26.10.02-dev.5abc98b was built with AVX512-FP16 and
       # died with SIGILL on a Zen 5 laptop.
       - name: Build
-        run: make -C hottyterm/main apply build ZIG_ARGS=-Dcpu=baseline
+        run: make -C hottyterm/main mods apply build ZIG_ARGS=-Dcpu=baseline
 
       - name: Save caches
         if: ${{ !cancelled() }}
@@ -147,7 +148,7 @@ jobs:
             hotty-blitz/main/target/release
             ~/.cargo/registry
             ~/.cache/zig
-          key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-${{ github.sha }}
+          key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-${{ github.sha }}
 
       # bin/hottyterm finds lib/libhotty_blitz.so through its $ORIGIN rpath,
       # and through nothing else: the build also gives it hotty-blitz's
@@ -229,9 +230,9 @@ jobs:
             hotty-blitz/main/target/release
             ~/.cargo/registry
             zig-cache
-          key: macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-${{ github.sha }}
+          key: macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-${{ github.sha }}
           restore-keys: |
-            macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-
+            macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-
             macos-
 
       - name: Fork
@@ -248,7 +249,7 @@ jobs:
             hotty-blitz/main/target/release
             ~/.cargo/registry
             zig-cache
-          key: macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/patches/*') }}-${{ github.sha }}
+          key: macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-${{ github.sha }}
 
       # Signed ad hoc: macOS blocks the first launch until it is allowed in
       # System Settings, Privacy & Security.
@@ -318,7 +319,7 @@ jobs:
 
           Built from:
           - hottyterm ${GITHUB_SHA:0:7}
-          - Ghostty ${GHOSTTY:0:8}, plus \`patches/\` and the generated branding
+          - Ghostty ${GHOSTTY:0:8}, plus \`mods/ghostty/\` and the generated branding
           - $blitz
 
           Assets:
