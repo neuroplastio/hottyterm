@@ -9,7 +9,8 @@ default, a click with no modifier opens a URL or an OSC 8 hyperlink in the
 cells, or a surface's link, as a browser does, and the pointer over one
 underlines it. A drag still selects, and Ctrl+click (Cmd+click on macOS)
 still opens. While the program reports the mouse, the click stays the
-program's. `modifier` is Ghostty's behaviour. Upstream lines: 4 in
+program's here; a later patch opens links there too. `modifier` is
+Ghostty's behaviour. Upstream lines: 4 in
 `Surface.zig`, 14 in `Config.zig`.
 
 **Why we carry it:** links open as in a browser, in the cells and in HOTTY

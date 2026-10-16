@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Fri, 16 Oct 2026 19:23:38 +0200
+Subject: [PATCH 33/33] gtk: the same toast is not queued again while it is up
+
+Each clipboard write toasted "Copied to clipboard", and AdwToastOverlay
+shows toasts one at a time, so a program that wrote the clipboard many
+times in a row (OSC 52 on every selection change, say) queued a toast
+per write, and they kept coming, three seconds each, long after the
+writes stopped. Window.addToast now skips a toast whose title is the
+one it queued less than its timeout ago. A different toast still
+queues, and the same one shows again once the last has timed out.
+
+Generic, in upstream's style, so it could be offered to Ghostty.
+Upstream lines: 20 (GTK apprt only).
+---
+ src/apprt/gtk/class/window.zig | 23 +++++++++++++++++++++--
+ 1 file changed, 21 insertions(+), 2 deletions(-)
+
+diff --git a/src/apprt/gtk/class/window.zig b/src/apprt/gtk/class/window.zig
+index 03462de9a..981607bb4 100644
+--- a/src/apprt/gtk/class/window.zig
++++ b/src/apprt/gtk/class/window.zig
+@@ -5,6 +5,7 @@ const adw = @import("adw");
+ const gdk = @import("gdk");
+ const gio = @import("gio");
+ const glib = @import("glib");
++const global = @import("../../../global.zig");
+ const gobject = @import("gobject");
+ const gtk = @import("gtk");
+ 
+@@ -288,6 +289,10 @@ pub const Window = extern struct {
+         toolbar: *adw.ToolbarView,
+         toast_overlay: *adw.ToastOverlay,
+ 
++        /// The last toast queued, and when: the same one again within its
++        /// timeout is not queued behind it (`addToast`).
++        last_toast: ?struct { title: [*:0]const u8, at: std.Io.Timestamp } = null,
++
+         pub var offset: c_int = 0;
+     };
+ 
+@@ -776,9 +781,23 @@ pub const Window = extern struct {
+     // other widgets to trigger our toasts. Other objects should not
+     // trigger toasts directly.
+     fn addToast(self: *Self, title: [*:0]const u8) void {
++        const timeout = 3;
++        const priv = self.private();
++
++        // The same toast again while it is still up is not queued behind
++        // it: a program that writes the clipboard many times in a row
++        // would otherwise queue a toast for each write, shown one after
++        // another long after the writes stopped.
++        const now: std.Io.Timestamp = .now(global.io(), .awake);
++        if (priv.last_toast) |last| {
++            if (std.mem.orderZ(u8, last.title, title) == .eq and
++                last.at.durationTo(now).toMilliseconds() < timeout * std.time.ms_per_s) return;
++        }
++        priv.last_toast = .{ .title = title, .at = now };
++
+         const toast = adw.Toast.new(title);
+-        toast.setTimeout(3);
+-        self.private().toast_overlay.addToast(toast);
++        toast.setTimeout(timeout);
++        priv.toast_overlay.addToast(toast);
+     }
+ 
+     fn connectSurfaceHandlers(

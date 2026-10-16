@@ -68,9 +68,9 @@ carry it and whether Ghostty might want it; neuroplast.io/modding lists them.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `827d5c82` (2026-10-13, "1.3.2-dev") |
-| patches | 31, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
-| new code | `src/termio/hotty.zig`, 2476 lines: all of the HOTTY logic |
-| upstream files touched | 22 files, 902 lines added and 81 removed: hooks, settings, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, the resize race) |
+| patches | 33, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
+| new code | `src/termio/hotty.zig`, 2539 lines: all of the HOTTY logic |
+| upstream files touched | 23 files, 946 lines added and 83 removed: hooks, settings, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, the resize race, toasts) |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
@@ -283,8 +283,10 @@ underlines it.
 | `modifier` | Ctrl (Cmd on macOS) and click only, as in Ghostty |
 
 - **A drag still selects:** a link opens on a release that did not drag.
-- **A program that reports the mouse** (an editor, tmux) gets the click, as it
-  does without this setting.
+- **A program that reports the mouse** (an editor, a multiplexer, Claude
+  Code's full screen) doesn't get a plain click on a link: the link opens. A
+  drag that starts on a link still reaches the program, and a click with a
+  modifier is the program's, as without this setting.
 - A link that opens is handed to the desktop as Ghostty hands it: the same
   opener, and on macOS the same allowlist and confirmation for OSC 8 links.
 - Ghostty does not know the key: going back to Ghostty, delete the line.

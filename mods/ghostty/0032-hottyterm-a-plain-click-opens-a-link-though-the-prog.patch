@@ -1,0 +1,211 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Fri, 16 Oct 2026 19:23:27 +0200
+Subject: [PATCH 32/33] hottyterm: a plain click opens a link though the
+ program reports the mouse
+
+With `hotty-link-click = plain`, a click with no modifier opened a URL
+or an OSC 8 hyperlink in the cells only while no program reported the
+mouse: under reporting every click was the program's, as in Ghostty, so
+a link in a program that reports the mouse (a multiplexer, an editor,
+Claude Code's full screen) needed the program to open it, or Shift to
+get past it. A hyperlink is the terminal's to open, so now the plain
+click opens it there too, as in a browser, and the pointer over one
+underlines it.
+
+The press on a link is kept from the program. Its release opens the
+link, and the program sees no click. If the pointer leaves the press's
+cell first, the gesture is a drag: the held press goes to the program,
+where it was, before the motion, and the rest of the gesture follows as
+before, so a drag that starts on a link still selects in the program.
+Ctrl+click (Cmd on macOS) and clicks with other modifiers stay the
+program's while it reports the mouse: a modifier pressed over a link
+clears Ghostty's over_link, so the release cannot open it after the
+program had the press.
+
+hotty.zig decides (plainLinkClick, cellLinkButton, cellLinkMoved).
+Upstream lines: Surface.zig 22 (links refresh on motion and modifier
+changes when plain clicks open them; over_link cleared when a modifier
+makes the click the program's; the button hook; the held press handed
+over in the motion report), Config.zig 5 (the option's text).
+---
+ src/Surface.zig       | 22 +++++++++++++
+ src/config/Config.zig |  7 ++--
+ src/termio/hotty.zig  | 77 +++++++++++++++++++++++++++++++++++++++----
+ 3 files changed, 96 insertions(+), 10 deletions(-)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 5c67afa68..1c63ca712 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -2851,6 +2851,7 @@ pub fn keyCallback(
+         // OR
+         // 2. mouse reporting is on and we are not reporting shift to the terminal
+         if (self.io.terminal.flags.mouse_event == .none or
++            hotty.plainLinkClick(self, self.mouse.mods) or // hottyterm
+             (self.mouse.mods.shift and !self.mouseShiftCapture(false)))
+         {
+             // Refresh our link state
+@@ -2867,6 +2868,7 @@ pub fn keyCallback(
+             };
+         } else if (self.io.terminal.flags.mouse_event != .none and !self.mouse.mods.shift) {
+             // If we have mouse reports on and we don't have shift pressed, we reset state
++            self.mouse.over_link = false; // hottyterm: the click is the program's again
+             _ = try self.rt_app.performAction(
+                 .{ .surface = self },
+                 .mouse_shape,
+@@ -3934,6 +3936,18 @@ pub fn mouseButtonCallback(
+     // hottyterm: a click on a surface belongs to the surface.
+     if (hotty.surfaceButton(self, action, button, mods)) return true;
+ 
++    // hottyterm: a plain click on a link in the cells opens it, though the
++    // program reports the mouse.
++    if (hotty.cellLinkButton(self, action, button)) |open| {
++        if (open) {
++            self.renderer_state.mutex.lockUncancelable(global.io());
++            defer self.renderer_state.mutex.unlock(global.io());
++            const pos = try self.rt_surface.getCursorPos();
++            if (self.processLinks(pos)) |_| {} else |err| log.warn("error processing links err={}", .{err});
++        }
++        return true;
++    }
++
+     // This is set to true if the terminal is allowed to capture the shift
+     // modifier. Note we can do this more efficiently probably with less
+     // locking/unlocking but clicking isn't that frequent enough to be a
+@@ -4761,6 +4775,7 @@ pub fn cursorPosCallback(
+         self.mouse.link_point == null or
+         (self.mouse.link_point != null and !self.mouse.link_point.?.eql(pos_vp))) and
+         (self.io.terminal.flags.mouse_event == .none or
++            hotty.plainLinkClick(self, self.mouse.mods) or // hottyterm
+             (self.mouse.mods.shift and !self.mouseShiftCapture(false))))
+     {
+         // If we were previously over a link, we always update. We do this so that if the text
+@@ -4770,6 +4785,13 @@ pub fn cursorPosCallback(
+ 
+     // Do a mouse report
+     if (self.isMouseReporting()) report: {
++        // hottyterm: a press held for a link reaches the program once it drags.
++        switch (hotty.cellLinkMoved(self, pos)) {
++            .none => {},
++            .held => return,
++            .dragged => |at| self.mouseReport(.left, .press, self.mouse.mods, at),
++        }
++
+         // Shift overrides mouse "grabbing" in the window, taken from Kitty.
+         // This only applies if there is a mouse button pressed so that
+         // movement reports are not affected.
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index bbf8b65b5..ad3080c3f 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -3953,9 +3953,10 @@ term: []const u8 = "xterm-ghostty",
+ /// in a HOTTY surface.
+ ///
+ ///   * `plain` - a click with no modifiers held opens it, and the pointer
+-///     over one underlines it, except in the cells while the program
+-///     reports the mouse: the click is the program's there. A click with
+-///     Ctrl (Cmd on macOS) held opens it too.
++///     over one underlines it, as in a browser, even while the program
++///     reports the mouse: the program sees no click on a link, but a drag
++///     that starts on one reaches it. A click with Ctrl (Cmd on macOS)
++///     held opens it too, unless the program reports the mouse.
+ ///   * `modifier` - only a click with Ctrl (Cmd on macOS) held opens it.
+ @"hotty-link-click": HottyLinkClick = .plain,
+ 
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 2be97f7e9..c69b9c8e6 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -369,6 +369,11 @@ pub const Hotty = struct {
+     /// A press on a hyperlink with the OSC 8 gesture: it and its release
+     /// are the terminal's, never the surface's.
+     link_press: bool = false,
++    /// A plain left press on a link in the cells while the program reports
++    /// the mouse (`cellLinkButton`), kept from the program: where it was.
++    /// Its release opens the link; a drag hands it over (`cellLinkMoved`).
++    /// Only the Surface entry points touch it, on the apprt thread.
++    cell_link_press: ?apprt.CursorPos = null,
+     /// The platform's count of the left press under way in a run of
+     /// clicks, as the apprt hands it over (GTK's n_press,
+     /// `surfaceClickCount`); 0 where it hands none over, and the press is
+@@ -1840,14 +1845,72 @@ fn osc8Gesture(s: *Surface, mods: input.Mods) bool {
+ /// Surface.mouseModsWithCapture, for the cells' links: with
+ /// `hotty-link-click = plain`, no modifier held is the link gesture (Ctrl,
+ /// Cmd on macOS), so a plain click opens a URL or an OSC 8 hyperlink and the
+-/// pointer over one underlines it, as in a browser. Not while the program
+-/// reports the mouse: the click is its own, as it is without this. A drag
+-/// still selects (Surface opens a link only on a release that did not
+-/// drag). Needs the renderer state's lock.
++/// pointer over one underlines it, as in a browser. That holds while the
++/// program reports the mouse too (`cellLinkButton`): a hyperlink is the
++/// terminal's to open, and a modifier to open one is Ghostty's habit, not
++/// the program's request. A drag still selects, or reaches the program.
+ pub fn plainLinkClick(s: *Surface, mods: input.Mods) bool {
+-    return s.config.hotty_link_click == .plain and
+-        s.io.terminal.flags.mouse_event == .none and
+-        mods.binding().equal(.{});
++    return s.config.hotty_link_click == .plain and mods.binding().equal(.{});
++}
++
++/// Surface.mouseButtonCallback, for a plain click on a link in the cells
++/// while the program reports the mouse (`plainLinkClick`): the press is
++/// kept from the program, and its release opens the link. Null if the
++/// event is not this; else the terminal took it, and true says to open the
++/// link under the pointer. Where reporting is off, Ghostty's own release
++/// opens the link. A drag hands the press over (`cellLinkMoved`).
++pub fn cellLinkButton(s: *Surface, action: input.MouseButtonState, button: input.MouseButton) ?bool {
++    const hs = &s.io.terminal_stream.handler.hotty;
++    if (button != .left) return null;
++    if (action == .release) {
++        if (hs.cell_link_press == null) return null;
++        hs.cell_link_press = null;
++        return s.mouse.over_link;
++    }
++    if (!s.mouse.over_link or !plainLinkClick(s, s.mouse.mods)) return null;
++    // Ghostty has already recorded this press in click_state.
++    for (s.mouse.click_state, 0..) |state, i| {
++        if (i != @intFromEnum(button) and state == .press) return null;
++    }
++    s.renderer_state.mutex.lockUncancelable(global.io());
++    defer s.renderer_state.mutex.unlock(global.io());
++    if (!s.config.mouse_reporting or s.io.terminal.flags.mouse_event == .none) return null;
++    hs.cell_link_press = s.rt_surface.getCursorPos() catch return null;
++    return false;
++}
++
++/// What a move does to a press held for a link (`cellLinkButton`).
++pub const CellLinkMove = union(enum) {
++    /// No press is held.
++    none,
++    /// The pointer is still in the press's cell: the motion is no one's.
++    held,
++    /// The pointer left the cell: the gesture is a drag, and the press,
++    /// where it was, goes to the program before this motion.
++    dragged: apprt.CursorPos,
++};
++
++/// Surface.cursorPosCallback, while the program reports the mouse: a press
++/// held for a link keeps its motion from the program until the pointer
++/// leaves the press's cell. Then the press goes to the program after all,
++/// with the rest of the gesture, so a drag that starts on a link selects
++/// or moves as it would without one. Needs the renderer state's lock.
++pub fn cellLinkMoved(s: *Surface, pos: apprt.CursorPos) CellLinkMove {
++    const hs = &s.io.terminal_stream.handler.hotty;
++    const at = hs.cell_link_press orelse return .none;
++    if (sameCell(s, at, pos)) return .held;
++    hs.cell_link_press = null;
++    return .{ .dragged = at };
++}
++
++fn sameCell(s: *Surface, a: apprt.CursorPos, b: apprt.CursorPos) bool {
++    const ca: rendererpkg.Coordinate = .{ .surface = .{ .x = a.x, .y = a.y } };
++    const cb: rendererpkg.Coordinate = .{ .surface = .{ .x = b.x, .y = b.y } };
++    const ta = ca.convert(.terminal, s.size).terminal;
++    const tb = cb.convert(.terminal, s.size).terminal;
++    const w: f64 = @floatFromInt(s.size.cell.width);
++    const h: f64 = @floatFromInt(s.size.cell.height);
++    return @floor(ta.x / w) == @floor(tb.x / w) and @floor(ta.y / h) == @floor(tb.y / h);
+ }
+ 
+ /// Shows the pointer's shape and the link preview that changed.
