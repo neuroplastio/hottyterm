@@ -1,0 +1,66 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Fri, 16 Oct 2026 12:08:52 +0200
+Subject: [PATCH 34/34] =?UTF-8?q?hottyterm:=20the=20program's=20menu,=20ke?=
+ =?UTF-8?q?pt=20per=20screen=20(SPEC=20=C2=A710.7)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The terminal tells hotty-blitz the screen it is on, when the host is
+created and at each switch (hotty_host_set_screen, in place of
+hide_menu): the alternate screen's menu goes when it is left, and the
+level shown hides.
+
+Upstream files: none; the change is in src/termio/hotty.zig.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig | 15 +++++++++------
+ 1 file changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 6dc7fcbd2..3699cc7a9 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -121,7 +121,7 @@ extern fn hotty_host_set_keys(h: *Host, meta: bool, edit: ?[*:0]const u8, comman
+ extern fn hotty_host_edit_command(h: *Host, name: [*]const u8, len: usize) ?[*:0]const u8;
+ extern fn hotty_host_command(name: [*:0]const u8, key: ?[*]const u8, key_len: usize, text: ?[*]const u8, text_len: usize, fx: ?*const Effects) void;
+ extern fn hotty_host_cells_key(h: *Host, name: [*]const u8, len: usize) void;
+-extern fn hotty_host_hide_menu(h: *Host) void;
++extern fn hotty_host_set_screen(h: *Host, alt: bool) void;
+ extern fn hotty_host_set_waker(h: *Host, wake: ?*const fn (?*anyopaque) callconv(.c) void, ctx: ?*anyopaque) void;
+ 
+ // --- wiring ------------------------------------------------------------------
+@@ -490,16 +490,16 @@ pub const Hotty = struct {
+         };
+     }
+ 
+-    /// The program's screen changed (SPEC §10.6): leaving the alternate
+-    /// screen drops the commands taken there, and the program's menu
+-    /// hides. The stream handler calls it at each switch, so leaving and
+-    /// coming back between two frames still drops them.
++    /// The program's screen changed (SPEC §10.6, §10.7): leaving the
++    /// alternate screen drops the commands and the menu taken there, and
++    /// the level shown hides. The stream handler calls it at each switch,
++    /// so leaving and coming back between two frames still drops them.
+     pub fn syncScreen(self: *Hotty, t: *terminal.Terminal) void {
+         const now = t.screens.active_key;
+         if (now == self.screen) return;
+         if (self.screen == .alternate) self.taken[1] = 0;
+         self.screen = now;
+-        if (self.host) |h| hotty_host_hide_menu(h);
++        if (self.host) |h| hotty_host_set_screen(h, now == .alternate);
+     }
+ 
+     /// Whether the program took the edit command `name` on its screen.
+@@ -599,6 +599,9 @@ pub const Hotty = struct {
+             hotty_host_set_network(h, self.settings.net.ptr);
+             if (self.wakeup != null) hotty_host_set_waker(h, wake, self);
+             self.setKeys(h);
++            // The screen it is told first (SPEC §10.7).
++            self.screen = t.screens.active_key;
++            hotty_host_set_screen(h, self.screen == .alternate);
+         } else log.warn("hotty-blitz failed to start", .{});
+         return self.host;
+     }

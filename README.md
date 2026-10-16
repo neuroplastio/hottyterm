@@ -69,8 +69,8 @@ carry it and whether Ghostty might want it; neuroplast.io/modding lists them.
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `827d5c82` (2026-10-13, "1.3.2-dev") |
 | patches | 34, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
-| new code | `src/termio/hotty.zig`, 2649 lines: all of the HOTTY logic |
-| upstream files touched | 24 files, 953 lines added and 83 removed: hooks, settings, the palette's binding, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, the resize race, toasts) |
+| new code | `src/termio/hotty.zig`, 2531 lines: all of the HOTTY logic |
+| upstream files touched | 22 files, 933 lines added and 83 removed: hooks, settings, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, the resize race, toasts) |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
@@ -184,17 +184,11 @@ The hooks:
   (Control+Shift+v, Cmd+v, the menu) types into it, not into the pty. A
   program reading the clipboard with OSC 52 still asks first
   (`clipboard-read`).
-- **The program's menu and its palette** (SPEC §10.7): a program's menu
-  is kept per screen, and leaving the alternate screen drops that screen's.
-  Control+Shift+Space (Cmd+Shift+Space on macOS), the action
-  `toggle_hotty_palette`, opens a palette of the menu's items at the top
-  of the screen, with a filter line: type to filter, ArrowUp and ArrowDown
-  (or Control+p and Control+n) move, Enter picks, Escape closes. While it
-  is open it takes every key, except its own, which closes it. A pick goes
-  to the program as a `command` with no key; `copy` copies the cells'
-  selection and `paste` carries the clipboard's text, as the Edit menu
-  does. Rebind it with `keybind = ctrl+shift+space=unbind`, or to another
-  key.
+- **The program's menu** (SPEC §10.7): a program's menu is kept per
+  screen, and leaving the alternate screen drops that screen's. hottyterm
+  shows the level a program's keys reach, and adds no palette of its own
+  for the menu: a pick comes from a multiplexer such as plx, or from
+  whatever drives the program.
 - **No tabs:** plx has them, and windows and full screen are the window
   manager's. hottyterm has no default keys for tabs, quitting, closing
   windows or full screen, on the Mac too, and a new tab, from a binding, a
