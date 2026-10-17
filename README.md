@@ -68,9 +68,9 @@ carry it and whether Ghostty might want it; neuroplast.io/modding lists them.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `827d5c82` (2026-10-13, "1.3.2-dev") |
-| patches | 35, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
-| new code | `src/termio/hotty.zig`, 2635 lines: all of the HOTTY logic |
-| upstream files touched | 22 files, 933 lines added and 83 removed: hooks, settings, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, the resize race, toasts) |
+| patches | 36, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
+| new code | `src/termio/hotty.zig`, 2650 lines: all of the HOTTY logic |
+| upstream files touched | 23 files, 937 lines added and 83 removed: hooks, settings, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, the resize race, toasts) |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
@@ -281,9 +281,11 @@ nothing granted (§7.2).
 
 ### `hotty-link-click`: how a click opens a link
 
-**A plain click opens a link,** as in a browser: a URL or a file path in the
-cells, an OSC 8 hyperlink, or a hyperlink in a surface. The pointer over one
-underlines it.
+**A plain click opens a link,** as in a browser: an OSC 8 hyperlink in the
+cells, or a hyperlink in a surface. The pointer over one underlines it. A URL
+or a file path that Ghostty finds in the cells' text opens with Ctrl (Cmd on
+macOS) and click, as in Ghostty: it is a guess, and a prompt's directory, or
+the first row of a URL a multiplexer drew row by row, would open as one.
 
 | `hotty-link-click =` | a link opens with |
 | --- | --- |
@@ -292,9 +294,9 @@ underlines it.
 
 - **A drag still selects:** a link opens on a release that did not drag.
 - **A program that reports the mouse** (an editor, a multiplexer, Claude
-  Code's full screen) doesn't get a plain click on a link: the link opens. A
-  drag that starts on a link still reaches the program, and a click with a
-  modifier is the program's, as without this setting.
+  Code's full screen) doesn't get a plain click on an OSC 8 hyperlink: the
+  link opens. A drag that starts on one still reaches the program, and a
+  click with a modifier is the program's, as without this setting.
 - A link that opens is handed to the desktop as Ghostty hands it: the same
   opener, and on macOS the same allowlist and confirmation for OSC 8 links.
 - Ghostty does not know the key: going back to Ghostty, delete the line.
