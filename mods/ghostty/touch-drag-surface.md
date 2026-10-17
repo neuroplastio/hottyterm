@@ -10,10 +10,10 @@ phase of it goes there, taps included, and none to the pointer. While it
 may still become a drag, its moves wait. Once it pans, the terminal scrolls
 from where it began; once it drags, its moves are the surface's. A second
 finger, or the platform, cancels it. A touch over the cells, or one that
-only focuses a split, is the terminal's as before (HOTTY SPEC §9.1). The
+only focuses a split, is the terminal's as before (hotty SPEC §9.1). The
 GTK surface gets the touch's offsets; the logic is in `hotty.zig`.
 
-**Why we carry it:** sliders and drag and drop in HOTTY documents, on a
+**Why we carry it:** sliders and drag and drop in hotty documents, on a
 touchscreen.
 
-**For upstream:** no. It serves HOTTY surfaces.
+**For upstream:** no. It serves hotty surfaces.

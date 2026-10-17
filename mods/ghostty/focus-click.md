@@ -13,7 +13,7 @@ event, as a browser does. `focus` is Ghostty's behaviour. Upstream lines:
 11 in `Config.zig`, 2 in `Surface.zig`, 1 in the GTK surface and 21 in the
 macOS app.
 
-**Why we carry it:** a click on a button in a HOTTY document in another
+**Why we carry it:** a click on a button in a hotty document in another
 split, or another window, presses it.
 
 **For upstream:** maybe. It is generic, but Ghostty drops the click on

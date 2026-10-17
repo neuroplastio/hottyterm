@@ -94,7 +94,7 @@ def main():
     cols = min(size.columns, 64)
     with Hotty.raw():
         if lam.query() is None:
-            print("touch-check.py needs a HOTTY host: run it in hottyterm.")
+            print("touch-check.py needs a hotty host: run it in hottyterm.")
             return
         lam.write("".join(f"scrollback line {i}\r\n" for i in range(1, 201)))
         lam.doc("touch", HTML, scroll=1)

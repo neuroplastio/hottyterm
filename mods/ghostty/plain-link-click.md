@@ -13,9 +13,9 @@ program's here; a later patch opens links there too. `modifier` is
 Ghostty's behaviour. Upstream lines: 4 in
 `Surface.zig`, 14 in `Config.zig`.
 
-**Why we carry it:** links open as in a browser, in the cells and in HOTTY
+**Why we carry it:** links open as in a browser, in the cells and in hotty
 documents alike.
 
 **For upstream:** maybe. The cells' half is small and generic, but the
-setting is named for HOTTY and the decision is made in `hotty.zig`. It
+setting is named for hotty and the decision is made in `hotty.zig`. It
 would need a name of Ghostty's and its logic moved into `Surface.zig`.

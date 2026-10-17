@@ -10,7 +10,7 @@ looking from the top window down. Anywhere else, presses, motion and
 releases are reported to the program as on any cell, and the pointer has
 the shape the program set with OSC 22. The capabilities announce it.
 
-**Why we carry it:** HOTTY SPEC §9.3, so that a program can float a surface
+**Why we carry it:** hotty SPEC §9.3, so that a program can float a surface
 over its own text and still be clicked through it.
 
-**For upstream:** no. It only changes how HOTTY surfaces are hit.
+**For upstream:** no. It only changes how hotty surfaces are hit.

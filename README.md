@@ -2,16 +2,16 @@
 
 # hottyterm
 
-**A terminal that speaks [HOTTY](https://github.com/neuroplastio/hotty) natively.**
+**A terminal that speaks [hotty](https://github.com/neuroplastio/hotty) natively.**
 
 A fork of Ghostty with [hotty-blitz](https://github.com/neuroplastio/hotty-blitz)
-built in. A program that prints HOTTY **surfaces** gets HTML and CSS laid out and
+built in. A program that prints hotty **surfaces** gets HTML and CSS laid out and
 drawn into cells — no script, no network, no kitty graphics across the pty.
 Everything else is Ghostty.
 
 [![status: research](https://img.shields.io/badge/status-research-orange)](#research-on-the-bleeding-edge)
 [![fork of Ghostty](https://img.shields.io/badge/fork%20of-Ghostty-lightgrey)](https://ghostty.org)
-[![HOTTY: native](https://img.shields.io/badge/HOTTY-native-8a2be2)](https://github.com/neuroplastio/hotty)
+[![hotty: native](https://img.shields.io/badge/hotty-native-8a2be2)](https://github.com/neuroplastio/hotty)
 [![licence: MIT](https://img.shields.io/badge/licence-MIT-blue)](LICENSE)
 
 [Releases](https://github.com/neuroplastio/hottyterm/releases) ·
@@ -30,23 +30,23 @@ mark.
 
 ## Why hottyterm
 
-HOTTY is a protocol for putting HTML and CSS **surfaces** into terminal cells,
+hotty is a protocol for putting HTML and CSS **surfaces** into terminal cells,
 in-band, over a pty and SSH. It needs a host to prove it against. hottyterm is
 that host in the shape of a real terminal: it shows what native support looks
 like, keeps the protocol honest against a terminal people already run, and gives
 programs a place to try surfaces without a polyfill.
 
-It carries HOTTY and nothing else, keeps its changes to upstream files down to
+It carries hotty and nothing else, keeps its changes to upstream files down to
 hooks, and shares Ghostty's config file, `TERM` and resources, so anyone using
 it can go back to Ghostty with nothing to migrate.
 
 ## Research, on the bleeding edge
 
-hottyterm is a **research vehicle for HOTTY**. It exists to push the protocol,
-not to settle it: it is where new HOTTY ideas land first, in a terminal people
+hottyterm is a **research vehicle for hotty**. It exists to push the protocol,
+not to settle it: it is where new hotty ideas land first, in a terminal people
 actually use.
 
-If the stars align and Ghostty gains official HOTTY support, hottyterm does not
+If the stars align and Ghostty gains official hotty support, hottyterm does not
 stop — it stays on the bleeding edge. It keeps moving ahead of the official
 implementation, and it may add experimental features that play well with the
 neuroplastio software stack (plx, hotty-sdk, the hotty tools) but are too new,
@@ -69,7 +69,7 @@ carry it and whether Ghostty might want it; neuroplast.io/modding lists them.
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `827d5c82` (2026-10-13, "1.3.2-dev") |
 | patches | 37, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
-| new code | `src/termio/hotty.zig`, 2744 lines: all of the HOTTY logic |
+| new code | `src/termio/hotty.zig`, 2744 lines: all of the hotty logic |
 | upstream files touched | 23 files, 939 lines added and 85 removed: hooks, settings, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, the resize race, toasts) |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
@@ -220,7 +220,7 @@ The hooks:
   input, except where it takes no pointer (`pointer-events: none`, SPEC
   §9.3): there they pass through to the window below or to the cells, and
   the program hears them as over any cell. A program that placed the surface
-  with `p=1` hears each press on it as a HOTTY `press` event instead (SPEC
+  with `p=1` hears each press on it as a hotty `press` event instead (SPEC
   §9, from hotty-blitz). A press holds the pointer until its release: one on
   a surface keeps it for that surface, one on the cells keeps it for the
   program, so a drag that starts on cells is reported whole, even over a
@@ -261,7 +261,7 @@ settings to it.
 The terminal's half of the network policy (SPEC §7.2), in the syntax of a
 Content Security Policy: directives separated by `;`, each followed by its
 sources. **The default is empty: surfaces fetch nothing** and show only what the
-program sent them. HOTTY leaves the network to the user: every fetch tells a
+program sent them. hotty leaves the network to the user: every fetch tells a
 server that a document is being shown, and where from, so a terminal starts with
 nothing granted (§7.2).
 

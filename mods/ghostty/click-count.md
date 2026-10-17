@@ -12,7 +12,7 @@ as on macOS today, `hotty.zig` counts presses as Ghostty's own selection
 does, with `click-repeat-interval` and a cell's width. The capabilities
 report `count`. One upstream line, in the GTK surface.
 
-**Why we carry it:** double and triple clicks in HOTTY documents select
-words and lines (HOTTY SPEC §9).
+**Why we carry it:** double and triple clicks in hotty documents select
+words and lines (hotty SPEC §9).
 
-**For upstream:** no. Only HOTTY surfaces use the count.
+**For upstream:** no. Only hotty surfaces use the count.

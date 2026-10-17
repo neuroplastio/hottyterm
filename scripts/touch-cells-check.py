@@ -69,7 +69,7 @@ def main():
     lam = Hotty()
     with Hotty.raw():
         if lam.query() is None:
-            print("touch-cells-check.py needs a HOTTY host: run it in hottyterm.")
+            print("touch-cells-check.py needs a hotty host: run it in hottyterm.")
             return
         lam.write("\x1b[?1049h\x1b[?25l\x1b[2J\x1b[?1002h\x1b[?1006h")
         c0, r0, w = SLIDER

@@ -14,7 +14,7 @@ upstream lines), which turns Ghostty's offsets into pixels, with
 `mouse-scroll-multiplier`. Scrollbars fade, so key and pointer events now
 set the frame timer after they render.
 
-**Why we carry it:** HOTTY SPEC §5.3. Long documents, such as docs pages,
+**Why we carry it:** hotty SPEC §5.3. Long documents, such as docs pages,
 scroll inside their surface.
 
-**For upstream:** no. It routes the wheel to HOTTY surfaces.
+**For upstream:** no. It routes the wheel to hotty surfaces.

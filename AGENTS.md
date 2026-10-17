@@ -1,7 +1,7 @@
 # For agents
 
 hottyterm mods Ghostty (gov P-7): upstream at a pinned commit
-(`ghostty-ref`) plus the patches in `mods/ghostty/`. It adds HOTTY (`SPEC.md` in
+(`ghostty-ref`) plus the patches in `mods/ghostty/`. It adds hotty (`SPEC.md` in
 neuroplastio/hotty) through hotty-blitz's C ABI, and nothing else.
 
 - **The patches are the source.** Work in the fork at `../ghostty` (branch
@@ -18,16 +18,16 @@ neuroplastio/hotty) through hotty-blitz's C ABI, and nothing else.
   internals from hotty.zig is fine: upstream changes then fail to compile
   there, which is easier to fix than a rebase conflict. Count the lines a
   change adds to upstream files, and say so in the commit message.
-- **A research vehicle for HOTTY.** hottyterm exists to push the protocol in
-  a real terminal: new HOTTY ideas land here first. If Ghostty gains official
-  HOTTY support, hottyterm does not stop; it stays on the bleeding edge and
+- **A research vehicle for hotty.** hottyterm exists to push the protocol in
+  a real terminal: new hotty ideas land here first. If Ghostty gains official
+  hotty support, hottyterm does not stop; it stays on the bleeding edge and
   may add experimental features that play well with the neuroplastio stack
   (plx, hotty-sdk, the hotty tools). Keep the base boring: the config, `TERM`
   and resources stay Ghostty's, and experimental parts are additive and
   namespaced, never something a user must migrate away from.
-- **HOTTY first.** A generic feature (like partial texture uploads) is
+- **hotty first.** A generic feature (like partial texture uploads) is
   written as its own patch, in upstream's style, and rated `upstream-fit:
-  yes`, so Ghostty can take it from neuroplast.io/modding. A feature that is not HOTTY belongs upstream, in plexos, or,
+  yes`, so Ghostty can take it from neuroplast.io/modding. A feature that is not hotty belongs upstream, in plexos, or,
   if it is experimental and tied to the neuroplastio stack, behind a
   namespace.
 - **Never open issues, discussions or pull requests on ghostty-org.** Ghostty

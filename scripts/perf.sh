@@ -1,5 +1,5 @@
 #!/bin/sh
-# What hottyterm costs on a HOTTY surface, counted per thread (see
+# What hottyterm costs on a hotty surface, counted per thread (see
 # docs/performance.md): runs one of the hotty repository's examples on a
 # private headless display (hotty-blitz's scripts/headless.sh), and after a
 # warm-up counts its user-space instructions and cycles per thread

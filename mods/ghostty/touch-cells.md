@@ -5,7 +5,7 @@ upstream-fit: no
 ---
 
 **What it changes:** a program that names areas of its cells with
-`a=touch` (HOTTY §9.6) gets a finger's drag there as the mouse's. A touch
+`a=touch` (hotty §9.6) gets a finger's drag there as the mouse's. A touch
 that begins on the cells goes to hotty-blitz (`hotty_host_cells_touch`),
 told whether the program reports the mouse and whether the viewport shows
 the screen. In an area, its moves wait until it goes past the slop: a pan
@@ -22,5 +22,5 @@ become public; the logic is in `hotty.zig`.
 drawn in the cells moves under a finger on a touchscreen, where a drag
 would otherwise only scroll.
 
-**For upstream:** no. It serves HOTTY's `a=touch`; a terminal without it
+**For upstream:** no. It serves hotty's `a=touch`; a terminal without it
 keeps touch drags as scrolls.

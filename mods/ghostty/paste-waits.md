@@ -8,9 +8,9 @@ upstream-fit: no
 clipboard wait too, and reach the program after it, in order. A paste
 whose clipboard hasn't come in 2 s goes without text. The stream handler
 syncs the screen at each switch, so leaving the alternate screen and coming
-back within one frame still drops the commands taken there (HOTTY SPEC
+back within one frame still drops the commands taken there (hotty SPEC
 §10.6).
 
 **Why we carry it:** plx found both, as its panes paste and switch screens.
 
-**For upstream:** no. It serves HOTTY edit commands.
+**For upstream:** no. It serves hotty edit commands.

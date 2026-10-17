@@ -11,6 +11,6 @@ the next one. With nothing playing there is no timer. While the program
 holds its output (mode 2026) the timer waits, so a batch still shows whole.
 One upstream line, in Termio, hands the loop to `hotty.zig`.
 
-**Why we carry it:** HOTTY documents show images as a browser would.
+**Why we carry it:** hotty documents show images as a browser would.
 
-**For upstream:** no. It animates HOTTY surfaces only.
+**For upstream:** no. It animates hotty surfaces only.

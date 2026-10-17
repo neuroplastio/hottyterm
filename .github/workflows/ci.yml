@@ -315,7 +315,7 @@ jobs:
           blitz="neuroplastio/hotty-blitz@${BLITZ_LINUX:0:7}"
           [ "$BLITZ_LINUX" = "$BLITZ_MACOS" ] || blitz="$blitz (Linux), @${BLITZ_MACOS:0:7} (macOS)"
           cat > notes.md <<NOTES
-          hottyterm is a fork of Ghostty with native HOTTY (HTML over the TTY), a proof of concept of the protocol. It is not affiliated with Ghostty.
+          hottyterm is a fork of Ghostty with native hotty (HTML over the TTY), a proof of concept of the protocol. It is not affiliated with Ghostty.
 
           Built from:
           - hottyterm ${GITHUB_SHA:0:7}

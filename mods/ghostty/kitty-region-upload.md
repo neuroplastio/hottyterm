@@ -16,7 +16,7 @@ rectangles and writes them into the texture it has
 own. About 250 lines outside tests, with tests of the chain and the
 renderer's region.
 
-**Why we carry it:** HOTTY surfaces arrive as kitty frame edits of the
+**Why we carry it:** hotty surfaces arrive as kitty frame edits of the
 rectangles that changed. It is part of what took a 10 Hz dashboard from
 about 15% of a core to 8%.
 

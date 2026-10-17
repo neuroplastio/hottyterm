@@ -23,4 +23,4 @@ it, or a modifier. Claude Code, for one, asks for Ctrl on Linux.
 program reports the mouse would help any Ghostty user, and the held
 press keeps drags whole. But it changes who owns a click, which upstream
 would want as a setting of its own, and the logic sits in `hotty.zig`
-under a setting named for HOTTY.
+under a setting named for hotty.

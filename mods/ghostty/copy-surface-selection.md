@@ -10,9 +10,9 @@ copies it as `copy-on-select` says, into PRIMARY by default. There is one
 selection: a press on a surface drops the terminal's, and a press on the
 cells drops the surfaces'. Ctrl+c and Super+c, bound as `performable`,
 copy only while something is selected, so Ctrl+c still interrupts
-otherwise (HOTTY SPEC §11).
+otherwise (hotty SPEC §11).
 
-**Why we carry it:** text selected in a HOTTY document copies as in a
+**Why we carry it:** text selected in a hotty document copies as in a
 browser.
 
-**For upstream:** no. It adds HOTTY surfaces to copying.
+**For upstream:** no. It adds hotty surfaces to copying.

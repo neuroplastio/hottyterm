@@ -13,6 +13,6 @@ whose press a surface took, and sends each release the same way. No
 upstream lines.
 
 **Why we carry it:** programs that use the kitty keyboard protocol and
-HOTTY surfaces together.
+hotty surfaces together.
 
 **For upstream:** no. Only `hotty.zig` changes.

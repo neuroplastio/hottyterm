@@ -4,7 +4,7 @@
 #   scripts/build-macos.sh              # out/hottyterm.app
 #
 # 1. hotty-blitz as a static library;
-# 2. GhosttyKit, the framework the app links (upstream's build; the HOTTY
+# 2. GhosttyKit, the framework the app links (upstream's build; the hotty
 #    code in it calls hotty-blitz's C ABI);
 # 3. the app with Xcode, in the ReleaseLocal configuration, which signs ad
 #    hoc and needs no developer team, linking hotty-blitz's static library.

@@ -14,14 +14,14 @@
 # changes 4 cells' text at 10 Hz for 15 s and the probe reads the app's CPU
 # time over 12 s of it, and the same for a baseline app when given.
 #
-# A program shows a HOTTY surface with one focused <input> (a red caret) and
+# A program shows a hotty surface with one focused <input> (a red caret) and
 # logs what the terminal sends it. The probe then
 #   - screenshots it 16 times, 0.3 s apart: a caret that blinks shows in some
 #     shots and not in others;
 #   - types "abc", then Backspace, with System Events: the input events the
 #     program hears carry the input's value, "a", "ab", "abc", "ab";
 #   - presses the keys Ghostty's macOS bindings and menu would take, which
-#     the field is offered first as pressed, Cmd as Meta (HOTTY SPEC §10.2,
+#     the field is offered first as pressed, Cmd as Meta (hotty SPEC §10.2,
 #     §10.4): " cd", Option+Left (Alt+ArrowLeft: word back), "X", Cmd+Left
 #     (Meta+ArrowLeft: line start), "Y", Cmd+Shift+Right (selects to the
 #     line's end), "Z", Cmd+A (select all), "W", Cmd+Backspace (delete to
@@ -33,7 +33,7 @@
 #     app does not hide), Cmd+C (Control+c: the program hears 0x03, nothing
 #     is copied), Ctrl+Backspace (Meta+Backspace: delete to line start). The
 #     values go "Z", "", and the program hears 0x08 0x03;
-#   - prints hottyterm's log lines about HOTTY.
+#   - prints hottyterm's log lines about hotty.
 # The runner's own settings decide whether screenshots and keystrokes are
 # allowed; the probe says when they are not.
 set -u

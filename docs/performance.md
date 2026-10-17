@@ -1,6 +1,6 @@
 # Performance
 
-This page covers what a HOTTY surface costs hottyterm in CPU, the changes of
+This page covers what a hotty surface costs hottyterm in CPU, the changes of
 2026-10-10 that lowered that cost, what was tried and dropped, and how to
 measure it again. The work spans this fork and
 [hotty-blitz](https://github.com/neuroplastio/hotty-blitz), whose changes
@@ -56,7 +56,7 @@ Now, the painting thread takes 46% of the cycles, the workers 33%, GTK 11% and
 the renderer 9%:
 
 - **Painting:** `io-reader` reads the pty and parses what it reads, so
-  hotty.zig hands each HOTTY command to hotty-blitz on that thread. The work
+  hotty.zig hands each hotty command to hotty-blitz on that thread. The work
   there:
   - Blitz's styling and layout;
   - the scene;

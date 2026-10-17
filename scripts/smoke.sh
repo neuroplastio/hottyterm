@@ -1,5 +1,5 @@
 #!/bin/sh
-# The smoke test: hottyterm renders a HOTTY surface natively.
+# The smoke test: hottyterm renders a hotty surface natively.
 #
 #   scripts/smoke.sh [example] [seconds]    # default: dash 6
 #
@@ -10,7 +10,7 @@
 #     the query and placed the surface;
 #   - for dash, most frames were partial: the ticks reach the image as kitty
 #     frame edits of the damaged rectangles;
-#   - the terminal logged no HOTTY or kitty graphics failure.
+#   - the terminal logged no hotty or kitty graphics failure.
 set -eu
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 FORK="${HOTTYTERM_GHOSTTY:-$(dirname "$HERE")/ghostty}"
@@ -53,6 +53,6 @@ if [ "$EX" = dash ]; then
   if [ "$partial" -ge 3 ]; then echo "ok   $partial partial frame(s)"; else echo "FAIL $partial partial frame(s): updates are not damage-sized"; fail=1; fi
 fi
 bad=$(grep -cE 'warning\(hotty\)|error\(hotty\)|erroneous kitty graphics' "$log" || true)
-if [ "${bad:-0}" -eq 0 ]; then echo "ok   no HOTTY or kitty graphics failures logged"; else echo "FAIL $bad failure(s) in $log:"; grep -E 'hotty|kitty graphics' "$log" | head -5; fail=1; fi
+if [ "${bad:-0}" -eq 0 ]; then echo "ok   no hotty or kitty graphics failures logged"; else echo "FAIL $bad failure(s) in $log:"; grep -E 'hotty|kitty graphics' "$log" | head -5; fail=1; fi
 echo "screenshot: $shot"
 exit $fail
