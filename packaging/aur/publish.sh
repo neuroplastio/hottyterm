@@ -122,7 +122,7 @@ if [ -z "$push" ]; then
 	exit 0
 fi
 git add PKGBUILD .SRCINFO
-git -c user.name="HOTTY Agent" -c user.email="hotty@neuroplast.io" \
+git -c user.name="hotty Agent" -c user.email="hotty@neuroplast.io" \
 	commit -q -m "$pkgver-$rel: $why"
 git push -q origin HEAD:master
 echo "published https://aur.archlinux.org/packages/$pkg"

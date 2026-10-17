@@ -64,7 +64,7 @@ if [ -z "$push" ]; then
 	echo "(not pushed: run with --push to publish)"
 	exit 0
 fi
-git -c user.name="HOTTY Agent" -c user.email="hotty@neuroplast.io" \
+git -c user.name="hotty Agent" -c user.email="hotty@neuroplast.io" \
 	commit -q -m "hottyterm $release"
 # Other projects publish to the tap too: one may land first.
 branch=$(git symbolic-ref --short HEAD)
