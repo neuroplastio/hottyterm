@@ -32,7 +32,7 @@ index e9a5d754d..83c4586d4 100644
              // is (SPEC §11). Before the platform's own keys below, which the
              // menu shows.
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 3699cc7a9..434720ee5 100644
+index 3699cc7a9..c9026e8d5 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -101,7 +101,7 @@ extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;
@@ -264,7 +264,7 @@ index 3699cc7a9..434720ee5 100644
 +        if (!typing and !physical_only and !m.ctrl and !m.super) return false;
 +        if (!typing and event.key == .space and !m.ctrl and !m.super) return false;
 +        var w: std.Io.Writer = .fixed(&p.physical_buf);
-+        writeMods(&w, m, true) catch return false;
++        writeMods(&w, m, m.shift) catch return false;
 +        w.writeAll(@tagName(event.key)) catch return false;
 +        p.physical = w.buffered();
 +        p.character = "";
