@@ -1,0 +1,278 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: HOTTY Agent <hotty@neuroplast.io>
+Date: Sat, 17 Oct 2026 20:47:52 +0200
+Subject: [PATCH 37/37] =?UTF-8?q?hottyterm:=20a=20finger=20drags=20in=20th?=
+ =?UTF-8?q?e=20cells=20(SPEC=20=C2=A79.6)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A program that names areas of its cells with `a=touch` gets a finger's
+drag there as the mouse's primary button. A touch that begins on the
+cells, outside every surface, goes to hotty-blitz's cells touch
+(hotty_host_cells_touch) with whether the program reports the mouse's
+buttons and whether the viewport is at the screen. In an area it is held
+like a touch on a surface: a pan scrolls as before, and a drag or a tap
+becomes reports Ghostty makes itself (Surface.mouseReport), in the
+program's mode and encoding: the press where the touch began, moves with
+the button held, the release where it lifts or, at a second finger, on
+the last cell. The left button is held in Surface.mouse.click_state for
+the drag, nothing is selected, and a press drops the selection, as a
+reported press does. Shift is left out unless Ghostty would report a
+press with it (mouse-shift-capture), since Shift and a press select. GTK
+gives the touch no click: touch_hotty already keeps GestureClick off a
+touch that hotty-blitz holds.
+
+Upstream lines: 4 (2 in Surface.zig, mouseReport and mouseShiftCapture
+made pub; 2 of comment in the GTK surface). The logic is in hotty.zig.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/Surface.zig                 |   4 +-
+ src/apprt/gtk/class/surface.zig |   4 +-
+ src/termio/hotty.zig            | 126 ++++++++++++++++++++++++++++----
+ 3 files changed, 114 insertions(+), 20 deletions(-)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 862759c1d..56d6ecdc0 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -3805,7 +3805,7 @@ pub fn mouseReportingActive(self: *Surface) bool {
+     return self.isMouseReporting();
+ }
+ 
+-fn mouseReport(
++pub fn mouseReport( // hottyterm: pub
+     self: *Surface,
+     button: ?input.MouseButton,
+     action: input.MouseAction,
+@@ -3872,7 +3872,7 @@ fn mouseReport(
+ /// Returns true if the shift modifier is allowed to be captured by modifier
+ /// events. It is up to the caller to still verify it is a situation in which
+ /// shift capture makes sense (i.e. left button, mouse click, etc.)
+-fn mouseShiftCapture(self: *const Surface, lock: bool) bool {
++pub fn mouseShiftCapture(self: *const Surface, lock: bool) bool { // hottyterm: pub
+     // Handle our never/always case where we don't need a lock.
+     switch (self.config.mouse_shift_capture) {
+         .never => return false,
+diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
+index a84a4b1b8..6b371a6d0 100644
+--- a/src/apprt/gtk/class/surface.zig
++++ b/src/apprt/gtk/class/surface.zig
+@@ -675,8 +675,8 @@ pub const Surface = extern struct {
+         /// scroll happen there, not where the mouse pointer was.
+         touch_start: apprt.CursorPos = .{ .x = 0, .y = 0 },
+ 
+-        /// hottyterm: the live touch began over a HOTTY surface, which has
+-        /// its taps (hotty.surfaceTouch).
++        /// hottyterm: the live touch began over a HOTTY surface, or in an
++        /// area of the program's, which has its taps (hotty.surfaceTouch).
+         touch_hotty: bool = false,
+ 
+         /// True when the child has exited.
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 25a6c1fbe..8e81d82b3 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -85,6 +85,15 @@ pub const Effects = extern struct {
+ 
+ pub const Rect = extern struct { x: u32, y: u32, w: u32, h: u32 };
+ 
++/// A report of the mouse's primary button for a finger in the cells (SPEC
++/// §9.6): kind 0 a move with the button held, 1 the press, 2 the release;
++/// where, in terminal pixels; the screen's cell; and the keys held, as
++/// `hostMods` writes them.
++pub const Mouse = extern struct { kind: u32, x: f32, y: f32, c: i32, r: i32, mods: u32 };
++
++/// The most reports one hotty_host_cells_touch makes (HOTTY_MOUSE_MAX).
++const mouse_max = 4;
++
+ /// (ctx, surface, w, h, premultiplied rgba of the whole frame, stride, damaged
+ /// rects, count, full): only the rects changed; copy just those.
+ const FrameFn = *const fn (?*anyopaque, [*:0]const u8, u32, u32, [*]const u8, usize, [*]const Rect, usize, bool) callconv(.c) void;
+@@ -105,6 +114,7 @@ extern fn hotty_host_key_pressed(h: *Host, physical: ?[*]const u8, physical_len:
+ extern fn hotty_host_wheel(h: *Host, surface: ?[*:0]const u8, x: f32, y: f32, dx: f32, dy: f32, mods: u32, fx: *const Effects) bool;
+ extern fn hotty_host_end_gesture(h: *Host) void;
+ extern fn hotty_host_touch(h: *Host, surface: [*:0]const u8, phase: u32, x: f32, y: f32, mods: u32, fx: *const Effects) u32;
++extern fn hotty_host_cells_touch(h: *Host, phase: u32, x: f32, y: f32, mods: u32, reports: bool, at_screen: bool, mouse: ?[*]Mouse, nmouse: ?*usize, fx: ?*const Effects) u32;
+ extern fn hotty_host_blur(h: *Host, surface: [*:0]const u8, fx: *const Effects) void;
+ extern fn hotty_host_focused(h: *Host) ?[*:0]const u8;
+ extern fn hotty_host_cursor(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
+@@ -238,17 +248,21 @@ pub const PointerKind = enum(u32) { move = 0, down = 1, up = 2, leave = 3 };
+ /// it. hottyterm takes no long press, so it never sends hotty-blitz's 4.
+ pub const TouchPhase = enum(u32) { down = 0, move = 1, up = 2, cancel = 3 };
+ 
+-/// Whose a touch is after one of its phases (SPEC §9.1), for the apprt.
++/// Whose a touch is after one of its phases (SPEC §9.1, §9.6), for the
++/// apprt.
+ pub const Touch = enum {
+-    /// It began over the cells: the terminal's, clicks and scrolls.
++    /// It began over the cells, in none of the program's areas: the
++    /// terminal's, clicks and scrolls.
+     cells,
+-    /// It began over a surface, which has its taps, and the terminal
+-    /// scrolls with its moves: it pans.
++    /// It began over a surface, or in an area, which has its taps, and the
++    /// terminal scrolls with its moves: it pans.
+     scroll,
+-    /// It began over a surface that may drag with it: hold its moves, and
+-    /// scroll with them once it pans (the moves held included).
++    /// It began over a surface, or in an area, that may drag with it: hold
++    /// its moves, and scroll with them once it pans (the moves held
++    /// included).
+     hold,
+-    /// The surface's: a drag, or on up a tap it took as a click.
++    /// The surface's, or the program's mouse: a drag, or on up a tap it
++    /// took as a click.
+     taken,
+ 
+     /// The terminal scrolls with the touch's moves.
+@@ -327,6 +341,14 @@ pub const Hotty = struct {
+     /// (`touch`); empty for one that began over the cells.
+     touch_surface: [72]u8 = undefined,
+     touch_len: usize = 0,
++    /// The live touch began on the cells in an area of the program's
++    /// (`a=touch`, SPEC §9.6): hotty-blitz has every phase of it
++    /// (`cellsTouch`), until it lifts.
++    touch_cells: bool = false,
++    /// The reports of the mouse the last phase of a touch made, for
++    /// `touchMouse`.
++    mouse: [mouse_max]Mouse = undefined,
++    mouse_len: usize = 0,
+     /// A press on the cells holds the pointer for the program until its
+     /// last button is released (`programHolds`): every event of the
+     /// gesture is the program's, even over a surface, so a drag that starts
+@@ -1535,20 +1557,26 @@ pub const Hotty = struct {
+         return took;
+     }
+ 
+-    /// A finger at viewport pixel (`px`, `py`) (SPEC §9.1). A touch that
+-    /// begins over a surface that takes the pointer there is that surface's
+-    /// to decide, every phase of it, taps included, and hotty-blitz says
+-    /// whose it is; one over the cells, or while the program holds the
+-    /// pointer, is the terminal's. A touch hovers nothing.
+-    fn touch(self: *Hotty, t: *terminal.Terminal, phase: TouchPhase, px: f64, py: f64, mods: u32) Touch {
++    /// A finger at viewport pixel (`px`, `py`) (SPEC §9.1, §9.6). A touch
++    /// that begins over a surface that takes the pointer there is that
++    /// surface's to decide, every phase of it, taps included, and
++    /// hotty-blitz says whose it is. So is one that begins on the cells in
++    /// an area of the program's while it `reports` the mouse
++    /// (`cellsTouch`); any other on the cells, or while the program holds
++    /// the pointer, is the terminal's. A touch hovers nothing.
++    fn touch(self: *Hotty, t: *terminal.Terminal, phase: TouchPhase, px: f64, py: f64, mods: u32, reports: bool) Touch {
++        self.mouse_len = 0;
+         const h = self.host orelse return .cells;
+         if (phase == .down) {
+             self.touch_len = 0;
+-            const tg = (if (self.program_hold) null else self.hit(t, px, py)) orelse return .cells;
++            self.touch_cells = false;
++            const tg = (if (self.program_hold) null else self.hit(t, px, py)) orelse
++                return self.cellsTouch(t, h, phase, px, py, mods, reports);
+             if (tg.name.len > self.touch_surface.len) return .cells;
+             @memcpy(self.touch_surface[0..tg.name.len], tg.name);
+             self.touch_len = tg.name.len;
+         }
++        if (self.touch_cells) return self.cellsTouch(t, h, phase, px, py, mods, reports);
+         if (self.touch_len == 0) {
+             // The lift ends the wheel gesture the touch scrolled with.
+             if (phase == .up) hotty_host_end_gesture(h);
+@@ -1575,6 +1603,29 @@ pub const Hotty = struct {
+         };
+     }
+ 
++    /// A finger on the cells (SPEC §9.6), at terminal pixel (`px`, `py`):
++    /// hotty-blitz decides whether it is the program's mouse, where it
++    /// began in an area the program named (`a=touch`) while the program
++    /// `reports` the mouse's buttons and the viewport shows the screen,
++    /// and leaves the reports to make in `mouse` (`touchMouse`). A touch
++    /// that begins in no such area is the terminal's, as before.
++    fn cellsTouch(self: *Hotty, t: *terminal.Terminal, h: *Host, phase: TouchPhase, px: f64, py: f64, mods: u32, reports: bool) Touch {
++        const fx = self.effects();
++        const r = hotty_host_cells_touch(h, @intFromEnum(phase), @floatCast(px), @floatCast(py), mods, reports, t.screens.active.viewportIsBottom(), &self.mouse, &self.mouse_len, &fx);
++        if (phase == .down) self.touch_cells = r != 0;
++        if (phase == .up) self.touch_cells = false;
++        // The lift ends the wheel gesture a pan scrolled with.
++        if (phase == .up and r != 2) hotty_host_end_gesture(h);
++        // A press on the cells gives the keyboard back (SPEC §10.1).
++        if (self.render(t)) self.drew = true;
++        if (phase == .down and r == 0) return .cells;
++        return switch (r) {
++            1 => .hold,
++            2 => .taken,
++            else => .scroll,
++        };
++    }
++
+     fn setLink(self: *Hotty, url: ?[]const u8) void {
+         if (self.link) |old| {
+             if (url != null and std.mem.eql(u8, old, url.?)) return;
+@@ -2143,7 +2194,9 @@ pub fn surfaceScroll(s: *Surface, xoff: f64, yoff: f64, scroll_mods: input.Scrol
+ /// every phase of every touch here, and does with it what the result says
+ /// (`Touch`). Over a surface, hotty-blitz decides whether the touch drags
+ /// (SPEC §9.1), so its taps never reach Surface.mouseButtonCallback, and its
+-/// moves reach Surface.scrollCallback only once it pans.
++/// moves reach Surface.scrollCallback only once it pans. So it does in an
++/// area of the program's on the cells (§9.6), where a drag or a tap is the
++/// mouse's primary button, reported here (`touchMouse`).
+ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods: input.Mods) Touch {
+     const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = pos.x, .y = pos.y } };
+     const tp = coord.convert(.terminal, s.size).terminal;
+@@ -2156,9 +2209,12 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
+         // (hotty-focus-click = focus), is the terminal's.
+         if (phase == .down and !s.focused and s.config.hotty_focus_click == .focus) {
+             hs.touch_len = 0;
++            hs.touch_cells = false;
+             break :r .cells;
+         }
+-        const r = hs.touch(&s.io.terminal, phase, tp.x, tp.y, hostMods(mods));
++        const reports = s.config.mouse_reporting and s.io.terminal.flags.mouse_event != .none;
++        const r = hs.touch(&s.io.terminal, phase, tp.x, tp.y, hostMods(mods), reports);
++        touchMouse(s, hs);
+         drew = hs.drew;
+         hs.drew = false;
+         break :r r;
+@@ -2167,6 +2223,44 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
+     return r;
+ }
+ 
++/// The reports of the mouse that a finger in the program's area made
++/// (SPEC §9.6), as Ghostty reports the mouse's (Surface.mouseReport): in
++/// the program's mode and encoding, the primary button held from the press
++/// to the release, so its moves report as a drag. Nothing is selected, and
++/// a press drops the selection, as a reported press does. Shift is left
++/// out unless Ghostty would report a press with it (`mouse-shift-capture`,
++/// or the program asking): without that, Shift and a press select. A
++/// report the program no longer reads the mouse for is not made; the
++/// button is still let go. Under the renderer lock.
++fn touchMouse(s: *Surface, hs: *Hotty) void {
++    defer hs.mouse_len = 0;
++    const left = &s.mouse.click_state[@intFromEnum(input.MouseButton.left)];
++    const shift = s.mouseShiftCapture(false);
++    for (hs.mouse[0..hs.mouse_len]) |m| {
++        const action: input.MouseAction = switch (m.kind) {
++            1 => .press,
++            2 => .release,
++            else => .motion,
++        };
++        switch (action) {
++            .press => left.* = .press,
++            .release => left.* = .release,
++            .motion => {},
++        }
++        if (!s.config.mouse_reporting or s.io.terminal.flags.mouse_event == .none) continue;
++        if (action == .press) s.setSelection(null) catch {};
++        const at = (rendererpkg.Coordinate{ .terminal = .{ .x = m.x, .y = m.y } }).convert(.surface, s.size).surface;
++        var mods = modsOf(m.mods);
++        if (!shift) mods.shift = false;
++        s.mouseReport(.left, action, mods, .{ .x = @floatCast(at.x), .y = @floatCast(at.y) });
++    }
++}
++
++/// The keys `hostMods` wrote.
++fn modsOf(bits: u32) input.Mods {
++    return .{ .shift = bits & 1 != 0, .ctrl = bits & 2 != 0, .alt = bits & 4 != 0, .super = bits & 8 != 0 };
++}
++
+ /// Surface.keyCallback, before the terminal's shortcuts: the surface holding
+ /// the keyboard is offered a key that types no text as the user pressed it,
+ /// named from the key event (SPEC §10.4), so shift+home selects in a field

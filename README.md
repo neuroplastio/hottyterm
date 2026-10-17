@@ -68,9 +68,9 @@ carry it and whether Ghostty might want it; neuroplast.io/modding lists them.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `827d5c82` (2026-10-13, "1.3.2-dev") |
-| patches | 36, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
-| new code | `src/termio/hotty.zig`, 2650 lines: all of the HOTTY logic |
-| upstream files touched | 23 files, 937 lines added and 83 removed: hooks, settings, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, the resize race, toasts) |
+| patches | 37, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
+| new code | `src/termio/hotty.zig`, 2744 lines: all of the HOTTY logic |
+| upstream files touched | 23 files, 939 lines added and 85 removed: hooks, settings, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, the resize race, toasts) |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
@@ -80,9 +80,9 @@ The hooks:
 | `src/termio/Termio.zig` | settings from the config; `osc_unknown_max_bytes`; flush once per read; re-render on resize; the IO thread's loop, for the timer that plays animated images and the wakeup for what surfaces fetch |
 | `src/termio/stream_handler.zig` | the `osc_unknown` action (upstream #14452) goes to hotty.zig; full reset; a changed config |
 | `src/config/Config.zig` | the `hotty-net` setting |
-| `src/Surface.zig` | keys, clicks, hover and the wheel go to the surfaces first; the font size, for the CSS px |
+| `src/Surface.zig` | keys, clicks, hover and the wheel go to the surfaces first; the font size, for the CSS px; `mouseReport` and `mouseShiftCapture` public, for a finger in the program's areas |
 | `src/build/GhosttyExe.zig` | links `libhotty_blitz` (`HOTTY_BLITZ_LIB`) |
-| `src/apprt/gtk/class/surface.zig` | a touch drag scrolls, where the finger touched; a touch over a surface goes to the surface, taps included |
+| `src/apprt/gtk/class/surface.zig` | a touch drag scrolls, where the finger touched; a touch over a surface, or in an area of the program's cells, goes to hotty-blitz, taps included |
 
 ## How it works
 
@@ -133,6 +133,17 @@ The hooks:
   taps and scrolls where the finger is, not where the mouse pointer was.
   hottyterm takes no long press. `scripts/touch-check.py` is the manual
   check, since the headless display cannot touch.
+- **Touch in the cells** (SPEC §9.6, GTK only): a program that reports the
+  mouse names areas of its cells with `a=touch`, kept per screen. A touch
+  that begins in one, while the viewport shows the screen and without Alt,
+  goes to hotty-blitz (`hotty_host_cells_touch`) and waits as on a surface:
+  a drag the area's way, or a tap, is the mouse's primary button, which
+  Ghostty reports itself (`mouseReport`) in the program's mode and
+  encoding, from the press where the touch began to the release where it
+  lifts, or on the last cell at a second finger. Nothing is selected, and
+  Shift is left out unless `mouse-shift-capture` gives it to the program.
+  The other way scrolls as any touch does. `scripts/touch-cells-check.py`
+  is the manual check.
 - **The network** (SPEC §7.2): surfaces fetch nothing until the user grants
   it with `hotty-net`, in CSP syntax (`hotty-net = img-src https:`), and then
   only what a document also asks for with `<meta name="hotty-network">`.
