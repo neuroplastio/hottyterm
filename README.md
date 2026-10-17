@@ -68,8 +68,8 @@ carry it and whether Ghostty might want it; neuroplast.io/modding lists them.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `827d5c82` (2026-10-13, "1.3.2-dev") |
-| patches | 34, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
-| new code | `src/termio/hotty.zig`, 2531 lines: all of the HOTTY logic |
+| patches | 35, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
+| new code | `src/termio/hotty.zig`, 2635 lines: all of the HOTTY logic |
 | upstream files touched | 22 files, 933 lines added and 83 removed: hooks, settings, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, the resize race, toasts) |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
@@ -148,23 +148,26 @@ The hooks:
   overrides the scale.
 - **Keys:** a surface that holds the keyboard is offered each key at most
   twice (SPEC §10.4). First, before Ghostty's shortcuts, a key that types
-  no text (not a character, or a character with Control or Super) as
-  pressed, named from the key event with Super (Cmd) as Meta: Shift+Home
-  selects in a field instead of scrolling, Control+Shift+Left selects a
-  word instead of switching tabs, and on macOS Cmd+Left goes to the line's
-  start instead of becoming the 0x01 a binding writes. Then, if it did not
+  no text (not a character, or a character with Ctrl or Super) as
+  pressed, named as myelin key names 0.1 name it, with Super (Cmd) as
+  `super`: a physical key (`ctrl+key_w`) and the character it types
+  (`ctrl+w`), the physical one first, and a modifier tapped alone on its
+  release (`shift_left`, `shift`). shift+home selects in a field instead
+  of scrolling, ctrl+shift+arrow_left selects a word instead of switching
+  tabs, and on macOS super+arrow_left goes to the line's start instead of
+  becoming the 0x01 a binding writes. Then, if it did not
   use it, the shortcuts take their keys, and the rest is offered as the
   bytes the program would read: Ghostty's own encoding, in the modes the
   program set, and what a binding writes (`text:`, `csi:`, `esc:`,
   `cursor_key`). Typing comes only that way, so a field sees what a TUI
   would, whatever the layout or a remap made of it. What the surface does
   not use reaches the program as it came. hottyterm keeps for itself, as a
-  browser keeps Control+t: every key during a key sequence or a key table,
+  browser keeps ctrl+t: every key during a key sequence or a key table,
   a key that starts a sequence, and keys bound to opening windows and
   splits, closing them, quitting, full screen and the config, and the copy
   keys while something is selected.
 - **Copying** (SPEC §10.2, §11): a surface's selection is copied by its
-  keymap, Control+c and Cmd+c by default, and the program does not hear
+  keymap, ctrl+c and super+c (Cmd+c) by default, and the program does not hear
   the key; a program that binds one to `program` hears it while text is
   selected. With nothing selected, or in a password field, it reaches the
   program, so Control+c interrupts. Control+Shift+c and the menu copy a
