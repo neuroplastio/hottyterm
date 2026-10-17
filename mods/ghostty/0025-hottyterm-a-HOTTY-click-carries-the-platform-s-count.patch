@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Tue, 13 Oct 2026 21:05:50 +0200
-Subject: [PATCH 26/37] =?UTF-8?q?hottyterm:=20a=20HOTTY=20click=20carries?=
+Subject: [PATCH 25/36] =?UTF-8?q?hottyterm:=20a=20HOTTY=20click=20carries?=
  =?UTF-8?q?=20the=20platform's=20count=20(SPEC=20=C2=A79)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -25,10 +25,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 63 insertions(+), 11 deletions(-)
 
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index e684cb259..a84a4b1b8 100644
+index 5b53f300..e00605dd 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
-@@ -2876,7 +2876,7 @@ pub const Surface = extern struct {
+@@ -2868,7 +2868,7 @@ pub const Surface = extern struct {
  
      fn gcMouseDown(
          gesture: *gtk.GestureClick,
@@ -37,7 +37,7 @@ index e684cb259..a84a4b1b8 100644
          x: f64,
          y: f64,
          self: *Self,
-@@ -2899,6 +2899,7 @@ pub const Surface = extern struct {
+@@ -2891,6 +2891,7 @@ pub const Surface = extern struct {
  
          // hottyterm: a touch a HOTTY surface has is not a click.
          if (priv.touch_hotty and gesture.as(gtk.GestureSingle).getCurrentSequence() != null) return;
@@ -46,7 +46,7 @@ index e684cb259..a84a4b1b8 100644
          // Report the event
          const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 8457e5ab8..2db28bde7 100644
+index 8457e5ab..2db28bde 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -88,7 +88,7 @@ extern fn hotty_host_redeliver(h: *Host, surface: [*:0]const u8) void;

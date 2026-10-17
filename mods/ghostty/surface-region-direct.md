@@ -1,6 +1,6 @@
 ---
 title: "A surface's changed rectangles go straight into its image"
-patch: 0023-hottyterm-a-frame-s-rectangles-go-straight-into-the-.patch
+patch: 0022-hottyterm-a-frame-s-rectangles-go-straight-into-the-.patch
 upstream-fit: no
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: "A click on a surface carries the platform's click count"
-patch: 0026-hottyterm-a-HOTTY-click-carries-the-platform-s-count.patch
+patch: 0025-hottyterm-a-HOTTY-click-carries-the-platform-s-count.patch
 upstream-fit: no
 ---
 

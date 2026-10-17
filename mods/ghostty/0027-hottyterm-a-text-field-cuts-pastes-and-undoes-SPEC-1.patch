@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Wed, 14 Oct 2026 12:22:25 +0200
-Subject: [PATCH 28/37] =?UTF-8?q?hottyterm:=20a=20text=20field=20cuts,=20p?=
+Subject: [PATCH 27/36] =?UTF-8?q?hottyterm:=20a=20text=20field=20cuts,=20p?=
  =?UTF-8?q?astes=20and=20undoes=20(SPEC=20=C2=A710.2,=20=C2=A711)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -22,10 +22,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 79 insertions(+), 2 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 982377bfe..8ffe41dc4 100644
+index 14e9dcbf..b30b012f 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -6225,7 +6225,7 @@ fn startClipboardRequest(
+@@ -6234,7 +6234,7 @@ fn startClipboardRequest(
              const event = self.io.terminal.modes.get(.kitty_paste_events);
              self.renderer_state.mutex.unlock(global.io());
  
@@ -34,7 +34,7 @@ index 982377bfe..8ffe41dc4 100644
                  .{ .list = clipboard }
              else
                  req;
-@@ -6262,6 +6262,7 @@ fn completeClipboardPaste(
+@@ -6271,6 +6271,7 @@ fn completeClipboardPaste(
      allow_unsafe: bool,
  ) !void {
      if (data.len == 0) return;
@@ -43,7 +43,7 @@ index 982377bfe..8ffe41dc4 100644
      const encode_opts: input.paste.Options = encode_opts: {
          self.renderer_state.mutex.lockUncancelable(global.io());
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 52b1124d2..d19e322e1 100644
+index 52b1124d..d19e322e 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -70,6 +70,10 @@ pub const Effects = extern struct {

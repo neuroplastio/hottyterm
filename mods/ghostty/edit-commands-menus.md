@@ -1,6 +1,6 @@
 ---
 title: "Edit commands and programs' menus"
-patch: 0030-hottyterm-edit-commands-and-programs-menus-SPEC-10.5.patch
+patch: 0029-hottyterm-edit-commands-and-programs-menus-SPEC-10.5.patch
 upstream-fit: no
 ---
 

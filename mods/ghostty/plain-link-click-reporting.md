@@ -1,6 +1,6 @@
 ---
 title: "A plain click opens a link though the program reports the mouse"
-patch: 0032-hottyterm-a-plain-click-opens-a-link-though-the-prog.patch
+patch: 0031-hottyterm-a-plain-click-opens-a-link-though-the-prog.patch
 upstream-fit: maybe
 ---
 

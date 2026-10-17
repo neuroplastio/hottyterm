@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Wed, 14 Oct 2026 13:14:01 +0200
-Subject: [PATCH 29/37] =?UTF-8?q?hottyterm:=20copying=20follows=20the=20ke?=
+Subject: [PATCH 28/36] =?UTF-8?q?hottyterm:=20copying=20follows=20the=20ke?=
  =?UTF-8?q?ymap=20(SPEC=20=C2=A710.2,=20=C2=A711)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -24,7 +24,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 56 insertions(+), 8 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index d19e322e1..fd230f8f9 100644
+index d19e322e..fd230f8f 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -108,6 +108,7 @@ extern fn hotty_host_set_counts(h: *Host, on: bool) void;

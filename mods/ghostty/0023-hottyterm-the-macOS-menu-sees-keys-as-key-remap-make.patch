@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 19:17:45 +0200
-Subject: [PATCH 24/37] hottyterm: the macOS menu sees keys as key-remap makes
+Subject: [PATCH 23/36] hottyterm: the macOS menu sees keys as key-remap makes
  them; no Mac keys for quit, close or full screen
 
 The maintainer, 2026-10-10: kill Cmd+Q, Cmd+W and Ctrl+Cmd+F on the Mac
@@ -30,7 +30,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  5 files changed, 59 insertions(+), 12 deletions(-)
 
 diff --git a/include/ghostty.h b/include/ghostty.h
-index 9a12b9cad..d93b30407 100644
+index 9a12b9ca..d93b3040 100644
 --- a/include/ghostty.h
 +++ b/include/ghostty.h
 @@ -1197,6 +1197,8 @@ GHOSTTY_API void ghostty_surface_set_color_scheme(ghostty_surface_t,
@@ -43,7 +43,7 @@ index 9a12b9cad..d93b30407 100644
  GHOSTTY_API bool ghostty_surface_key_is_binding(ghostty_surface_t,
                                                     ghostty_input_key_s,
 diff --git a/macos/Sources/App/AppDelegate.swift b/macos/Sources/App/AppDelegate.swift
-index a9e068c66..80ba12163 100644
+index a9e068c6..80ba1216 100644
 --- a/macos/Sources/App/AppDelegate.swift
 +++ b/macos/Sources/App/AppDelegate.swift
 @@ -1216,9 +1216,11 @@ extension AppDelegate {
@@ -60,7 +60,7 @@ index a9e068c66..80ba12163 100644
          syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
          syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index 02ff4bd3e..7e612cac7 100644
+index 02ff4bd3..7e612cac 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 @@ -1323,6 +1323,30 @@ extension Ghostty {
@@ -122,7 +122,7 @@ index 02ff4bd3e..7e612cac7 100644
              switch event.charactersIgnoringModifiers {
              case "\r":
 diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
-index 3c6b2c1f6..c3efb6915 100644
+index 3c6b2c1f..c3efb691 100644
 --- a/src/apprt/embedded.zig
 +++ b/src/apprt/embedded.zig
 @@ -2065,6 +2065,20 @@ pub const CAPI = struct {
@@ -147,10 +147,10 @@ index 3c6b2c1f6..c3efb6915 100644
      /// This will handle the keymap translation and send the appropriate
      /// key and char events.
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 471a2672c..2b97c6d77 100644
+index 0961589c..0b095b9b 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -7459,10 +7459,8 @@ pub const Keybinds = struct {
+@@ -7466,10 +7466,8 @@ pub const Keybinds = struct {
  
      /// hottyterm: no tabs, since plx has them, and windows and full screen
      /// are the window manager's: no default keys for tabs, for quitting,
@@ -162,7 +162,7 @@ index 471a2672c..2b97c6d77 100644
          var drop: std.ArrayList(inputpkg.Binding.Trigger) = .empty;
          defer drop.deinit(alloc);
          var it = set.bindings.iterator();
-@@ -7472,11 +7470,6 @@ pub const Keybinds = struct {
+@@ -7479,11 +7477,6 @@ pub const Keybinds = struct {
                  .leaf => |leaf| leaf.action,
                  else => continue,
              };
@@ -174,7 +174,7 @@ index 471a2672c..2b97c6d77 100644
              const gone = switch (action) {
                  .new_tab,
                  .close_tab,
-@@ -7486,11 +7479,12 @@ pub const Keybinds = struct {
+@@ -7493,11 +7486,12 @@ pub const Keybinds = struct {
                  .goto_tab,
                  .move_tab,
                  .toggle_tab_overview,

@@ -1,6 +1,6 @@
 ---
 title: "A surface's text field cuts, pastes and undoes"
-patch: 0028-hottyterm-a-text-field-cuts-pastes-and-undoes-SPEC-1.patch
+patch: 0027-hottyterm-a-text-field-cuts-pastes-and-undoes-SPEC-1.patch
 upstream-fit: no
 ---
 

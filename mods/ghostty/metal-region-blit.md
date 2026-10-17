@@ -1,6 +1,6 @@
 ---
 title: "Metal writes a kitty frame edit's rectangles with a blit"
-patch: 0025-renderer-Metal-writes-a-kitty-frame-edit-s-rectangle.patch
+patch: 0024-renderer-Metal-writes-a-kitty-frame-edit-s-rectangle.patch
 upstream-fit: yes
 ---
 

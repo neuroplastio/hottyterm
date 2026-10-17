@@ -2,7 +2,7 @@
 upstream: Ghostty
 url: https://github.com/ghostty-org/ghostty
 license: MIT
-base: 827d5c82944a5ec7cf3f5b7594a223f9648c94f3
+base: e3ebb1d1bf772cf5d1bc70b5ae19e6943e33a110
 builds: hottyterm
 public: true
 ---
@@ -14,7 +14,7 @@ drawn into the cells. Everything else stays Ghostty's: its config, its
 stays upstream plus a short list of changes, most of them hooks into one new
 file, `src/termio/hotty.zig`, and so that going back to Ghostty means doing
 without hotty, never undoing it. A few of the patches are fixes any Ghostty
-user would have: touch scrolling on GTK, a resize race, kitty image uploads.
+user would have: touch scrolling on GTK, kitty image uploads.
 hottyterm's name, icon and application id aren't in the set:
 `scripts/brand.py` generates them from `brand/` as one commit on top.
 

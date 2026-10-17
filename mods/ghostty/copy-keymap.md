@@ -1,6 +1,6 @@
 ---
 title: "Copying from a surface follows its keymap"
-patch: 0029-hottyterm-copying-follows-the-keymap-SPEC-10.2-11.patch
+patch: 0028-hottyterm-copying-follows-the-keymap-SPEC-10.2-11.patch
 upstream-fit: no
 ---
 

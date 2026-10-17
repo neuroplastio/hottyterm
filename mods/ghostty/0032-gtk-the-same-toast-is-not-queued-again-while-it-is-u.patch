@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Fri, 16 Oct 2026 19:23:38 +0200
-Subject: [PATCH 33/37] gtk: the same toast is not queued again while it is up
+Subject: [PATCH 32/36] gtk: the same toast is not queued again while it is up
 
 Each clipboard write toasted "Copied to clipboard", and AdwToastOverlay
 shows toasts one at a time, so a program that wrote the clipboard many
@@ -18,7 +18,7 @@ Upstream lines: 20 (GTK apprt only).
  1 file changed, 21 insertions(+), 2 deletions(-)
 
 diff --git a/src/apprt/gtk/class/window.zig b/src/apprt/gtk/class/window.zig
-index 03462de9a..981607bb4 100644
+index 58e59a37..e0068222 100644
 --- a/src/apprt/gtk/class/window.zig
 +++ b/src/apprt/gtk/class/window.zig
 @@ -5,6 +5,7 @@ const adw = @import("adw");
@@ -29,7 +29,7 @@ index 03462de9a..981607bb4 100644
  const gobject = @import("gobject");
  const gtk = @import("gtk");
  
-@@ -288,6 +289,10 @@ pub const Window = extern struct {
+@@ -301,6 +302,10 @@ pub const Window = extern struct {
          toolbar: *adw.ToolbarView,
          toast_overlay: *adw.ToastOverlay,
  
@@ -40,7 +40,7 @@ index 03462de9a..981607bb4 100644
          pub var offset: c_int = 0;
      };
  
-@@ -776,9 +781,23 @@ pub const Window = extern struct {
+@@ -781,9 +786,23 @@ pub const Window = extern struct {
      // other widgets to trigger our toasts. Other objects should not
      // trigger toasts directly.
      fn addToast(self: *Self, title: [*:0]const u8) void {

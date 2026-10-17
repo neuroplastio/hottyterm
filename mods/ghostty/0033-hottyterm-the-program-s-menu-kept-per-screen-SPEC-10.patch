@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Fri, 16 Oct 2026 12:08:52 +0200
-Subject: [PATCH 34/37] =?UTF-8?q?hottyterm:=20the=20program's=20menu,=20ke?=
+Subject: [PATCH 33/36] =?UTF-8?q?hottyterm:=20the=20program's=20menu,=20ke?=
  =?UTF-8?q?pt=20per=20screen=20(SPEC=20=C2=A710.7)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -20,7 +20,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 9 insertions(+), 6 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 6dc7fcbd2..3699cc7a9 100644
+index 6dc7fcbd..3699cc7a 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -121,7 +121,7 @@ extern fn hotty_host_set_keys(h: *Host, meta: bool, edit: ?[*:0]const u8, comman

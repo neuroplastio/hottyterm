@@ -1,6 +1,6 @@
 ---
 title: "A plain click opens only an OSC 8 hyperlink"
-patch: 0036-hottyterm-a-plain-click-opens-only-an-OSC-8-hyperlin.patch
+patch: 0035-hottyterm-a-plain-click-opens-only-an-OSC-8-hyperlin.patch
 upstream-fit: no
 ---
 

@@ -1,6 +1,6 @@
 ---
 title: "The same toast is not queued again while it is up (GTK)"
-patch: 0033-gtk-the-same-toast-is-not-queued-again-while-it-is-u.patch
+patch: 0032-gtk-the-same-toast-is-not-queued-again-while-it-is-u.patch
 upstream-fit: yes
 ---
 

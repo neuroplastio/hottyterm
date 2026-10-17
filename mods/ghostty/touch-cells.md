@@ -1,6 +1,6 @@
 ---
 title: "A finger drags in the program's cells"
-patch: 0037-hottyterm-a-finger-drags-in-the-cells-SPEC-9.6.patch
+patch: 0036-hottyterm-a-finger-drags-in-the-cells-SPEC-9.6.patch
 upstream-fit: no
 ---
 

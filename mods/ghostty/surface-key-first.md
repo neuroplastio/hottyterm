@@ -1,6 +1,6 @@
 ---
 title: "A surface is offered a key before the shortcuts"
-patch: 0021-hottyterm-a-surface-is-offered-a-key-as-pressed-firs.patch
+patch: 0020-hottyterm-a-surface-is-offered-a-key-as-pressed-firs.patch
 upstream-fit: no
 ---
 

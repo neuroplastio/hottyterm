@@ -144,27 +144,22 @@ from = 'gio.ThemedIcon.new("com.mitchellh.ghostty")'
 to = 'gio.ThemedIcon.new("@app_id@")'
 
 [[replace]]
-file = "src/apprt/gtk/class/surface.zig"
+file = "src/apprt/gtk/desktop_notifications.zig"
 from = 'gio.ThemedIcon.new("com.mitchellh.ghostty")'
 to = 'gio.ThemedIcon.new("@app_id@")'
 
 [[replace]]
-file = "src/apprt/gtk/class/surface.zig"
-from = '0 => "Ghostty",'
-to = '0 => "@name@",'
+file = "src/apprt/gtk/desktop_notifications.zig"
+from = 'if (title.len == 0) "Ghostty" else title'
+to = 'if (title.len == 0) "@name@" else title'
 
 [[replace]]
-file = "src/apprt/gtk/ui/1.0/clipboard-confirmation-dialog.blp"
+file = "src/apprt/gtk/ui/1.5/clipboard-confirmation-dialog.blp"
 from = 'there is a bug in Ghostty. Please report it.'
 to = 'there is a bug in @name@. Please report it.'
 
 [[replace]]
-file = "src/apprt/gtk/ui/1.4/clipboard-confirmation-dialog.blp"
-from = 'there is a bug in Ghostty. Please report it.'
-to = 'there is a bug in @name@. Please report it.'
-
-[[replace]]
-file = "src/apprt/gtk/ui/1.5/inspector-window.blp"
+file = "src/apprt/gtk/ui/1.4/inspector-window.blp"
 from = 'icon-name: "com.mitchellh.ghostty";'
 to = 'icon-name: "@app_id@";'
 

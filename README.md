@@ -67,10 +67,10 @@ carry it and whether Ghostty might want it; neuroplast.io/modding lists them.
 
 | | |
 | --- | --- |
-| upstream | `ghostty-org/ghostty` at `827d5c82` (2026-10-13, "1.3.2-dev") |
-| patches | 37, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
+| upstream | `ghostty-org/ghostty` at `e3ebb1d1` (2026-10-16, "1.3.2-dev") |
+| patches | 36, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
 | new code | `src/termio/hotty.zig`, 2744 lines: all of the hotty logic |
-| upstream files touched | 23 files, 939 lines added and 85 removed: hooks, settings, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, the resize race, toasts) |
+| upstream files touched | 23 files, 931 lines added and 82 removed: hooks, settings, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, toasts) |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:

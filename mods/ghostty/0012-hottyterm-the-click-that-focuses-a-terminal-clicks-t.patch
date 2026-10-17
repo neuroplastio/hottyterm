@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Thu, 8 Oct 2026 17:34:32 +0200
-Subject: [PATCH 12/37] hottyterm: the click that focuses a terminal clicks too
+Subject: [PATCH 12/36] hottyterm: the click that focuses a terminal clicks too
  (hotty-focus-click)
 
 Ghostty drops the click that gives a terminal focus: on macOS the view
@@ -25,7 +25,7 @@ split-focus condition).
  5 files changed, 34 insertions(+), 2 deletions(-)
 
 diff --git a/macos/Sources/Ghostty/Ghostty.Config.swift b/macos/Sources/Ghostty/Ghostty.Config.swift
-index 78cc9024d..bd244fdf0 100644
+index 78cc9024..bd244fdf 100644
 --- a/macos/Sources/Ghostty/Ghostty.Config.swift
 +++ b/macos/Sources/Ghostty/Ghostty.Config.swift
 @@ -351,6 +351,16 @@ extension Ghostty {
@@ -46,7 +46,7 @@ index 78cc9024d..bd244fdf0 100644
              let defaultValue = MacOSTitlebarStyle.transparent
              guard let config = self.config else { return defaultValue }
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index edbbd61cd..02ff4bd3e 100644
+index edbbd61c..02ff4bd3 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 @@ -692,7 +692,7 @@ extension Ghostty {
@@ -96,7 +96,7 @@ index edbbd61cd..02ff4bd3e 100644
          }
  
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 18186d194..50142f3f3 100644
+index 28e41a0f..29ca11a1 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -345,6 +345,7 @@ const DerivedConfig = struct {
@@ -116,10 +116,10 @@ index 18186d194..50142f3f3 100644
              .scroll_to_bottom = config.@"scroll-to-bottom",
              .notify_on_command_finish = config.@"notify-on-command-finish",
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index fb4b07168..8637df236 100644
+index edf6ea2b..1fee0c54 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
-@@ -2888,7 +2888,7 @@ pub const Surface = extern struct {
+@@ -2880,7 +2880,7 @@ pub const Surface = extern struct {
  
          // If this click is only transitioning split focus, suppress it so
          // it doesn't get forwarded to the terminal as a mouse event.
@@ -129,10 +129,10 @@ index fb4b07168..8637df236 100644
              return;
          }
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index a350f515d..26568b02b 100644
+index 63a22c5d..2b688e93 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -3959,6 +3959,16 @@ term: []const u8 = "xterm-ghostty",
+@@ -3966,6 +3966,16 @@ term: []const u8 = "xterm-ghostty",
  ///   * `modifier` - only a click with Ctrl (Cmd on macOS) held opens it.
  @"hotty-link-click": HottyLinkClick = .plain,
  
@@ -149,7 +149,7 @@ index a350f515d..26568b02b 100644
  /// Configures the low-level API to use for async IO, eventing, etc.
  ///
  /// Most users should leave this set to `auto`. This will automatically detect
-@@ -5576,6 +5586,7 @@ pub const WindowSubtitle = enum {
+@@ -5583,6 +5593,7 @@ pub const WindowSubtitle = enum {
  
  // hottyterm: `hotty-link-click`.
  pub const HottyLinkClick = enum { plain, modifier };

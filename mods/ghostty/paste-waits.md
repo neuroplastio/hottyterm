@@ -1,6 +1,6 @@
 ---
 title: "Keys wait behind a paste, and a screen switch drops its commands"
-patch: 0031-hottyterm-keys-wait-behind-a-paste-command-and-a-scr.patch
+patch: 0030-hottyterm-keys-wait-behind-a-paste-command-and-a-scr.patch
 upstream-fit: no
 ---
 

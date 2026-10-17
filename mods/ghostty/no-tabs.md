@@ -1,6 +1,6 @@
 ---
 title: "No tabs: windows and full screen are the window manager's"
-patch: 0022-hottyterm-no-tabs-and-windows-and-full-screen-are-th.patch
+patch: 0021-hottyterm-no-tabs-and-windows-and-full-screen-are-th.patch
 upstream-fit: no
 ---
 

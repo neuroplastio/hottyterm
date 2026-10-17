@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 17:02:56 +0200
-Subject: [PATCH 01/37] hottyterm: HOTTY surfaces over hotty-blitz
+Subject: [PATCH 01/36] hottyterm: HOTTY surfaces over hotty-blitz
 
 Programs send HOTTY (HTML over the TTY) on OSC 7279; hottyterm renders
 the surfaces itself through hotty-blitz's C ABI and shows each one as a
@@ -27,7 +27,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 4b5b71020..ffdb66cc2 100644
+index ba9ff1d0..4d8e39c2 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -27,6 +27,7 @@ const crash = @import("crash/main.zig");
@@ -46,7 +46,7 @@ index 4b5b71020..ffdb66cc2 100644
  
      // Report initial cell size on surface creation
      _ = try rt_app.performAction(
-@@ -2507,6 +2509,7 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
+@@ -2512,6 +2514,7 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
  
      // Update our font size so future changes work
      self.font_size = size;
@@ -54,7 +54,7 @@ index 4b5b71020..ffdb66cc2 100644
  
      // We need to build up a new font stack for this font size.
      const font_grid_key, const font_grid = try self.app.font_grid_set.ref(
-@@ -2814,6 +2817,9 @@ pub fn keyCallback(
+@@ -2819,6 +2822,9 @@ pub fn keyCallback(
          if (self.io.terminal.modes.get(.disable_keyboard)) return .consumed;
      }
  
@@ -64,7 +64,7 @@ index 4b5b71020..ffdb66cc2 100644
      // If this input event has text, then we hide the mouse if configured.
      // We only do this on pressed events to avoid hiding the mouse when we
      // change focus due to a keybinding (i.e. switching tabs).
-@@ -2881,6 +2887,9 @@ pub fn keyCallback(
+@@ -2886,6 +2892,9 @@ pub fn keyCallback(
          shape,
      );
  
@@ -74,7 +74,7 @@ index 4b5b71020..ffdb66cc2 100644
      // We've processed a key event that produced some data so we want to
      // track the last pressed key.
      self.pressed_key = event: {
-@@ -3910,6 +3919,9 @@ pub fn mouseButtonCallback(
+@@ -3915,6 +3924,9 @@ pub fn mouseButtonCallback(
      // Update our modifiers if they changed
      self.modsChanged(mods);
  
@@ -84,7 +84,7 @@ index 4b5b71020..ffdb66cc2 100644
      // This is set to true if the terminal is allowed to capture the shift
      // modifier. Note we can do this more efficiently probably with less
      // locking/unlocking but clicking isn't that frequent enough to be a
-@@ -4651,6 +4663,9 @@ pub fn cursorPosCallback(
+@@ -4660,6 +4672,9 @@ pub fn cursorPosCallback(
  
      // log.debug("cursor pos x={} y={} mods={?}", .{ pos.x, pos.y, mods });
  
@@ -95,7 +95,7 @@ index 4b5b71020..ffdb66cc2 100644
      // we need to clear any hover states.
      if (pos.x < 0 or pos.y < 0) {
 diff --git a/src/build/GhosttyExe.zig b/src/build/GhosttyExe.zig
-index 22f39b7b3..790f4af47 100644
+index 22f39b7b..790f4af4 100644
 --- a/src/build/GhosttyExe.zig
 +++ b/src/build/GhosttyExe.zig
 @@ -33,6 +33,16 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
@@ -116,7 +116,7 @@ index 22f39b7b3..790f4af47 100644
      try checkNixShell(exe, cfg);
  
 diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
-index 824c16c47..0c1b163fe 100644
+index 0a0549c1..1aac3008 100644
 --- a/src/termio/Termio.zig
 +++ b/src/termio/Termio.zig
 @@ -12,6 +12,7 @@ const EnvMap = std.process.Environ.Map;
@@ -159,7 +159,7 @@ index 824c16c47..0c1b163fe 100644
          }),
          .thread_enter_state = thread_enter_state,
      };
-@@ -546,6 +551,9 @@ pub fn resize(
+@@ -548,6 +553,9 @@ pub fn resize(
          if (self.terminal.modes.get(.in_band_size_reports)) {
              try self.sizeReportLocked(td, .mode_2048);
          }
@@ -169,7 +169,7 @@ index 824c16c47..0c1b163fe 100644
      }
  
      // Mail the renderer so that it can update the GPU and re-render
-@@ -743,6 +751,9 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
+@@ -745,6 +753,9 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
          self.terminal_stream.nextSlice(buf);
      }
  
@@ -181,7 +181,7 @@ index 824c16c47..0c1b163fe 100644
      if (self.terminal_stream.handler.termio_messaged) {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
 new file mode 100644
-index 000000000..483a51530
+index 00000000..483a5153
 --- /dev/null
 +++ b/src/termio/hotty.zig
 @@ -0,0 +1,1180 @@
@@ -1366,7 +1366,7 @@ index 000000000..483a51530
 +    return consumed;
 +}
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index 5d549d807..f1fa2f859 100644
+index 5d549d80..f1fa2f85 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
 @@ -11,6 +11,7 @@ const internal_os = @import("../os/main.zig");

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 17 Oct 2026 20:47:52 +0200
-Subject: [PATCH 37/37] =?UTF-8?q?hottyterm:=20a=20finger=20drags=20in=20th?=
+Subject: [PATCH 36/36] =?UTF-8?q?hottyterm:=20a=20finger=20drags=20in=20th?=
  =?UTF-8?q?e=20cells=20(SPEC=20=C2=A79.6)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -34,10 +34,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 114 insertions(+), 20 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 862759c1d..56d6ecdc0 100644
+index 9fe53317..0dc771ea 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -3805,7 +3805,7 @@ pub fn mouseReportingActive(self: *Surface) bool {
+@@ -3810,7 +3810,7 @@ pub fn mouseReportingActive(self: *Surface) bool {
      return self.isMouseReporting();
  }
  
@@ -46,7 +46,7 @@ index 862759c1d..56d6ecdc0 100644
      self: *Surface,
      button: ?input.MouseButton,
      action: input.MouseAction,
-@@ -3872,7 +3872,7 @@ fn mouseReport(
+@@ -3877,7 +3877,7 @@ fn mouseReport(
  /// Returns true if the shift modifier is allowed to be captured by modifier
  /// events. It is up to the caller to still verify it is a situation in which
  /// shift capture makes sense (i.e. left button, mouse click, etc.)
@@ -56,10 +56,10 @@ index 862759c1d..56d6ecdc0 100644
      switch (self.config.mouse_shift_capture) {
          .never => return false,
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index a84a4b1b8..6b371a6d0 100644
+index e00605dd..cb10634e 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
-@@ -675,8 +675,8 @@ pub const Surface = extern struct {
+@@ -676,8 +676,8 @@ pub const Surface = extern struct {
          /// scroll happen there, not where the mouse pointer was.
          touch_start: apprt.CursorPos = .{ .x = 0, .y = 0 },
  
@@ -71,7 +71,7 @@ index a84a4b1b8..6b371a6d0 100644
  
          /// True when the child has exited.
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 25a6c1fbe..8e81d82b3 100644
+index 25a6c1fb..8e81d82b 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -85,6 +85,15 @@ pub const Effects = extern struct {

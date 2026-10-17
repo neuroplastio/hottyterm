@@ -1,6 +1,6 @@
 ---
 title: "A kitty frame edit uploads only the rectangle it changed (OpenGL)"
-patch: 0020-renderer-a-kitty-frame-edit-uploads-only-the-rectang.patch
+patch: 0019-renderer-a-kitty-frame-edit-uploads-only-the-rectang.patch
 upstream-fit: yes
 ---
 

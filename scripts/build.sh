@@ -9,9 +9,10 @@
 #   - Zig 0.16's own linker cannot link CachyOS's crt1.o (.sframe relocations),
 #     so the build uses a copy of Zig's lib dir whose std.Build defaults to LLVM
 #     and LLD, passed with --zig-lib-dir.
-#   - blueprint-compiler >= 0.16 is not packaged here; a checkout is cached.
+#   - blueprint-compiler >= 0.20 is not packaged here; a checkout is cached,
+#     one per version.
 #     Ghostty runs it as a system command, and a zig build step fails on any
-#     stderr, so a wrapper passes its stderr on only when it fails: 0.16 warns
+#     stderr, so a wrapper passes its stderr on only when it fails: it warns
 #     about upstream's unused `using Adw 1;` imports.
 set -eu
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -48,12 +49,15 @@ if [ ! -f "$LIB/.patched" ]; then
 fi
 
 # 2. blueprint-compiler, configured the way meson would.
-BPC="$CACHE/blueprint-compiler"
+# Ghostty's build checks the version (src/apprt/gtk/build/blueprint.zig).
+BPC_VERSION=0.20.4
+BPC="$CACHE/blueprint-compiler-$BPC_VERSION"
 if [ ! -f "$BPC/blueprint-compiler.py" ]; then
-  git clone -q --depth 1 --branch v0.16.0 https://gitlab.gnome.org/GNOME/blueprint-compiler.git "$BPC"
+  git -c advice.detachedHead=false clone -q --depth 1 --branch "v$BPC_VERSION" \
+    https://gitlab.gnome.org/GNOME/blueprint-compiler.git "$BPC"
 fi
 BIN="$CACHE/hottyterm-bin"; mkdir -p "$BIN"
-sed -e 's|^version = "@VERSION@"|version = "0.16.0"|' \
+sed -e "s|^version = \"@VERSION@\"|version = \"$BPC_VERSION\"|" \
     -e "s|^module_path = .*|module_path = r\"$BPC\"|" \
     -e 's|^libdir = .*|libdir = r""|' \
     "$BPC/blueprint-compiler.py" > "$BIN/blueprint-compiler.py"

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 16:52:33 +0200
-Subject: [PATCH 20/37] renderer: a kitty frame edit uploads only the rectangle
+Subject: [PATCH 19/36] renderer: a kitty frame edit uploads only the rectangle
  it changed
 
 A frame edit of the displayed frame (a=f with r) composes a rectangle
@@ -40,7 +40,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  6 files changed, 436 insertions(+), 3 deletions(-)
 
 diff --git a/src/renderer/Metal.zig b/src/renderer/Metal.zig
-index a98dce87a..f092070de 100644
+index a98dce87..f092070d 100644
 --- a/src/renderer/Metal.zig
 +++ b/src/renderer/Metal.zig
 @@ -37,6 +37,11 @@ pub const custom_shader_y_is_down = true;
@@ -56,7 +56,7 @@ index a98dce87a..f092070de 100644
  
  layer: IOSurfaceLayer,
 diff --git a/src/renderer/OpenGL.zig b/src/renderer/OpenGL.zig
-index ab6c9fa56..540f86f3e 100644
+index ab6c9fa5..540f86f3 100644
 --- a/src/renderer/OpenGL.zig
 +++ b/src/renderer/OpenGL.zig
 @@ -33,6 +33,10 @@ pub const custom_shader_y_is_down = false;
@@ -71,7 +71,7 @@ index ab6c9fa56..540f86f3e 100644
  
  /// We require at least OpenGL 4.3
 diff --git a/src/renderer/image.zig b/src/renderer/image.zig
-index ef0367bd1..c9bcc1586 100644
+index ef0367bd..c9bcc158 100644
 --- a/src/renderer/image.zig
 +++ b/src/renderer/image.zig
 @@ -128,6 +128,9 @@ pub const State = struct {
@@ -371,7 +371,7 @@ index ef0367bd1..c9bcc1586 100644
 +    _ = state.images.remove(id);
 +}
 diff --git a/src/terminal/kitty/graphics_exec.zig b/src/terminal/kitty/graphics_exec.zig
-index b1b968b28..e00869fd1 100644
+index b1b968b2..e00869fd 100644
 --- a/src/terminal/kitty/graphics_exec.zig
 +++ b/src/terminal/kitty/graphics_exec.zig
 @@ -732,9 +732,20 @@ fn completeAnimationFrame(
@@ -476,7 +476,7 @@ index b1b968b28..e00869fd1 100644
      const testing = std.testing;
      const alloc = testing.allocator;
 diff --git a/src/terminal/kitty/graphics_image.zig b/src/terminal/kitty/graphics_image.zig
-index c50e46ceb..5bc6b73b1 100644
+index c50e46ce..5bc6b73b 100644
 --- a/src/terminal/kitty/graphics_image.zig
 +++ b/src/terminal/kitty/graphics_image.zig
 @@ -769,6 +769,38 @@ pub const Image = struct {
@@ -635,7 +635,7 @@ index c50e46ceb..5bc6b73b1 100644
 +    try testing.expect(img.changesSince(7) == null);
 +}
 diff --git a/src/terminal/kitty/graphics_storage.zig b/src/terminal/kitty/graphics_storage.zig
-index 897c8944a..315623676 100644
+index 897c8944..31562367 100644
 --- a/src/terminal/kitty/graphics_storage.zig
 +++ b/src/terminal/kitty/graphics_storage.zig
 @@ -975,6 +975,21 @@ pub const ImageStorage = struct {

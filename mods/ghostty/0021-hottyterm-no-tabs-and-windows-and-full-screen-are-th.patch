@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 18:52:10 +0200
-Subject: [PATCH 22/37] hottyterm: no tabs, and windows and full screen are the
+Subject: [PATCH 21/36] hottyterm: no tabs, and windows and full screen are the
  window manager's
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -27,14 +27,14 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  macos/Sources/App/AppDelegate.swift           |  5 +++
  .../Window Styles/TerminalWindow.swift        | 11 ++---
  src/apprt/gtk/class/application.zig           | 20 +++------
- src/apprt/gtk/ui/1.2/surface.blp              | 20 ---------
- src/apprt/gtk/ui/1.5/window.blp               | 30 +++----------
+ src/apprt/gtk/ui/1.0/surface.blp              | 20 ---------
+ src/apprt/gtk/ui/1.4/window.blp               | 30 +++----------
  src/config/Config.zig                         | 43 +++++++++++++++++++
  src/termio/hotty.zig                          | 10 +----
  7 files changed, 66 insertions(+), 73 deletions(-)
 
 diff --git a/macos/Sources/App/AppDelegate.swift b/macos/Sources/App/AppDelegate.swift
-index d559e547a..a9e068c66 100644
+index d559e547..a9e068c6 100644
 --- a/macos/Sources/App/AppDelegate.swift
 +++ b/macos/Sources/App/AppDelegate.swift
 @@ -194,6 +194,8 @@ class AppDelegate: NSObject,
@@ -57,7 +57,7 @@ index d559e547a..a9e068c66 100644
          syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
          syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
 diff --git a/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift b/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift
-index 81b6666a1..d972d9a1a 100644
+index 81b6666a..d972d9a1 100644
 --- a/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift	
 +++ b/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift	
 @@ -95,13 +95,10 @@ class TerminalWindow: NSWindow {
@@ -79,10 +79,10 @@ index 81b6666a1..d972d9a1a 100644
          // All new windows are based on the app config at the time of creation.
          guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
 diff --git a/src/apprt/gtk/class/application.zig b/src/apprt/gtk/class/application.zig
-index cd07efaec..1f2fc65ff 100644
+index 6ea9d7ad..8eb469f5 100644
 --- a/src/apprt/gtk/class/application.zig
 +++ b/src/apprt/gtk/class/application.zig
-@@ -2574,24 +2574,14 @@ const Action = struct {
+@@ -2526,24 +2526,14 @@ const Action = struct {
                  return false;
              },
  
@@ -112,10 +112,10 @@ index cd07efaec..1f2fc65ff 100644
                  return true;
              },
          }
-diff --git a/src/apprt/gtk/ui/1.2/surface.blp b/src/apprt/gtk/ui/1.2/surface.blp
-index 8dd0427ea..7c13e75de 100644
---- a/src/apprt/gtk/ui/1.2/surface.blp
-+++ b/src/apprt/gtk/ui/1.2/surface.blp
+diff --git a/src/apprt/gtk/ui/1.0/surface.blp b/src/apprt/gtk/ui/1.0/surface.blp
+index 8dd0427e..7c13e75d 100644
+--- a/src/apprt/gtk/ui/1.0/surface.blp
++++ b/src/apprt/gtk/ui/1.0/surface.blp
 @@ -382,26 +382,6 @@ menu context_menu_model {
        }
      }
@@ -143,20 +143,20 @@ index 8dd0427ea..7c13e75de 100644
      submenu {
        label: _("Window");
  
-diff --git a/src/apprt/gtk/ui/1.5/window.blp b/src/apprt/gtk/ui/1.5/window.blp
-index 32d1bf370..f1ec8817b 100644
---- a/src/apprt/gtk/ui/1.5/window.blp
-+++ b/src/apprt/gtk/ui/1.5/window.blp
+diff --git a/src/apprt/gtk/ui/1.4/window.blp b/src/apprt/gtk/ui/1.4/window.blp
+index 5e6eaa8b..06e94b12 100644
+--- a/src/apprt/gtk/ui/1.4/window.blp
++++ b/src/apprt/gtk/ui/1.4/window.blp
 @@ -24,7 +24,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
      create-tab => $overview_create_tab();
      notify::open => $overview_notify_open();
      view: tab_view;
 -    enable-new-tab: true;
 +    enable-new-tab: false;
+     inverted: bind template.tabs-inverted;
      // Disable the title buttons (close, maximize, minimize, ...)
      // *inside* the tab overview if CSDs are disabled.
-     // We do spare the search button, though.
-@@ -56,8 +56,8 @@ template $GhosttyWindow: Adw.ApplicationWindow {
+@@ -57,8 +57,8 @@ template $GhosttyWindow: Adw.ApplicationWindow {
          [start]
          Adw.SplitButton {
            clicked => $new_tab();
@@ -167,7 +167,7 @@ index 32d1bf370..f1ec8817b 100644
            dropdown-tooltip: _("New Split");
            menu-model: split_menu;
            can-focus: false;
-@@ -67,6 +67,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
+@@ -68,6 +68,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
          [end]
          Gtk.Box {
            Gtk.ToggleButton {
@@ -175,7 +175,7 @@ index 32d1bf370..f1ec8817b 100644
              icon-name: "view-grid-symbolic";
              tooltip-text: _("View Open Tabs");
              active: bind tab_overview.open bidirectional;
-@@ -106,8 +107,8 @@ template $GhosttyWindow: Adw.ApplicationWindow {
+@@ -108,8 +109,8 @@ template $GhosttyWindow: Adw.ApplicationWindow {
              ]
  
              clicked => $new_tab();
@@ -186,7 +186,7 @@ index 32d1bf370..f1ec8817b 100644
              dropdown-tooltip: _("New Split");
              menu-model: split_menu;
              can-focus: false;
-@@ -125,6 +126,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
+@@ -127,6 +128,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
                "flat",
              ]
  
@@ -194,7 +194,7 @@ index 32d1bf370..f1ec8817b 100644
              icon-name: "view-grid-symbolic";
              tooltip-text: _("View Open Tabs");
              active: bind tab_overview.open bidirectional;
-@@ -227,24 +229,6 @@ menu main_menu {
+@@ -229,24 +231,6 @@ menu main_menu {
      }
    }
  
@@ -220,10 +220,10 @@ index 32d1bf370..f1ec8817b 100644
      submenu {
        label: _("Split");
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 26568b02b..471a2672c 100644
+index 2b688e93..0961589c 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -7453,6 +7453,49 @@ pub const Keybinds = struct {
+@@ -7460,6 +7460,49 @@ pub const Keybinds = struct {
                  .{ .esc = "f" },
              );
          }
@@ -274,7 +274,7 @@ index 26568b02b..471a2672c 100644
  
      pub fn parseCLI(self: *Keybinds, alloc: Allocator, input: ?[]const u8) !void {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 6d2b75b93..0f1166afd 100644
+index 6d2b75b9..0f1166af 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -1751,8 +1751,8 @@ fn namedKey(key: input.Key) ?[]const u8 {

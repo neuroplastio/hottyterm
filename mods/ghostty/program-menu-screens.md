@@ -1,6 +1,6 @@
 ---
 title: "The program's menu, kept per screen"
-patch: 0034-hottyterm-the-program-s-menu-kept-per-screen-SPEC-10.patch
+patch: 0033-hottyterm-the-program-s-menu-kept-per-screen-SPEC-10.patch
 upstream-fit: no
 ---
 

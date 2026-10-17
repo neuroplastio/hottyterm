@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 18:06:45 +0200
-Subject: [PATCH 21/37] =?UTF-8?q?hottyterm:=20a=20surface=20is=20offered?=
+Subject: [PATCH 20/36] =?UTF-8?q?hottyterm:=20a=20surface=20is=20offered?=
  =?UTF-8?q?=20a=20key=20as=20pressed=20first=20(SPEC=20=C2=A710.4)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -28,10 +28,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 167 insertions(+), 11 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 80e291f37..bf47779f2 100644
+index e4c5d76c..b3086ad3 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -2760,7 +2760,7 @@ pub fn keyEventIsBinding(
+@@ -2765,7 +2765,7 @@ pub fn keyEventIsBinding(
      // Return flags based on the
      return switch (entry.value_ptr.*) {
          .leader => .{},
@@ -40,7 +40,7 @@ index 80e291f37..bf47779f2 100644
      };
  }
  
-@@ -2808,6 +2808,10 @@ pub fn keyCallback(
+@@ -2813,6 +2813,10 @@ pub fn keyCallback(
          }
      };
  
@@ -51,7 +51,7 @@ index 80e291f37..bf47779f2 100644
      // Handle keybindings first. We need to handle this on all events
      // (press, repeat, release) because a press may perform a binding but
      // a release should not encode if we consumed the press.
-@@ -2822,7 +2826,7 @@ pub fn keyCallback(
+@@ -2827,7 +2831,7 @@ pub fn keyCallback(
          if (self.io.terminal.modes.get(.disable_keyboard)) return .consumed;
      }
  
@@ -61,7 +61,7 @@ index 80e291f37..bf47779f2 100644
  
      // If this input event has text, then we hide the mouse if configured.
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 62a25841f..6d2b75b93 100644
+index 62a25841..6d2b75b9 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -90,6 +90,7 @@ extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;

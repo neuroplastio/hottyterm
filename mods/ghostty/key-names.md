@@ -1,6 +1,6 @@
 ---
 title: "Keys are myelin key names 0.1"
-patch: 0035-hottyterm-key-names-are-myelin-key-names-0.1-HOTTY-0.patch
+patch: 0034-hottyterm-key-names-are-myelin-key-names-0.1-HOTTY-0.patch
 upstream-fit: no
 ---
 

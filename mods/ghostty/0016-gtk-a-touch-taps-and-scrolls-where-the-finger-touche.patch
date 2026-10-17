@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Fri, 9 Oct 2026 20:23:59 +0200
-Subject: [PATCH 16/37] gtk: a touch taps and scrolls where the finger touched
+Subject: [PATCH 16/36] gtk: a touch taps and scrolls where the finger touched
 
 GTK moves no pointer for a touch, so the cursor stayed where the mouse
 last was: a touch drag scrolled there (the HOTTY document under the mouse,
@@ -18,10 +18,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 15 insertions(+), 2 deletions(-)
 
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 38ef2bc18..4c8103c20 100644
+index 045bd099..7dc7a5d0 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
-@@ -670,6 +670,10 @@ pub const Surface = extern struct {
+@@ -671,6 +671,10 @@ pub const Surface = extern struct {
          touch_scroll_x: f64 = 0,
          touch_scroll_y: f64 = 0,
  
@@ -32,7 +32,7 @@ index 38ef2bc18..4c8103c20 100644
          /// True when the child has exited.
          child_exited: bool = false,
  
-@@ -3084,13 +3088,19 @@ pub const Surface = extern struct {
+@@ -3076,13 +3080,19 @@ pub const Surface = extern struct {
      // The gesture is touch-only, so a mouse drag still selects text.
      fn touchScrollBegin(
          _: *gtk.GestureDrag,
@@ -54,7 +54,7 @@ index 38ef2bc18..4c8103c20 100644
      }
  
      fn touchScrollUpdate(
-@@ -3107,6 +3117,9 @@ pub const Surface = extern struct {
+@@ -3099,6 +3109,9 @@ pub const Surface = extern struct {
  
          const core_surface = priv.core_surface orelse return;
          const scaled = self.scaledCoordinates(dx, dy);

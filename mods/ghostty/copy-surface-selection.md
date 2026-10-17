@@ -1,6 +1,6 @@
 ---
 title: "Copy takes a surface's selection too"
-patch: 0027-hottyterm-Control-c-and-Command-c-copy-a-surface-s-s.patch
+patch: 0026-hottyterm-Control-c-and-Command-c-copy-a-surface-s-s.patch
 upstream-fit: no
 ---
 

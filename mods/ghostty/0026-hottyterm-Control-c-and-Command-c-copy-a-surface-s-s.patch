@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Wed, 14 Oct 2026 00:27:25 +0200
-Subject: [PATCH 27/37] =?UTF-8?q?hottyterm:=20Control+c=20and=20Command+c?=
+Subject: [PATCH 26/36] =?UTF-8?q?hottyterm:=20Control+c=20and=20Command+c?=
  =?UTF-8?q?=20copy=20a=20surface's=20selection=20too=20(SPEC=20=C2=A711)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -24,10 +24,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 73 insertions(+), 4 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index bf47779f2..982377bfe 100644
+index b3086ad3..14e9dcbf 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -2424,7 +2424,7 @@ fn copySelectionToClipboards(
+@@ -2429,7 +2429,7 @@ fn copySelectionToClipboards(
  /// also copy per `copy_on_select`, use `setSelectionAndCopy`.
  ///
  /// This must be called with the renderer mutex held.
@@ -36,7 +36,7 @@ index bf47779f2..982377bfe 100644
      // Compute the transition before `select` below, which untracks (frees)
      // the previous selection's tracked pins; reading them after would be a
      // use-after-free.
-@@ -5178,7 +5178,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+@@ -5187,7 +5187,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
                  return true;
              }
  
@@ -47,10 +47,10 @@ index bf47779f2..982377bfe 100644
  
          .copy_url_to_clipboard => {
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 2b97c6d77..4997a7e5a 100644
+index 0b095b9b..45a3586b 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -6736,6 +6736,19 @@ pub const Keybinds = struct {
+@@ -6743,6 +6743,19 @@ pub const Keybinds = struct {
                  );
              }
  
@@ -71,7 +71,7 @@ index 2b97c6d77..4997a7e5a 100644
              // ctrl+c is to kill the process.
              const mods: inputpkg.Mods = if (builtin.target.os.tag.isDarwin())
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 2db28bde7..52b1124d2 100644
+index 2db28bde..52b1124d 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -101,6 +101,8 @@ extern fn hotty_host_hyperlink(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;

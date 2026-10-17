@@ -1,6 +1,6 @@
 ---
 title: "The macOS menu sees keys as key-remap makes them"
-patch: 0024-hottyterm-the-macOS-menu-sees-keys-as-key-remap-make.patch
+patch: 0023-hottyterm-the-macOS-menu-sees-keys-as-key-remap-make.patch
 upstream-fit: maybe
 ---
 
