@@ -14,7 +14,9 @@
 #   Ghostty's main, and does the branding still find its anchors?
 # - release: on main, when both builds ran and passed, a GitHub prerelease
 #   of the artifacts. Versions are CalVer like the other neuroplastio
-#   projects: the commit's UTC date and short commit, 26.09.29-dev.1e81d70.
+#   projects: the commit's UTC date and short commit, 26.09.29-dev.1e81d70
+#   (scripts/versions.sh), with the hotty version it speaks beside it in
+#   the title (gov P-5 rule 6).
 # - homebrew: after a release, its macOS app as a cask in the org tap
 #   (packaging/homebrew), with the tap's deploy key.
 # - aur: after a release, its Linux build as the AUR package hottyterm-bin
@@ -77,6 +79,10 @@ jobs:
     timeout-minutes: 90
     outputs:
       blitz: ${{ steps.blitz.outputs.sha }}
+      # The hotty version it speaks and hotty-blitz's (gov P-5 rule 6), for
+      # the release's title and the packages' descriptions.
+      hotty: ${{ steps.blitz.outputs.hotty }}
+      blitz_version: ${{ steps.blitz.outputs.blitz }}
     defaults:
       run:
         shell: bash
@@ -101,7 +107,9 @@ jobs:
           path: hotty-blitz/main
 
       - id: blitz
-        run: echo "sha=$(git -C hotty-blitz/main rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "sha=$(git -C hotty-blitz/main rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          hottyterm/main/scripts/versions.sh hotty-blitz/main >> "$GITHUB_OUTPUT"
 
       # mise-action installs mise and caches what it installs. The tools
       # come from each repository's mise.toml (Zig here, Rust in
@@ -275,13 +283,14 @@ jobs:
       contents: write
     outputs:
       version: ${{ steps.version.outputs.version }}
+      hotty: ${{ needs.linux.outputs.hotty }}
     steps:
       - uses: actions/checkout@v7
 
       - name: Version
         id: version
         run: |
-          echo "version=$(TZ=UTC git show -s --date=format-local:%y.%m.%d --format=%cd HEAD)-dev.$(git rev-parse --short=7 HEAD)" >> "$GITHUB_OUTPUT"
+          scripts/versions.sh >> "$GITHUB_OUTPUT"
           echo "ghostty=$(grep -v '^#' ghostty-ref | head -1)" >> "$GITHUB_OUTPUT"
 
       - uses: actions/download-artifact@v7
@@ -311,10 +320,16 @@ jobs:
           GHOSTTY: ${{ steps.version.outputs.ghostty }}
           BLITZ_LINUX: ${{ needs.linux.outputs.blitz }}
           BLITZ_MACOS: ${{ needs.macos.outputs.blitz }}
+          HOTTY: ${{ needs.linux.outputs.hotty }}
+          BLITZ_VERSION: ${{ needs.linux.outputs.blitz_version }}
         run: |
           blitz="neuroplastio/hotty-blitz@${BLITZ_LINUX:0:7}"
           [ "$BLITZ_LINUX" = "$BLITZ_MACOS" ] || blitz="$blitz (Linux), @${BLITZ_MACOS:0:7} (macOS)"
+          # gov P-5 rule 6: the hotty version it speaks beside the name, in
+          # the title and the notes' first line.
           cat > notes.md <<NOTES
+          $VERSION — hotty $HOTTY (hotty-blitz $BLITZ_VERSION)
+
           hottyterm is a fork of Ghostty with native hotty (HTML over the TTY), a proof of concept of the protocol. It is not affiliated with Ghostty.
 
           Built from:
@@ -329,7 +344,7 @@ jobs:
           - \`SHA256SUMS\`
           NOTES
           gh release create "$VERSION" --draft --prerelease --target "$GITHUB_SHA" \
-            --title "hottyterm $VERSION" --notes-file notes.md dist/*
+            --title "hottyterm $VERSION — hotty $HOTTY" --notes-file notes.md dist/*
           gh release edit "$VERSION" --draft=false
 
   # The Homebrew cask, rendered from the release's macOS app and pushed to
@@ -348,6 +363,7 @@ jobs:
         env:
           HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
           VERSION: ${{ needs.release.outputs.version }}
+          HOTTY: ${{ needs.release.outputs.hotty }}
         run: |
           if [ -z "${HOMEBREW_TAP_DEPLOY_KEY:-}" ]; then
             echo "::notice::HOMEBREW_TAP_DEPLOY_KEY is not set; skipping the Homebrew publish"
@@ -383,6 +399,7 @@ jobs:
         env:
           AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
           VERSION: ${{ needs.release.outputs.version }}
+          HOTTY: ${{ needs.release.outputs.hotty }}
         run: |
           if [ -z "${AUR_SSH_PRIVATE_KEY:-}" ]; then
             echo "::notice::AUR_SSH_PRIVATE_KEY is not set; skipping the AUR publish"
@@ -390,7 +407,7 @@ jobs:
           fi
           useradd -m builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
-          su builder -c "packaging/aur/publish.sh '$VERSION' --push"
+          su builder -c "HOTTY='$HOTTY' packaging/aur/publish.sh '$VERSION' --push"
 
   # A failure here is the early warning that moving ghostty-ref will need
   # work (README, "Changing the fork").

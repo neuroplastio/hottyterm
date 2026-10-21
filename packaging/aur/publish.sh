@@ -2,10 +2,12 @@
 #
 # Publish hottyterm-bin to the AUR: a hottyterm release's Linux build.
 #
-#   packaging/aur/publish.sh <release> [--push]
+#   HOTTY=0.4 packaging/aur/publish.sh <release> [--push]
 #
 # <release> is a hottyterm release (26.10.06-dev.a6cdd4d), whose commit this
-# checkout has: the package's version counts the commits up to it. The
+# checkout has: the package's version counts the commits up to it. HOTTY is
+# the hotty version it speaks, which pkgdesc shows (gov P-5 rule 6; CI passes
+# the release's). The
 # package moves when the release does, or when packaging/aur/PKGBUILD changes:
 #
 #   • the AUR has no hottyterm-bin yet, or another version: <pkgver>-1;
@@ -24,6 +26,7 @@ if [ $# -lt 1 ] || [ $# -gt 2 ] || { [ $# -eq 2 ] && [ "$2" != --push ]; }; then
 	exit 2
 fi
 release=$1 push=${2:-}
+hotty=${HOTTY:?HOTTY is the hotty version the release speaks, e.g. HOTTY=0.4}
 here=$(cd "$(dirname "$0")" && pwd)
 pkg=hottyterm-bin
 tarball="hottyterm-$release-linux-x86_64.tar.gz"
@@ -71,7 +74,7 @@ cur_ver=$(srcinfo pkgver)
 cur_rel=$(srcinfo pkgrel)
 
 render() {
-	sed -e "s/@PKGVER@/$1/" -e "s/@PKGREL@/$2/" -e "s/@RELEASE@/$release/" -e "s/@SHA256@/$sha256/" \
+	sed -e "s/@PKGVER@/$1/" -e "s/@PKGREL@/$2/" -e "s/@RELEASE@/$release/" -e "s/@SHA256@/$sha256/" -e "s/@HOTTY@/$hotty/" \
 		"$here/PKGBUILD"
 }
 

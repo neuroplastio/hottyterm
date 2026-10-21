@@ -37,9 +37,13 @@ LIB="$BLITZ/target/release"
 echo "== hotty-blitz"
 (cd "$BLITZ" && make -s blitz >/dev/null && mise x -- cargo build --release -p hotty-blitz)
 
+# The name a person reads the version by (gov P-5 rule 6): --version shows it
+# (mods/ghostty/version-label.md), and the About window, from Info.plist.
+LABEL="$("$HERE/scripts/versions.sh" "$BLITZ" | sed -n 's/^label=//p')"
+
 echo "== GhosttyKit"
 cd "$FORK"
-HOTTY_BLITZ_LIB="$LIB" "$ZIG" build -Doptimize=ReleaseFast -Dcpu=baseline -Demit-macos-app=false -Dxcframework-target=native
+HOTTY_BLITZ_LIB="$LIB" HOTTYTERM_LABEL="$LABEL" "$ZIG" build -Doptimize=ReleaseFast -Dcpu=baseline -Demit-macos-app=false -Dxcframework-target=native
 
 echo "== the app"
 # hotty-blitz goes into the app's own link, not into GhosttyKit's archive:
@@ -69,9 +73,11 @@ python3 "$HERE/scripts/notices.py" --platform macos-arm64 --target aarch64-apple
   -o "$APP/Contents/Resources/THIRD-PARTY-NOTICES.txt"
 
 # The menu bar shows CFBundleName, which Xcode sets to the product name
-# (brand/brand.toml explains). Set it here, then sign again ad hoc, keeping
-# the entitlements.
+# (brand/brand.toml explains), and the About window CFBundleShortVersionString,
+# Ghostty's version until here. Set both, then sign again ad hoc, keeping the
+# entitlements.
 plutil -replace CFBundleName -string "$NAME" "$APP/Contents/Info.plist"
+plutil -replace CFBundleShortVersionString -string "$LABEL" "$APP/Contents/Info.plist"
 codesign --force --sign - --preserve-metadata=entitlements,requirements,flags,runtime "$APP"
 codesign --verify --deep "$APP"
 echo "built $APP"

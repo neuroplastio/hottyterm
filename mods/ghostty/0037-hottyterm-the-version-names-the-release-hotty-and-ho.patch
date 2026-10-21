@@ -1,0 +1,96 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Wed, 21 Oct 2026 15:24:24 +0200
+Subject: [PATCH 37/37] hottyterm: the version names the release, hotty and
+ hotty-blitz (gov P-5 rule 6)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A product that speaks hotty keeps its own name for its version and shows
+the spec beside it, wherever a person reads it: `hottyterm 26.10.21-dev.
+1e81d70 · hotty 0.4 (hotty-blitz 0.4.0)`. hottyterm's build scripts pass
+the label as HOTTYTERM_LABEL; a build option carries it to
+hotty.version_label, which --version and the GTK About window show.
+Without the variable they show Ghostty's version, as before. Ghostty's
+own version stays what it was, in --version's Version section, and so
+does the release channel it decides.
+
+Upstream files: +2 lines in src/build/Config.zig (the option), one line
+changed in src/cli/version.zig and one in src/apprt/gtk/class/window.zig.
+---
+ src/apprt/gtk/class/window.zig |  2 +-
+ src/build/Config.zig           |  2 ++
+ src/cli/version.zig            |  2 +-
+ src/termio/hotty.zig           | 12 ++++++++++++
+ 4 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/src/apprt/gtk/class/window.zig b/src/apprt/gtk/class/window.zig
+index e0068222..7f4c1a79 100644
+--- a/src/apprt/gtk/class/window.zig
++++ b/src/apprt/gtk/class/window.zig
+@@ -2047,7 +2047,7 @@ pub const Window = extern struct {
+             "application-icon",
+             icon,
+             "version",
+-            build_config.version_string.ptr,
++            @import("../../../termio/hotty.zig").version_label.ptr,
+             "issue-url",
+             "https://github.com/ghostty-org/ghostty/issues",
+             "website",
+diff --git a/src/build/Config.zig b/src/build/Config.zig
+index 71fa4d28..d8c7baa9 100644
+--- a/src/build/Config.zig
++++ b/src/build/Config.zig
+@@ -683,6 +683,8 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
+         "{f}",
+         .{self.version},
+     ));
++    // hottyterm: the name its version is read by (src/termio/hotty.zig).
++    step.addOption([]const u8, "hottyterm_label", step.step.owner.graph.environ_map.get("HOTTYTERM_LABEL") orelse "");
+     var lib_version_buf: [1024]u8 = undefined;
+     step.addOption(std.SemanticVersion, "lib_version", self.lib_version);
+     step.addOption([:0]const u8, "lib_version_string", try std.fmt.bufPrintZ(
+diff --git a/src/cli/version.zig b/src/cli/version.zig
+index ff203624..49e3ae75 100644
+--- a/src/cli/version.zig
++++ b/src/cli/version.zig
+@@ -32,7 +32,7 @@ pub fn run(alloc: Allocator) !u8 {
+             .{commit_hash},
+         );
+     };
+-    try stdout.print("Ghostty {s}\n\n", .{build_config.version_string});
++    try stdout.print("Ghostty {s}\n\n", .{@import("../termio/hotty.zig").version_label});
+     if (tty) try stdout.print("\x1b]8;;\x1b\\", .{});
+ 
+     try stdout.print("Version\n", .{});
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 8e81d82b..a9b28ffb 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -31,6 +31,8 @@
+ const std = @import("std");
+ const builtin = @import("builtin");
+ const Allocator = std.mem.Allocator;
++const build_options = @import("build_options");
++const build_config = @import("../build_config.zig");
+ const global = @import("../global.zig");
+ const terminal = @import("../terminal/main.zig");
+ const configpkg = @import("../config.zig");
+@@ -47,6 +49,16 @@ const xev = global.xev;
+ 
+ const log = std.log.scoped(.hotty);
+ 
++/// The name a person reads hottyterm's version by (gov P-5 rule 6): the
++/// release's, then the hotty version it speaks and hotty-blitz's, as in
++/// `26.10.21-dev.1e81d70 · hotty 0.4 (hotty-blitz 0.4.0)`. The build takes
++/// it from HOTTYTERM_LABEL, which hottyterm's scripts/build.sh sets; without
++/// it, the version is Ghostty's. `--version` and the About window show it.
++pub const version_label: [:0]const u8 = if (build_options.hottyterm_label.len > 0)
++    std.fmt.comptimePrint("{s}", .{build_options.hottyterm_label})
++else
++    build_config.version_string;
++
+ // --- hotty-blitz C ABI -----------------------------------------------------
+ 
+ pub const Host = opaque {};

@@ -3,9 +3,11 @@
 # Publish hottyterm's Homebrew cask to the org tap `neuroplastio/homebrew-tap`
 # (installed with `brew install --cask neuroplastio/tap/hottyterm`).
 #
-#   packaging/homebrew/publish.sh <release> [--push]
+#   HOTTY=0.4 packaging/homebrew/publish.sh <release> [--push]
 #
-# <release> is a hottyterm release (26.10.06-dev.a6cdd4d). The script downloads
+# <release> is a hottyterm release (26.10.06-dev.a6cdd4d), and HOTTY the hotty
+# version it speaks, which the cask's desc shows (gov P-5 rule 6; CI passes
+# the release's). The script downloads
 # that release's macOS app and SHA256SUMS, checks one against the other, renders
 # `Casks/hottyterm.rb` from `packaging/homebrew/hottyterm.rb` with the app's
 # sha256, and (with `--push`) commits and pushes it to the tap.
@@ -21,6 +23,7 @@ if [ $# -lt 1 ] || [ $# -gt 2 ] || { [ $# -eq 2 ] && [ "$2" != --push ]; }; then
 	exit 2
 fi
 release=$1 push=${2:-}
+hotty=${HOTTY:?HOTTY is the hotty version the release speaks, e.g. HOTTY=0.4}
 here=$(cd "$(dirname "$0")" && pwd)
 tap=neuroplastio/homebrew-tap
 urlbase="https://github.com/neuroplastio/hottyterm/releases/download/$release"
@@ -51,7 +54,7 @@ else
 fi
 git clone -q "$remote" "$work/tap"
 mkdir -p "$work/tap/Casks"
-sed -e "s/@VERSION@/$release/" -e "s/@SHA256@/$sha256/" "$here/hottyterm.rb" > "$work/tap/Casks/hottyterm.rb"
+sed -e "s/@VERSION@/$release/" -e "s/@SHA256@/$sha256/" -e "s/@HOTTY@/$hotty/" "$here/hottyterm.rb" > "$work/tap/Casks/hottyterm.rb"
 
 cd "$work/tap"
 git add Casks/hottyterm.rb

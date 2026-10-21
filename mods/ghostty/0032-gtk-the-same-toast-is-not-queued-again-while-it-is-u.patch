@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Fri, 16 Oct 2026 19:23:38 +0200
-Subject: [PATCH 32/36] gtk: the same toast is not queued again while it is up
+Subject: [PATCH 32/37] gtk: the same toast is not queued again while it is up
 
 Each clipboard write toasted "Copied to clipboard", and AdwToastOverlay
 shows toasts one at a time, so a program that wrote the clipboard many

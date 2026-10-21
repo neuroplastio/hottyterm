@@ -15,7 +15,7 @@ cask "hottyterm" do
 
   url "https://github.com/neuroplastio/hottyterm/releases/download/#{version}/hottyterm-#{version}-macos-arm64.zip"
   name "hottyterm"
-  desc "Fork of Ghostty with native hotty (HTML over the TTY)"
+  desc "Fork of Ghostty with native hotty @HOTTY@ (HTML over the TTY)"
   homepage "https://github.com/neuroplastio/hottyterm"
 
   depends_on arch: :arm64

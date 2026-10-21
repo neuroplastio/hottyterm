@@ -71,7 +71,11 @@ chmod +x "$BIN/blueprint-compiler"
 # 3. hotty-blitz, as the shared library the fork links.
 (cd "$BLITZ" && make -s blitz >/dev/null && mise x -- cargo build -q --release -p hotty-blitz)
 
+# 4. The name a person reads the version by (gov P-5 rule 6), which --version
+# and the About window show (mods/ghostty/version-label.md).
+LABEL="$("$HERE/scripts/versions.sh" "$BLITZ" | sed -n 's/^label=//p')"
+
 cd "$FORK"
-HOTTY_BLITZ_LIB="$BLITZ/target/release" PATH="$BIN:$PATH" \
+HOTTY_BLITZ_LIB="$BLITZ/target/release" HOTTYTERM_LABEL="$LABEL" PATH="$BIN:$PATH" \
   "$ZIG" build --zig-lib-dir "$LIB" -Doptimize="$OPT" "$@"
 echo "built $FORK/zig-out/bin/hottyterm against $BLITZ"
