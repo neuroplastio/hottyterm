@@ -110,11 +110,18 @@ def apply(fork, cfg):
         if not os.path.exists(path):
             fail(f"{rule['file']}: file is gone (rule {rule['from']!r})")
         text = open(path, encoding="utf-8").read()
-        n = text.count(rule["from"])
+        # A list is the anchor as upstream has had it, oldest first, each
+        # with its own `to`: the first found applies, so that ghostty-ref
+        # and upstream's latest both brand while a change is in between.
+        froms, tos = rule["from"], rule["to"]
+        if isinstance(froms, str):
+            froms, tos = [froms], [tos]
+        src, dst = next(((f, t) for f, t in zip(froms, tos) if f in text), (froms[0], tos[0]))
+        n = text.count(src)
         want = rule.get("count", 1)
         if (want == "any" and n == 0) or (want != "any" and n != want):
             fail(f"{rule['file']}: {rule['from']!r} found {n} time(s), expected {want}")
-        open(path, "w", encoding="utf-8").write(text.replace(rule["from"], fill(rule["to"], ident)))
+        open(path, "w", encoding="utf-8").write(text.replace(src, fill(dst, ident)))
         changed.add(rule["file"])
 
     # User-facing strings, without anchors.

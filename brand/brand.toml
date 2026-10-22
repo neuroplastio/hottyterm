@@ -80,10 +80,11 @@ file = "src/build/GhosttyResources.zig"
 from = 'b.fmt("com.mitchellh.ghostty{s}"'
 to = 'b.fmt("@app_id@{s}"'
 
+# Upstream 432612cc3 (-Dinstalled-exe-path) names the executable alone.
 [[replace]]
 file = "src/build/GhosttyResources.zig"
-from = '"{s}/bin/ghostty"'
-to = '"{s}/bin/@exe@"'
+from = ['"{s}/bin/ghostty"', 'installed_exe_path orelse "ghostty"']
+to = ['"{s}/bin/@exe@"', 'installed_exe_path orelse "@exe@"']
 
 [[replace]]
 file = "src/build/GhosttyResources.zig"
