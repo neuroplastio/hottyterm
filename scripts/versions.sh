@@ -6,9 +6,9 @@
 #
 #   version=26.10.21-dev.1e81d70   the release's name, from this checkout's
 #                                  HEAD: its UTC day and short commit
-#   hotty=0.4                      the hotty version hotty-blitz speaks
-#   blitz=0.4.0                    hotty-blitz's version
-#   label=26.10.21-dev.1e81d70 · hotty 0.4 (hotty-blitz 0.4.0)
+#   hotty=0.5                      the hotty version hotty-blitz speaks
+#   blitz=0.5.0                    hotty-blitz's version
+#   label=26.10.21-dev.1e81d70 · hotty 0.5 (hotty-blitz 0.5.0)
 #
 # Without a checkout, only version.
 set -eu

@@ -2,7 +2,7 @@
 #
 # Publish hottyterm-bin to the AUR: a hottyterm release's Linux build.
 #
-#   HOTTY=0.4 packaging/aur/publish.sh <release> [--push]
+#   HOTTY=0.5 packaging/aur/publish.sh <release> [--push]
 #
 # <release> is a hottyterm release (26.10.06-dev.a6cdd4d), whose commit this
 # checkout has: the package's version counts the commits up to it. HOTTY is
@@ -26,7 +26,7 @@ if [ $# -lt 1 ] || [ $# -gt 2 ] || { [ $# -eq 2 ] && [ "$2" != --push ]; }; then
 	exit 2
 fi
 release=$1 push=${2:-}
-hotty=${HOTTY:?HOTTY is the hotty version the release speaks, e.g. HOTTY=0.4}
+hotty=${HOTTY:?HOTTY is the hotty version the release speaks, e.g. HOTTY=0.5}
 here=$(cd "$(dirname "$0")" && pwd)
 pkg=hottyterm-bin
 tarball="hottyterm-$release-linux-x86_64.tar.gz"

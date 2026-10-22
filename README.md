@@ -92,8 +92,8 @@ The hooks:
 - **The protocol is hotty-blitz's,** at the commit in
   [`hotty-blitz-ref`](hotty-blitz-ref), which a release's notes name too.
   hotty-blitz takes the hotty version's MAJOR.MINOR (gov P-5 rule 6): its
-  0.4.x speaks hotty 0.4, and a program talks to it with an SDK of 0.4.x.
-  Its capabilities name it (`"host": "hotty-blitz"`, `"version": "0.4.0"`).
+  0.5.x speaks hotty 0.5, and a program talks to it with an SDK of 0.5.x.
+  Its capabilities name it (`"host": "hotty-blitz"`, `"version": "0.5.0"`).
 - **Native, not the polyfill.** A program sends hottyterm OSC 7279 and
   nothing else, and the linked hotty-blitz lays out and renders every
   surface. No kitty graphics crosses the pty: turning surfaces into kitty
@@ -421,8 +421,8 @@ commit's UTC date, then the short commit, e.g. `26.09.29-dev.1e81d70`. The tag i
 the version; the notes name the Ghostty and hotty-blitz commits the build used.
 The hotty version it speaks goes beside the name, never in it (gov P-5 rule 6):
 in the release's title and its notes' first line (`26.10.21-dev.1e81d70 — hotty
-0.4`), in `--version` and the About window (`hottyterm 26.10.21-dev.1e81d70 ·
-hotty 0.4 (hotty-blitz 0.4.0)`), and in the cask's and the AUR package's
+0.5`), in `--version` and the About window (`hottyterm 26.10.21-dev.1e81d70 ·
+hotty 0.5 (hotty-blitz 0.5.0)`), and in the cask's and the AUR package's
 descriptions. `scripts/versions.sh` says all of it from a hotty-blitz checkout. A
 docs-only push builds on Linux but makes no release; run the workflow by hand for
 one. A change in hotty-blitz reaches a release when `hotty-blitz-ref` moves to it,
