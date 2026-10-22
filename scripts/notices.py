@@ -14,6 +14,7 @@ What a build contains, and so what the file lists with its licence texts:
 - every Rust crate linked into hotty-blitz for --target (cargo metadata,
   normal dependencies only), hotty-blitz itself included;
 - the Zig and Rust standard libraries, which are compiled in;
+- the font hotty-blitz embeds, with its OFL and its icon sets' notices;
 - anything else bundled (--extra: the macOS app's Sparkle framework).
 
 System libraries (GTK and the rest on Linux, the frameworks on macOS) are the
@@ -192,6 +193,12 @@ def main():
          "source": "https://github.com/ghostty-org/ghostty", "files": [os.path.join(fork, "LICENSE")]},
     ]
     comps = own + zig_components(fork) + rust_components(blitz, a.target) + toolchain_components(blitz)
+    # The font hotty-blitz embeds (fonts.rs): OFL.txt and NOTICE.txt beside it.
+    fonts = os.path.join(blitz, "crates", "hotty-blitz", "fonts")
+    if os.path.isdir(fonts):
+        comps.append({"kind": "bundled", "name": "AdwaitaMono Nerd Font Propo (in hotty-blitz)", "version": "3.5.1",
+                      "license": "OFL-1.1; its icon sets as NOTICE.txt lists",
+                      "source": "https://github.com/ryanoasis/nerd-fonts", "files": license_files(fonts)})
     for name, url, d in a.extra:
         comps.append({"kind": "bundled", "name": name, "version": "", "license": "", "source": url,
                       "files": license_files(d)})
