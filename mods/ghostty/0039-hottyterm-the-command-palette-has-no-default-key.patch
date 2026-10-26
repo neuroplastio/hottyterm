@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Mon, 26 Oct 2026 21:30:30 +0100
+Subject: [PATCH 39/39] hottyterm: the command palette has no default key
+
+Ctrl+Shift+P (Cmd+Shift+P on the Mac) opened the command palette over
+whatever ran in the terminal, so a program never got the key: plx,
+whose vscode keymap opens its own palette with it as VS Code does,
+showed the terminal's palette instead, and its Split Right split the
+window outside plx. The key now reaches the program, as the tab keys
+do since 'no tabs'. The palette stays in the GTK context menu and the
+macOS View menu, and a keybind still gives it a key.
+
+Upstream lines: one in hottytermDefaults in src/config/Config.zig, and
+its comment.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/config/Config.zig | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index 74cf404a..32d87044 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -7481,7 +7481,9 @@ pub const Keybinds = struct {
+ 
+     /// hottyterm: no tabs, since plx has them, and windows and full screen
+     /// are the window manager's: no default keys for tabs, for quitting,
+-    /// for closing windows or for full screen, on the Mac too.
++    /// for closing windows or for full screen, on the Mac too. The command
++    /// palette has no default key either, so its key reaches the program
++    /// (plx can open its own palette with it); the menus still open it.
+     fn hottytermDefaults(set: *inputpkg.Binding.Set, alloc: Allocator) !void {
+         var drop: std.ArrayList(inputpkg.Binding.Trigger) = .empty;
+         defer drop.deinit(alloc);
+@@ -7506,6 +7508,7 @@ pub const Keybinds = struct {
+                 .close_all_windows,
+                 .quit,
+                 .toggle_fullscreen,
++                .toggle_command_palette,
+                 => true,
+                 else => false,
+             };

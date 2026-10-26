@@ -207,6 +207,10 @@ The hooks:
   manager's. hottyterm has no default keys for tabs, quitting, closing
   windows or full screen, on the Mac too, and a new tab, from a binding, a
   menu or `+new-tab`, opens a window. Splits stay.
+- **No palette key:** Control+Shift+P (Cmd+Shift+P on the Mac) reaches
+  the program, so plx's vscode keymap opens plx's palette with it.
+  hottyterm's command palette is in the menus, and a `keybind` for
+  `toggle_command_palette` gives it a key again.
 - **Cmd as Ctrl on the Mac:** `key-remap = super=ctrl` and `key-remap =
   ctrl=super` swap them, so the key macOS calls Cmd is Ctrl in the terminal,
   as on Linux. The menu sees keys as remapped (`0024`): a key that becomes
