@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Mon, 26 Oct 2026 21:30:30 +0100
-Subject: [PATCH 39/39] hottyterm: the command palette has no default key
+Subject: [PATCH 39/40] hottyterm: the command palette has no default key
 
 Ctrl+Shift+P (Cmd+Shift+P on the Mac) opened the command palette over
 whatever ran in the terminal, so a program never got the key: plx,

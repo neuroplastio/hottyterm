@@ -211,6 +211,10 @@ The hooks:
   the program, so plx's vscode keymap opens plx's palette with it.
   hottyterm's command palette is in the menus, and a `keybind` for
   `toggle_command_palette` gives it a key again.
+- **Closing over plx asks nothing:** plx keeps its panes, tabs and jobs
+  when the window closes, so hottyterm doesn't warn that the sessions will
+  be terminated while plx is in the foreground. `confirm-close-surface =
+  always` still asks.
 - **Cmd as Ctrl on the Mac:** `key-remap = super=ctrl` and `key-remap =
   ctrl=super` swap them, so the key macOS calls Cmd is Ctrl in the terminal,
   as on Linux. The menu sees keys as remapped (`0024`): a key that becomes

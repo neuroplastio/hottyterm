@@ -1,0 +1,98 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Mon, 26 Oct 2026 22:42:03 +0100
+Subject: [PATCH 40/40] hottyterm: closing a window over plx asks nothing
+
+plx keeps its panes, tabs and running jobs in its daemon when its
+terminal closes, and plain `plx` brings them back. Ghostty's close
+dialog said "All terminal sessions in this window will be terminated"
+over it all the same, and people who believed it kept the window open
+and looked for a way to detach (plx usability runs, 2026-10-26).
+
+With confirm-close-surface at its default, true, a surface whose pty
+has plx in the foreground now closes without asking, as a shell at its
+prompt does. The foreground process group's leader is found by name:
+/proc/<pid>/comm on Linux, libproc's proc_name on macOS. `always`
+still asks. plx over ssh still asks, since ssh is in the foreground
+there.
+
+Upstream lines: the check in needsConfirmQuit, two small functions
+after it in src/Surface.zig, and four lines of the option's docs in
+src/config/Config.zig.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/Surface.zig       | 37 +++++++++++++++++++++++++++++++++++++
+ src/config/Config.zig |  4 ++++
+ 2 files changed, 41 insertions(+)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 0dc771ea..ea46a48f 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -991,6 +991,7 @@ pub fn needsConfirmQuit(self: *Surface) bool {
+         .always => true,
+         .false => false,
+         .true => true: {
++            if (self.foregroundKeepsSessions()) break :true false;
+             self.renderer_state.mutex.lockUncancelable(global.io());
+             defer self.renderer_state.mutex.unlock(global.io());
+             break :true !self.io.terminal.cursorIsAtPrompt();
+@@ -998,6 +999,42 @@ pub fn needsConfirmQuit(self: *Surface) bool {
+     };
+ }
+ 
++/// hottyterm: true if the program in the pty's foreground keeps its
++/// sessions when its terminal goes, so closing the surface loses nothing.
++/// That is plx, whose panes, tabs and jobs live on in its daemon until
++/// `plx` brings them back. Known by the name of the foreground process
++/// group's leader; over ssh it is ssh, and closing still asks.
++fn foregroundKeepsSessions(self: *Surface) bool {
++    const pid = self.getProcessInfo(.foreground_pid) orelse return false;
++    var buf: [64]u8 = undefined;
++    const name = processName(pid, &buf) orelse return false;
++    return std.mem.eql(u8, name, "plx");
++}
++
++/// The name the system keeps for process pid, cut short as it cuts it
++/// (15 bytes on Linux, 32 on macOS), or null where it can't be read.
++fn processName(pid: u64, buf: []u8) ?[]const u8 {
++    switch (comptime builtin.os.tag) {
++        .linux => {
++            var path_buf: [32]u8 = undefined;
++            const path = std.fmt.bufPrint(&path_buf, "/proc/{d}/comm", .{pid}) catch return null;
++            const file = std.Io.Dir.openFileAbsolute(global.io(), path, .{}) catch return null;
++            defer file.close(global.io());
++            const n = file.readPositionalAll(global.io(), buf, 0) catch return null;
++            return std.mem.trimEnd(u8, buf[0..n], "\n");
++        },
++        .macos => {
++            const libproc = struct {
++                extern "c" fn proc_name(pid: c_int, buffer: [*]u8, buffersize: u32) c_int;
++            };
++            const n = libproc.proc_name(@intCast(pid), buf.ptr, @intCast(buf.len));
++            if (n <= 0) return null;
++            return buf[0..@intCast(n)];
++        },
++        else => return null,
++    }
++}
++
+ /// Called from the app thread to handle mailbox messages to our specific
+ /// surface.
+ pub fn handleMessage(self: *Surface, msg: Message) !void {
+diff --git a/src/config/Config.zig b/src/config/Config.zig
+index 32d87044..86a20de2 100644
+--- a/src/config/Config.zig
++++ b/src/config/Config.zig
+@@ -2623,6 +2623,10 @@ keybind: Keybinds = .{},
+ /// any confirmation. This can also be set to `always`, which will always
+ /// confirm closing a surface, even if shell integration says a process isn't
+ /// running.
++///
++/// hottyterm: `true` doesn't ask while plx is the program in the
++/// foreground, since plx keeps its panes, tabs and jobs when its terminal
++/// closes; `always` still asks.
+ @"confirm-close-surface": ConfirmCloseSurface = .true,
+ 
+ /// Whether or not to quit after the last surface is closed.
