@@ -68,9 +68,9 @@ carry it and whether Ghostty might want it; neuroplast.io/modding lists them.
 | | |
 | --- | --- |
 | upstream | `ghostty-org/ghostty` at `e3ebb1d1` (2026-10-16, "1.3.2-dev") |
-| patches | 36, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
-| new code | `src/termio/hotty.zig`, 2744 lines: all of the hotty logic |
-| upstream files touched | 23 files, 931 lines added and 82 removed: hooks, settings, the GTK touch gestures, the tab removal, and the generic patches (kitty region uploads, toasts) |
+| patches | 38, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
+| new code | `src/termio/hotty.zig`, 2756 lines: all of the hotty logic |
+| upstream files touched | 31 files, 991 lines added and 145 removed: hooks, settings, the GTK touch gestures, the tab removal, the default font, and the generic patches (kitty region uploads, toasts) |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
@@ -255,6 +255,12 @@ Every release is a [GitHub prerelease](https://github.com/neuroplastio/hottyterm
 
 hottyterm reads Ghostty's config file (`~/.config/ghostty/config`) and adds three
 settings to it.
+
+Its default font is Adwaita Mono, not Ghostty's JetBrains Mono: hotty-blitz
+draws surfaces in Adwaita Mono, so a terminal left at its defaults shows its
+cells and the surfaces under them in one font. `font-family` still picks
+another, and surfaces follow it
+([`mods/ghostty/default-font-adwaita-mono.md`](mods/ghostty/default-font-adwaita-mono.md)).
 
 ### `hotty-net`: what surfaces may fetch
 
