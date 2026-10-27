@@ -67,10 +67,10 @@ carry it and whether Ghostty might want it; neuroplast.io/modding lists them.
 
 | | |
 | --- | --- |
-| upstream | `ghostty-org/ghostty` at `e3ebb1d1` (2026-10-16, "1.3.2-dev") |
-| patches | 38, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
+| upstream | `ghostty-org/ghostty` at `4a4fc017` (2026-10-27, "1.4.1-dev", Zig 0.17) |
+| patches | 40, in [`mods/ghostty/`](mods/ghostty/), each with its `.md` |
 | new code | `src/termio/hotty.zig`, 2756 lines: all of the hotty logic |
-| upstream files touched | 31 files, 991 lines added and 145 removed: hooks, settings, the GTK touch gestures, the tab removal, the default font, and the generic patches (kitty region uploads, toasts) |
+| upstream files touched | 31 files, 1036 lines added and 145 removed: hooks, settings, the GTK touch gestures, the tab removal, the default font, and the generic patches (kitty region uploads, toasts) |
 | branding | generated on top from [`brand/`](brand/) (below), never kept as a patch |
 
 The hooks:
@@ -390,9 +390,9 @@ so it runs next to an installed Ghostty.
 A local build takes the hotty-blitz checkout as it is, and says so when that is
 not the commit in `hotty-blitz-ref`, which CI and every release build.
 
-`scripts/build.sh` carries two workarounds for this machine: Zig 0.16 needs
-LLVM and LLD to link CachyOS's `crt1.o`, and a cached blueprint-compiler 0.16
-whose warnings on upstream's UI files are hidden unless it fails.
+`scripts/build.sh` carries one workaround for this machine: a cached
+blueprint-compiler 0.20 whose warnings on upstream's UI files are hidden unless
+it fails.
 
 ### macOS
 

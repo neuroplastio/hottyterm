@@ -24,10 +24,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 73 insertions(+), 4 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index b3086ad3..14e9dcbf 100644
+index 204116195..b7da38577 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -2429,7 +2429,7 @@ fn copySelectionToClipboards(
+@@ -2455,7 +2455,7 @@ fn copySelectionToClipboards(
  /// also copy per `copy_on_select`, use `setSelectionAndCopy`.
  ///
  /// This must be called with the renderer mutex held.
@@ -36,7 +36,7 @@ index b3086ad3..14e9dcbf 100644
      // Compute the transition before `select` below, which untracks (frees)
      // the previous selection's tracked pins; reading them after would be a
      // use-after-free.
-@@ -5187,7 +5187,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+@@ -5214,7 +5214,8 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
                  return true;
              }
  
@@ -47,10 +47,10 @@ index b3086ad3..14e9dcbf 100644
  
          .copy_url_to_clipboard => {
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 0b095b9b..45a3586b 100644
+index 05b0008d4..47938c7b7 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -6743,6 +6743,19 @@ pub const Keybinds = struct {
+@@ -6737,6 +6737,19 @@ pub const Keybinds = struct {
                  );
              }
  
@@ -71,7 +71,7 @@ index 0b095b9b..45a3586b 100644
              // ctrl+c is to kill the process.
              const mods: inputpkg.Mods = if (builtin.target.os.tag.isDarwin())
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 2db28bde..52b1124d 100644
+index 1145d35cd..befb3ea25 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -101,6 +101,8 @@ extern fn hotty_host_hyperlink(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
@@ -113,7 +113,7 @@ index 2db28bde..52b1124d 100644
 +        if (took and kind == .down) s.setSelection(null) catch {};
 +        if (took and kind == .up) copyOnSelect(s);
          shape = hs.shapeChange(s.io.terminal.mouse_shape, osc8, false);
-         if (hs.previewChange(osc8 and s.config.link_previews != .false, false)) |p| preview = s.alloc.dupeZ(u8, p) catch null;
+         if (hs.previewChange(osc8 and s.config.link_previews != .false, false)) |p| preview = s.alloc.dupeSentinel(u8, p, 0) catch null;
          drew = hs.drew;
 @@ -1472,6 +1482,49 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M
      return took;

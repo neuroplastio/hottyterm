@@ -34,10 +34,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 114 insertions(+), 20 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 9fe53317..0dc771ea 100644
+index 66efb1593..d0b190bfc 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -3810,7 +3810,7 @@ pub fn mouseReportingActive(self: *Surface) bool {
+@@ -3836,7 +3836,7 @@ pub fn mouseReportingActive(self: *Surface) bool {
      return self.isMouseReporting();
  }
  
@@ -46,7 +46,7 @@ index 9fe53317..0dc771ea 100644
      self: *Surface,
      button: ?input.MouseButton,
      action: input.MouseAction,
-@@ -3877,7 +3877,7 @@ fn mouseReport(
+@@ -3903,7 +3903,7 @@ fn mouseReport(
  /// Returns true if the shift modifier is allowed to be captured by modifier
  /// events. It is up to the caller to still verify it is a situation in which
  /// shift capture makes sense (i.e. left button, mouse click, etc.)
@@ -56,10 +56,10 @@ index 9fe53317..0dc771ea 100644
      switch (self.config.mouse_shift_capture) {
          .never => return false,
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index e00605dd..cb10634e 100644
+index 359e421d4..d34c969f5 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
-@@ -676,8 +676,8 @@ pub const Surface = extern struct {
+@@ -689,8 +689,8 @@ pub const Surface = extern struct {
          /// scroll happen there, not where the mouse pointer was.
          touch_start: apprt.CursorPos = .{ .x = 0, .y = 0 },
  
@@ -71,7 +71,7 @@ index e00605dd..cb10634e 100644
  
          /// True when the child has exited.
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 25a6c1fb..8e81d82b 100644
+index ebd7426c2..73f12edd1 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -85,6 +85,15 @@ pub const Effects = extern struct {

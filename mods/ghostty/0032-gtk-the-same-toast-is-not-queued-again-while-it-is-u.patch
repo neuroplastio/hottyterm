@@ -18,7 +18,7 @@ Upstream lines: 20 (GTK apprt only).
  1 file changed, 21 insertions(+), 2 deletions(-)
 
 diff --git a/src/apprt/gtk/class/window.zig b/src/apprt/gtk/class/window.zig
-index 58e59a37..e0068222 100644
+index fe27453d9..6292596d7 100644
 --- a/src/apprt/gtk/class/window.zig
 +++ b/src/apprt/gtk/class/window.zig
 @@ -5,6 +5,7 @@ const adw = @import("adw");

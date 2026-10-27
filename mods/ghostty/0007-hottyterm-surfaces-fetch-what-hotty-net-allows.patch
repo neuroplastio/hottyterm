@@ -32,7 +32,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 86 insertions(+), 9 deletions(-)
 
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 83a1322c..6aed0426 100644
+index 19667ab70..0ba08e598 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -3938,6 +3938,23 @@ term: []const u8 = "xterm-ghostty",
@@ -60,7 +60,7 @@ index 83a1322c..6aed0426 100644
  ///
  /// Most users should leave this set to `auto`. This will automatically detect
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 8f7aa0b7..46599fb0 100644
+index c5b2d4cfe..9977f2671 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -21,8 +21,10 @@
@@ -95,8 +95,8 @@ index 8f7aa0b7..46599fb0 100644
      pub fn init(alloc: Allocator, config: *const configpkg.Config) Allocator.Error!Settings {
          const families = config.@"font-family".list.items;
          return .{
-             .font_family = try alloc.dupeZ(u8, if (families.len > 0) families[0] else ""),
-+            .net = try alloc.dupeZ(u8, config.@"hotty-net"),
+             .font_family = try alloc.dupeSentinel(u8, if (families.len > 0) families[0] else "", 0),
++            .net = try alloc.dupeSentinel(u8, config.@"hotty-net", 0),
          };
      }
  };
@@ -219,7 +219,7 @@ index 8f7aa0b7..46599fb0 100644
  
      /// Forgets placements whose image is gone: scrolled out of the
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index f1fa2f85..82324e1c 100644
+index 1c4ce5418..3cfb81eb5 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
 @@ -130,7 +130,7 @@ pub const StreamHandler = struct {

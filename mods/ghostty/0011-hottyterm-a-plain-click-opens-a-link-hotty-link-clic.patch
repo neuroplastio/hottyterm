@@ -23,10 +23,10 @@ hovering underlines), Config.zig 14 (the option and its enum).
  3 files changed, 37 insertions(+), 5 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 305d6c20..28e41a0f 100644
+index 3d3f4ae9e..88aba2f8d 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -344,6 +344,7 @@ const DerivedConfig = struct {
+@@ -346,6 +346,7 @@ const DerivedConfig = struct {
      vt_window_resize_allowed: bool,
      links: []DerivedConfig.Link,
      link_osc8: bool,
@@ -34,7 +34,7 @@ index 305d6c20..28e41a0f 100644
      link_previews: configpkg.LinkPreviews,
      scroll_to_bottom: configpkg.Config.ScrollToBottom,
      notify_on_command_finish: configpkg.Config.NotifyOnCommandFinish,
-@@ -425,6 +426,7 @@ const DerivedConfig = struct {
+@@ -427,6 +428,7 @@ const DerivedConfig = struct {
              .vt_window_resize_allowed = config.@"vt-window-resize-allowed",
              .links = links,
              .link_osc8 = config.@"link-osc8",
@@ -42,7 +42,7 @@ index 305d6c20..28e41a0f 100644
              .link_previews = config.@"link-previews",
              .scroll_to_bottom = config.@"scroll-to-bottom",
              .notify_on_command_finish = config.@"notify-on-command-finish",
-@@ -1633,6 +1635,7 @@ fn mouseRefreshLinks(
+@@ -1653,6 +1655,7 @@ fn mouseRefreshLinks(
      // Update the last point that we checked for links so we don't
      // recheck if the mouse moves some pixels to the same point.
      self.mouse.link_point = pos_vp;
@@ -50,7 +50,7 @@ index 305d6c20..28e41a0f 100644
  
      // We use an arena for everything below to make things easy to clean up.
      // In the case we don't do any allocs this is very cheap to setup
-@@ -4522,6 +4525,7 @@ fn linkAtPin(
+@@ -4548,6 +4551,7 @@ fn linkAtPin(
  ///
  /// The renderer state mutex must be held.
  fn mouseModsWithCapture(self: *Surface, mods: input.Mods) input.Mods {
@@ -59,7 +59,7 @@ index 305d6c20..28e41a0f 100644
      // are preserved.
      if (self.io.terminal.flags.mouse_event == .none) return mods;
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 6aed0426..63a22c5d 100644
+index 0ba08e598..7795dca11 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -3955,6 +3955,17 @@ term: []const u8 = "xterm-ghostty",
@@ -80,7 +80,7 @@ index 6aed0426..63a22c5d 100644
  /// Configures the low-level API to use for async IO, eventing, etc.
  ///
  /// Most users should leave this set to `auto`. This will automatically detect
-@@ -5570,6 +5581,9 @@ pub const WindowSubtitle = enum {
+@@ -5564,6 +5575,9 @@ pub const WindowSubtitle = enum {
      @"working-directory",
  };
  
@@ -91,7 +91,7 @@ index 6aed0426..63a22c5d 100644
      false,
      true,
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 56580eda..c6287e59 100644
+index cf9e97ee1..76737c2a5 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -1237,14 +1237,28 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M

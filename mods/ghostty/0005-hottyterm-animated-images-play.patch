@@ -23,7 +23,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 70 insertions(+), 1 deletion(-)
 
 diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
-index 1aac3008..68fadee6 100644
+index 655301d11..3a7c1f62a 100644
 --- a/src/termio/Termio.zig
 +++ b/src/termio/Termio.zig
 @@ -399,6 +399,7 @@ pub fn threadEnter(
@@ -35,7 +35,7 @@ index 1aac3008..68fadee6 100644
      // Setup our backend
      try self.backend.threadEnter(self.alloc, self, data);
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index bfe84eb6..784a5214 100644
+index 257bbb023..1aa3c1b65 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -20,7 +20,9 @@

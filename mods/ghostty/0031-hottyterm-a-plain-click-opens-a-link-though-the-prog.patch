@@ -35,10 +35,10 @@ over in the motion report), Config.zig 5 (the option's text).
  3 files changed, 96 insertions(+), 10 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 1d4ad1a4..7df27035 100644
+index d90143fbd..39854ff04 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -2856,6 +2856,7 @@ pub fn keyCallback(
+@@ -2882,6 +2882,7 @@ pub fn keyCallback(
          // OR
          // 2. mouse reporting is on and we are not reporting shift to the terminal
          if (self.io.terminal.flags.mouse_event == .none or
@@ -46,7 +46,7 @@ index 1d4ad1a4..7df27035 100644
              (self.mouse.mods.shift and !self.mouseShiftCapture(false)))
          {
              // Refresh our link state
-@@ -2872,6 +2873,7 @@ pub fn keyCallback(
+@@ -2898,6 +2899,7 @@ pub fn keyCallback(
              };
          } else if (self.io.terminal.flags.mouse_event != .none and !self.mouse.mods.shift) {
              // If we have mouse reports on and we don't have shift pressed, we reset state
@@ -54,7 +54,7 @@ index 1d4ad1a4..7df27035 100644
              _ = try self.rt_app.performAction(
                  .{ .surface = self },
                  .mouse_shape,
-@@ -3939,6 +3941,18 @@ pub fn mouseButtonCallback(
+@@ -3965,6 +3967,18 @@ pub fn mouseButtonCallback(
      // hottyterm: a click on a surface belongs to the surface.
      if (hotty.surfaceButton(self, action, button, mods)) return true;
  
@@ -73,7 +73,7 @@ index 1d4ad1a4..7df27035 100644
      // This is set to true if the terminal is allowed to capture the shift
      // modifier. Note we can do this more efficiently probably with less
      // locking/unlocking but clicking isn't that frequent enough to be a
-@@ -4770,6 +4784,7 @@ pub fn cursorPosCallback(
+@@ -4796,6 +4810,7 @@ pub fn cursorPosCallback(
          self.mouse.link_point == null or
          (self.mouse.link_point != null and !self.mouse.link_point.?.eql(pos_vp))) and
          (self.io.terminal.flags.mouse_event == .none or
@@ -81,7 +81,7 @@ index 1d4ad1a4..7df27035 100644
              (self.mouse.mods.shift and !self.mouseShiftCapture(false))))
      {
          // If we were previously over a link, we always update. We do this so that if the text
-@@ -4779,6 +4794,13 @@ pub fn cursorPosCallback(
+@@ -4805,6 +4820,13 @@ pub fn cursorPosCallback(
  
      // Do a mouse report
      if (self.isMouseReporting()) report: {
@@ -96,7 +96,7 @@ index 1d4ad1a4..7df27035 100644
          // This only applies if there is a mouse button pressed so that
          // movement reports are not affected.
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 45a3586b..14b42cef 100644
+index 47938c7b7..775eca573 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -3960,9 +3960,10 @@ term: []const u8 = "xterm-ghostty",
@@ -114,7 +114,7 @@ index 45a3586b..14b42cef 100644
  @"hotty-link-click": HottyLinkClick = .plain,
  
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 45069d97..6dc7fcbd 100644
+index 4808c7b47..88650a4f4 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -359,6 +359,11 @@ pub const Hotty = struct {

@@ -25,7 +25,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 72 insertions(+), 14 deletions(-)
 
 diff --git a/src/renderer/Metal.zig b/src/renderer/Metal.zig
-index f092070d..a97049e3 100644
+index 5b3ad824e..f4d9bde9d 100644
 --- a/src/renderer/Metal.zig
 +++ b/src/renderer/Metal.zig
 @@ -37,10 +37,10 @@ pub const custom_shader_y_is_down = true;
@@ -103,7 +103,7 @@ index f092070d..a97049e3 100644
  pub inline fn beginFrame(
      self: *const Metal,
 diff --git a/src/renderer/OpenGL.zig b/src/renderer/OpenGL.zig
-index 540f86f3..43cad890 100644
+index 7f69958fd..d8d3264da 100644
 --- a/src/renderer/OpenGL.zig
 +++ b/src/renderer/OpenGL.zig
 @@ -37,6 +37,20 @@ pub const swap_chain_count = 3;
@@ -128,10 +128,10 @@ index 540f86f3..43cad890 100644
  
  /// We require at least OpenGL 4.3
 diff --git a/src/renderer/image.zig b/src/renderer/image.zig
-index c9bcc158..d6d80fb1 100644
+index 0904a18ca..012353546 100644
 --- a/src/renderer/image.zig
 +++ b/src/renderer/image.zig
-@@ -1180,16 +1180,8 @@ pub const Image = union(enum) {
+@@ -886,16 +886,8 @@ pub const Image = union(enum) {
          // Changed rectangles go into the existing texture.
          switch (self.*) {
              .update => |u| {

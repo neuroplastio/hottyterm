@@ -26,10 +26,10 @@ changed in src/cli/version.zig and one in src/apprt/gtk/class/window.zig.
  4 files changed, 16 insertions(+), 2 deletions(-)
 
 diff --git a/src/apprt/gtk/class/window.zig b/src/apprt/gtk/class/window.zig
-index e0068222..7f4c1a79 100644
+index 6292596d7..77dca248d 100644
 --- a/src/apprt/gtk/class/window.zig
 +++ b/src/apprt/gtk/class/window.zig
-@@ -2047,7 +2047,7 @@ pub const Window = extern struct {
+@@ -2048,7 +2048,7 @@ pub const Window = extern struct {
              "application-icon",
              icon,
              "version",
@@ -39,20 +39,20 @@ index e0068222..7f4c1a79 100644
              "https://github.com/ghostty-org/ghostty/issues",
              "website",
 diff --git a/src/build/Config.zig b/src/build/Config.zig
-index 71fa4d28..d8c7baa9 100644
+index 24157293b..c6595a26a 100644
 --- a/src/build/Config.zig
 +++ b/src/build/Config.zig
-@@ -683,6 +683,8 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
-         "{f}",
+@@ -710,6 +710,8 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
          .{self.version},
+         0,
      ));
 +    // hottyterm: the name its version is read by (src/termio/hotty.zig).
 +    step.addOption([]const u8, "hottyterm_label", step.step.owner.graph.environ_map.get("HOTTYTERM_LABEL") orelse "");
      var lib_version_buf: [1024]u8 = undefined;
      step.addOption(std.SemanticVersion, "lib_version", self.lib_version);
-     step.addOption([:0]const u8, "lib_version_string", try std.fmt.bufPrintZ(
+     step.addOption([:0]const u8, "lib_version_string", try std.mem.printSentinel(
 diff --git a/src/cli/version.zig b/src/cli/version.zig
-index ff203624..49e3ae75 100644
+index 29076b944..16dac65ad 100644
 --- a/src/cli/version.zig
 +++ b/src/cli/version.zig
 @@ -32,7 +32,7 @@ pub fn run(alloc: Allocator) !u8 {
@@ -65,7 +65,7 @@ index ff203624..49e3ae75 100644
  
      try stdout.print("Version\n", .{});
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 8e81d82b..a9b28ffb 100644
+index 73f12edd1..b394c77c6 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -31,6 +31,8 @@

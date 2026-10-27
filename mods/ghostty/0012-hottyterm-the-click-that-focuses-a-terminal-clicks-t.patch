@@ -25,7 +25,7 @@ split-focus condition).
  5 files changed, 34 insertions(+), 2 deletions(-)
 
 diff --git a/macos/Sources/Ghostty/Ghostty.Config.swift b/macos/Sources/Ghostty/Ghostty.Config.swift
-index 78cc9024..bd244fdf 100644
+index 78cc9024d..bd244fdf0 100644
 --- a/macos/Sources/Ghostty/Ghostty.Config.swift
 +++ b/macos/Sources/Ghostty/Ghostty.Config.swift
 @@ -351,6 +351,16 @@ extension Ghostty {
@@ -46,10 +46,10 @@ index 78cc9024..bd244fdf 100644
              let defaultValue = MacOSTitlebarStyle.transparent
              guard let config = self.config else { return defaultValue }
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index edbbd61c..02ff4bd3 100644
+index cbec3079e..280c46cf4 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
-@@ -692,7 +692,7 @@ extension Ghostty {
+@@ -711,7 +711,7 @@ extension Ghostty {
              // If our window/app is already focused, then this click is only
              // being used to transfer split focus. Consume it so it does not
              // get forwarded to the terminal as a mouse click.
@@ -58,7 +58,7 @@ index edbbd61c..02ff4bd3 100644
                  window.makeFirstResponder(self)
                  suppressNextLeftMouseUp = true
                  return nil
-@@ -900,6 +900,12 @@ extension Ghostty {
+@@ -919,6 +919,12 @@ extension Ghostty {
              setSurfaceSize(width: UInt32(scaledSize.width), height: UInt32(scaledSize.height))
          }
  
@@ -71,7 +71,7 @@ index edbbd61c..02ff4bd3 100644
          override func mouseDown(with event: NSEvent) {
              guard let surface = self.surface else { return }
              let mods = Ghostty.ghosttyMods(event.modifierFlags)
-@@ -1846,6 +1852,7 @@ extension Ghostty {
+@@ -1865,6 +1871,7 @@ extension Ghostty {
              let windowTitleFontFamily: String?
              let windowAppearance: NSAppearance?
              let scrollbar: Ghostty.Config.Scrollbar
@@ -79,7 +79,7 @@ index edbbd61c..02ff4bd3 100644
  
              init() {
                  self.backgroundColor = Color(NSColor.windowBackgroundColor)
-@@ -1855,6 +1862,7 @@ extension Ghostty {
+@@ -1874,6 +1881,7 @@ extension Ghostty {
                  self.windowTitleFontFamily = nil
                  self.windowAppearance = nil
                  self.scrollbar = .system
@@ -87,7 +87,7 @@ index edbbd61c..02ff4bd3 100644
              }
  
              init(_ config: Ghostty.Config) {
-@@ -1865,6 +1873,7 @@ extension Ghostty {
+@@ -1884,6 +1892,7 @@ extension Ghostty {
                  self.windowTitleFontFamily = config.windowTitleFontFamily
                  self.windowAppearance = .init(ghosttyConfig: config)
                  self.scrollbar = config.scrollbar
@@ -96,10 +96,10 @@ index edbbd61c..02ff4bd3 100644
          }
  
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 28e41a0f..29ca11a1 100644
+index 88aba2f8d..bbc54b156 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -345,6 +345,7 @@ const DerivedConfig = struct {
+@@ -347,6 +347,7 @@ const DerivedConfig = struct {
      links: []DerivedConfig.Link,
      link_osc8: bool,
      hotty_link_click: configpkg.Config.HottyLinkClick,
@@ -107,7 +107,7 @@ index 28e41a0f..29ca11a1 100644
      link_previews: configpkg.LinkPreviews,
      scroll_to_bottom: configpkg.Config.ScrollToBottom,
      notify_on_command_finish: configpkg.Config.NotifyOnCommandFinish,
-@@ -427,6 +428,7 @@ const DerivedConfig = struct {
+@@ -429,6 +430,7 @@ const DerivedConfig = struct {
              .links = links,
              .link_osc8 = config.@"link-osc8",
              .hotty_link_click = config.@"hotty-link-click",
@@ -116,10 +116,10 @@ index 28e41a0f..29ca11a1 100644
              .scroll_to_bottom = config.@"scroll-to-bottom",
              .notify_on_command_finish = config.@"notify-on-command-finish",
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index edf6ea2b..1fee0c54 100644
+index 92cd59784..f398ed296 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
-@@ -2880,7 +2880,7 @@ pub const Surface = extern struct {
+@@ -2948,7 +2948,7 @@ pub const Surface = extern struct {
  
          // If this click is only transitioning split focus, suppress it so
          // it doesn't get forwarded to the terminal as a mouse event.
@@ -129,7 +129,7 @@ index edf6ea2b..1fee0c54 100644
              return;
          }
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 63a22c5d..2b688e93 100644
+index 7795dca11..ebb02eef1 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -3966,6 +3966,16 @@ term: []const u8 = "xterm-ghostty",
@@ -149,7 +149,7 @@ index 63a22c5d..2b688e93 100644
  /// Configures the low-level API to use for async IO, eventing, etc.
  ///
  /// Most users should leave this set to `auto`. This will automatically detect
-@@ -5583,6 +5593,7 @@ pub const WindowSubtitle = enum {
+@@ -5577,6 +5587,7 @@ pub const WindowSubtitle = enum {
  
  // hottyterm: `hotty-link-click`.
  pub const HottyLinkClick = enum { plain, modifier };

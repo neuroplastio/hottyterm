@@ -25,10 +25,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 63 insertions(+), 11 deletions(-)
 
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 5b53f300..e00605dd 100644
+index 659c0b867..359e421d4 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
-@@ -2868,7 +2868,7 @@ pub const Surface = extern struct {
+@@ -2936,7 +2936,7 @@ pub const Surface = extern struct {
  
      fn gcMouseDown(
          gesture: *gtk.GestureClick,
@@ -37,7 +37,7 @@ index 5b53f300..e00605dd 100644
          x: f64,
          y: f64,
          self: *Self,
-@@ -2891,6 +2891,7 @@ pub const Surface = extern struct {
+@@ -2959,6 +2959,7 @@ pub const Surface = extern struct {
  
          // hottyterm: a touch a HOTTY surface has is not a click.
          if (priv.touch_hotty and gesture.as(gtk.GestureSingle).getCurrentSequence() != null) return;
@@ -46,7 +46,7 @@ index 5b53f300..e00605dd 100644
          // Report the event
          const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 8457e5ab..2db28bde 100644
+index 1938244e7..1145d35cd 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -88,7 +88,7 @@ extern fn hotty_host_redeliver(h: *Host, surface: [*:0]const u8) void;
@@ -80,7 +80,7 @@ index 8457e5ab..2db28bde 100644
 +    last_press: ?struct { time: std.Io.Timestamp, x: f32, y: f32, count: u32 } = null,
      /// The keys whose press a surface took: their releases are the
      /// surface's too, wherever the keyboard is by then (`surfaceKey`).
-     held_keys: std.EnumSet(input.Key) = .initEmpty(),
+     held_keys: std.EnumSet(input.Key) = .empty,
 @@ -453,6 +462,8 @@ pub const Hotty = struct {
              // The pointer passes through what a surface does not take
              // (SPEC §9.3): `hit` asks the surface.
@@ -134,7 +134,7 @@ index 8457e5ab..2db28bde 100644
 @@ -1150,7 +1189,7 @@ pub const Hotty = struct {
              if (self.hover_len > 0) {
                  var buf: [73]u8 = undefined;
-                 const old = std.fmt.bufPrintZ(&buf, "{s}", .{self.hover[0..self.hover_len]}) catch "";
+                 const old = std.mem.printSentinel(&buf, "{s}", .{self.hover[0..self.hover_len]}, 0) catch "";
 -                hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
 +                hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, 0, &fx);
                  self.hover_len = 0;
@@ -143,7 +143,7 @@ index 8457e5ab..2db28bde 100644
 @@ -1170,7 +1209,7 @@ pub const Hotty = struct {
          if (self.hover_len > 0 and !std.mem.eql(u8, self.hover[0..self.hover_len], over)) {
              var buf: [73]u8 = undefined;
-             const old = std.fmt.bufPrintZ(&buf, "{s}", .{self.hover[0..self.hover_len]}) catch "";
+             const old = std.mem.printSentinel(&buf, "{s}", .{self.hover[0..self.hover_len]}, 0) catch "";
 -            hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
 +            hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, 0, &fx);
              self.hover_len = 0;
@@ -152,7 +152,7 @@ index 8457e5ab..2db28bde 100644
 @@ -1180,7 +1219,7 @@ pub const Hotty = struct {
              }
              var name_buf: [73]u8 = undefined;
-             const name = std.fmt.bufPrintZ(&name_buf, "{s}", .{tg.name}) catch return false;
+             const name = std.mem.printSentinel(&name_buf, "{s}", .{tg.name}, 0) catch return false;
 -            hotty_host_pointer(h, name.ptr, @intFromEnum(kind), tg.x, tg.y, mods, &fx);
 +            hotty_host_pointer(h, name.ptr, @intFromEnum(kind), tg.x, tg.y, mods, count, &fx);
              const css = hotty_host_cursor(h, name.ptr);
@@ -170,7 +170,7 @@ index 8457e5ab..2db28bde 100644
 @@ -1221,7 +1260,7 @@ pub const Hotty = struct {
          const fx = self.effects();
          var buf: [73]u8 = undefined;
-         const old = std.fmt.bufPrintZ(&buf, "{s}", .{self.hover[0..self.hover_len]}) catch "";
+         const old = std.mem.printSentinel(&buf, "{s}", .{self.hover[0..self.hover_len]}, 0) catch "";
 -        hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
 +        hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, 0, &fx);
          self.hover_len = 0;
@@ -185,7 +185,7 @@ index 8457e5ab..2db28bde 100644
 +        const count = hs.clickCount(kind, pos, s.config.mouse_interval, @floatFromInt(s.size.cell.width));
 +        const took = hs.pointer(&s.io.terminal, kind, tp.x, tp.y, hostMods(mods), count);
          shape = hs.shapeChange(s.io.terminal.mouse_shape, osc8, false);
-         if (hs.previewChange(osc8 and s.config.link_previews != .false, false)) |p| preview = s.alloc.dupeZ(u8, p) catch null;
+         if (hs.previewChange(osc8 and s.config.link_previews != .false, false)) |p| preview = s.alloc.dupeSentinel(u8, p, 0) catch null;
          drew = hs.drew;
 @@ -1604,6 +1645,16 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
      return took;

@@ -27,7 +27,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index ba9ff1d0..4d8e39c2 100644
+index 369bb2399..66bc25205 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -27,6 +27,7 @@ const crash = @import("crash/main.zig");
@@ -38,7 +38,7 @@ index ba9ff1d0..4d8e39c2 100644
  const font = @import("font/main.zig");
  const Command = @import("Command.zig");
  const terminal = @import("terminal/main.zig");
-@@ -703,6 +704,7 @@ pub fn init(
+@@ -723,6 +724,7 @@ pub fn init(
      // Outside the block, IO has now taken ownership of our temporary state
      // so we can just defer this and not the subcomponents.
      errdefer self.io.deinit();
@@ -46,7 +46,7 @@ index ba9ff1d0..4d8e39c2 100644
  
      // Report initial cell size on surface creation
      _ = try rt_app.performAction(
-@@ -2512,6 +2514,7 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
+@@ -2538,6 +2540,7 @@ pub fn setFontSize(self: *Surface, size: font.face.DesiredSize) !void {
  
      // Update our font size so future changes work
      self.font_size = size;
@@ -54,7 +54,7 @@ index ba9ff1d0..4d8e39c2 100644
  
      // We need to build up a new font stack for this font size.
      const font_grid_key, const font_grid = try self.app.font_grid_set.ref(
-@@ -2819,6 +2822,9 @@ pub fn keyCallback(
+@@ -2845,6 +2848,9 @@ pub fn keyCallback(
          if (self.io.terminal.modes.get(.disable_keyboard)) return .consumed;
      }
  
@@ -64,7 +64,7 @@ index ba9ff1d0..4d8e39c2 100644
      // If this input event has text, then we hide the mouse if configured.
      // We only do this on pressed events to avoid hiding the mouse when we
      // change focus due to a keybinding (i.e. switching tabs).
-@@ -2886,6 +2892,9 @@ pub fn keyCallback(
+@@ -2912,6 +2918,9 @@ pub fn keyCallback(
          shape,
      );
  
@@ -74,7 +74,7 @@ index ba9ff1d0..4d8e39c2 100644
      // We've processed a key event that produced some data so we want to
      // track the last pressed key.
      self.pressed_key = event: {
-@@ -3915,6 +3924,9 @@ pub fn mouseButtonCallback(
+@@ -3941,6 +3950,9 @@ pub fn mouseButtonCallback(
      // Update our modifiers if they changed
      self.modsChanged(mods);
  
@@ -84,7 +84,7 @@ index ba9ff1d0..4d8e39c2 100644
      // This is set to true if the terminal is allowed to capture the shift
      // modifier. Note we can do this more efficiently probably with less
      // locking/unlocking but clicking isn't that frequent enough to be a
-@@ -4660,6 +4672,9 @@ pub fn cursorPosCallback(
+@@ -4686,6 +4698,9 @@ pub fn cursorPosCallback(
  
      // log.debug("cursor pos x={} y={} mods={?}", .{ pos.x, pos.y, mods });
  
@@ -95,7 +95,7 @@ index ba9ff1d0..4d8e39c2 100644
      // we need to clear any hover states.
      if (pos.x < 0 or pos.y < 0) {
 diff --git a/src/build/GhosttyExe.zig b/src/build/GhosttyExe.zig
-index 22f39b7b..790f4af4 100644
+index 13c3cd145..72c32d48c 100644
 --- a/src/build/GhosttyExe.zig
 +++ b/src/build/GhosttyExe.zig
 @@ -33,6 +33,16 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
@@ -116,7 +116,7 @@ index 22f39b7b..790f4af4 100644
      try checkNixShell(exe, cfg);
  
 diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
-index 0a0549c1..1aac3008 100644
+index 49bd6e0cd..655301d11 100644
 --- a/src/termio/Termio.zig
 +++ b/src/termio/Termio.zig
 @@ -12,6 +12,7 @@ const EnvMap = std.process.Environ.Map;
@@ -159,7 +159,7 @@ index 0a0549c1..1aac3008 100644
          }),
          .thread_enter_state = thread_enter_state,
      };
-@@ -548,6 +553,9 @@ pub fn resize(
+@@ -556,6 +561,9 @@ pub fn resize(
          if (self.terminal.modes.get(.in_band_size_reports)) {
              try self.sizeReportLocked(td, .mode_2048);
          }
@@ -169,7 +169,7 @@ index 0a0549c1..1aac3008 100644
      }
  
      // Mail the renderer so that it can update the GPU and re-render
-@@ -745,6 +753,9 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
+@@ -753,6 +761,9 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
          self.terminal_stream.nextSlice(buf);
      }
  
@@ -181,7 +181,7 @@ index 0a0549c1..1aac3008 100644
      if (self.terminal_stream.handler.termio_messaged) {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
 new file mode 100644
-index 00000000..483a5153
+index 000000000..8080b0883
 --- /dev/null
 +++ b/src/termio/hotty.zig
 @@ -0,0 +1,1180 @@
@@ -292,7 +292,7 @@ index 00000000..483a5153
 +    pub fn init(alloc: Allocator, config: *const configpkg.Config) Allocator.Error!Settings {
 +        const families = config.@"font-family".list.items;
 +        return .{
-+            .font_family = try alloc.dupeZ(u8, if (families.len > 0) families[0] else ""),
++            .font_family = try alloc.dupeSentinel(u8, if (families.len > 0) families[0] else "", 0),
 +        };
 +    }
 +};
@@ -472,7 +472,7 @@ index 00000000..483a5153
 +
 +    fn onPlace(ctx: ?*anyopaque, surface: [*:0]const u8, cols: u16, rows: u16, x: u16, y: u16, w: u16, h: u16, z: i32, created: u32, move_cursor: bool) callconv(.c) void {
 +        const self: *Hotty = @ptrCast(@alignCast(ctx.?));
-+        const name = self.alloc.dupeZ(u8, std.mem.span(surface)) catch return;
++        const name = self.alloc.dupeSentinel(u8, std.mem.span(surface), 0) catch return;
 +        self.places.append(self.alloc, .{
 +            .surface = name,
 +            .cols = cols,
@@ -997,7 +997,7 @@ index 00000000..483a5153
 +            const fx = self.effects();
 +            if (self.hover_len > 0) {
 +                var buf: [73]u8 = undefined;
-+                const old = std.fmt.bufPrintZ(&buf, "{s}", .{self.hover[0..self.hover_len]}) catch "";
++                const old = std.mem.printSentinel(&buf, "{s}", .{self.hover[0..self.hover_len]}, 0) catch "";
 +                hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
 +                self.hover_len = 0;
 +            }
@@ -1017,7 +1017,7 @@ index 00000000..483a5153
 +        const over: []const u8 = if (target) |tg| tg.name else "";
 +        if (self.hover_len > 0 and !std.mem.eql(u8, self.hover[0..self.hover_len], over)) {
 +            var buf: [73]u8 = undefined;
-+            const old = std.fmt.bufPrintZ(&buf, "{s}", .{self.hover[0..self.hover_len]}) catch "";
++            const old = std.mem.printSentinel(&buf, "{s}", .{self.hover[0..self.hover_len]}, 0) catch "";
 +            hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
 +            self.hover_len = 0;
 +        }
@@ -1027,7 +1027,7 @@ index 00000000..483a5153
 +                self.hover_len = tg.name.len;
 +            }
 +            var name_buf: [73]u8 = undefined;
-+            const name = std.fmt.bufPrintZ(&name_buf, "{s}", .{tg.name}) catch return false;
++            const name = std.mem.printSentinel(&name_buf, "{s}", .{tg.name}, 0) catch return false;
 +            hotty_host_pointer(h, name.ptr, @intFromEnum(kind), tg.x, tg.y, mods, &fx);
 +            const css = hotty_host_cursor(h, name.ptr);
 +            self.shape = if (css) |c| terminal.MouseShape.fromString(std.mem.span(c)) orelse .default else .default;
@@ -1071,7 +1071,7 @@ index 00000000..483a5153
 +            if (url != null and std.mem.eql(u8, old, url.?)) return;
 +            self.alloc.free(old);
 +        }
-+        self.link = if (url) |u| self.alloc.dupeZ(u8, u) catch null else null;
++        self.link = if (url) |u| self.alloc.dupeSentinel(u8, u, 0) catch null else null;
 +    }
 +
 +    /// The pointer's shape to show, when it changed since the last call (or
@@ -1098,7 +1098,7 @@ index 00000000..483a5153
 +            self.shown_url == null;
 +        if (!force and same) return null;
 +        if (self.shown_url) |o| self.alloc.free(o);
-+        self.shown_url = if (url) |u| self.alloc.dupeZ(u8, u) catch null else null;
++        self.shown_url = if (url) |u| self.alloc.dupeSentinel(u8, u, 0) catch null else null;
 +        return if (url) |u| u else "";
 +    }
 +
@@ -1168,7 +1168,7 @@ index 00000000..483a5153
 +        }
 +        const took = hs.pointer(&s.io.terminal, kind, tp.x, tp.y, hostMods(mods));
 +        shape = hs.shapeChange(s.io.terminal.mouse_shape, osc8, false);
-+        if (hs.previewChange(osc8 and s.config.link_previews != .false, false)) |p| preview = s.alloc.dupeZ(u8, p) catch null;
++        if (hs.previewChange(osc8 and s.config.link_previews != .false, false)) |p| preview = s.alloc.dupeSentinel(u8, p, 0) catch null;
 +        drew = hs.drew;
 +        hs.drew = false;
 +        break :took took;
@@ -1228,7 +1228,7 @@ index 00000000..483a5153
 +        const hs = &s.io.terminal_stream.handler.hotty;
 +        if (hs.hover_len == 0) return; // not over a surface: the cells' business
 +        shape = hs.shapeChange(s.io.terminal.mouse_shape, osc8, true);
-+        if (hs.previewChange(osc8 and s.config.link_previews != .false, true)) |p| preview = s.alloc.dupeZ(u8, p) catch null;
++        if (hs.previewChange(osc8 and s.config.link_previews != .false, true)) |p| preview = s.alloc.dupeSentinel(u8, p, 0) catch null;
 +    }
 +    apply(s, shape, preview);
 +}
@@ -1352,7 +1352,7 @@ index 00000000..483a5153
 +        };
 +        var text_buf: [64]u8 = undefined;
 +        const text: ?[*:0]const u8 = if (code == 0 and event.utf8.len > 0 and event.utf8.len < text_buf.len)
-+            (std.fmt.bufPrintZ(&text_buf, "{s}", .{event.utf8}) catch break :consumed false).ptr
++            (std.mem.printSentinel(&text_buf, "{s}", .{event.utf8}, 0) catch break :consumed false).ptr
 +        else if (code == 0)
 +            break :consumed false
 +        else
@@ -1366,7 +1366,7 @@ index 00000000..483a5153
 +    return consumed;
 +}
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index 5d549d80..f1fa2f85 100644
+index 0f1ee50f7..1c4ce5418 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
 @@ -11,6 +11,7 @@ const internal_os = @import("../os/main.zig");
@@ -1403,7 +1403,7 @@ index 5d549d80..f1fa2f85 100644
          self.terminal.setDefaultCursorStyle(config.cursor_style);
          self.terminal.setDefaultCursorBlink(config.cursor_blink);
          self.terminal.setDefaultXtChecksum(config.xt_checksum_extension);
-@@ -388,9 +394,10 @@ pub const StreamHandler = struct {
+@@ -384,9 +390,10 @@ pub const StreamHandler = struct {
              .title_push,
              .title_pop,
              .kitty_dnd,
@@ -1415,7 +1415,7 @@ index 5d549d80..f1fa2f85 100644
          }
      }
  
-@@ -935,6 +942,7 @@ pub const StreamHandler = struct {
+@@ -931,6 +938,7 @@ pub const StreamHandler = struct {
          self: *StreamHandler,
      ) !void {
          self.terminal.fullReset();

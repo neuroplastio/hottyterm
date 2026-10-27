@@ -25,10 +25,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 270 insertions(+), 10 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index b30b012f..1d4ad1a4 100644
+index 3d1a1d32d..d90143fbd 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -6270,6 +6270,7 @@ fn completeClipboardPaste(
+@@ -6298,6 +6298,7 @@ fn completeClipboardPaste(
      data: []const u8,
      allow_unsafe: bool,
  ) !void {
@@ -37,7 +37,7 @@ index b30b012f..1d4ad1a4 100644
      if (hotty.pasteInto(self, data)) return;
  
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index fd230f8f..4ca93862 100644
+index 9ad608c26..3b57908b0 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -29,6 +29,7 @@
@@ -94,7 +94,7 @@ index fd230f8f..4ca93862 100644
 @@ -347,6 +370,21 @@ pub const Hotty = struct {
      /// The keys whose press a surface took: their releases are the
      /// surface's too, wherever the keyboard is by then (`surfaceKey`).
-     held_keys: std.EnumSet(input.Key) = .initEmpty(),
+     held_keys: std.EnumSet(input.Key) = .empty,
 +    /// The edit commands the program took (`a=edit`, SPEC §10.6) on the
 +    /// main screen and on the alternate one, a bit for each of
 +    /// `edit_actions`.
@@ -134,7 +134,7 @@ index fd230f8f..4ca93862 100644
 +    /// The which-key menu shows anew: its frame places it (`applyMenu`).
 +    fn onMenu(ctx: ?*anyopaque, surface: [*:0]const u8, cols: u16, rows: u16) callconv(.c) void {
 +        const self: *Hotty = @ptrCast(@alignCast(ctx.?));
-+        const name = self.alloc.dupeZ(u8, std.mem.span(surface)) catch return;
++        const name = self.alloc.dupeSentinel(u8, std.mem.span(surface), 0) catch return;
 +        if (self.menu_place) |p| self.alloc.free(p.surface);
 +        self.menu_place = .{
 +            .surface = name,

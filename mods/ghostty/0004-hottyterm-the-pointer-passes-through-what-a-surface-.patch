@@ -21,7 +21,7 @@ Upstream files: none touched.
  1 file changed, 31 insertions(+), 13 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 1cb01100..bfe84eb6 100644
+index 31f524bab..257bbb023 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -84,6 +84,8 @@ extern fn hotty_host_blur(h: *Host, surface: [*:0]const u8, fx: *const Effects)
@@ -83,7 +83,7 @@ index 1cb01100..bfe84eb6 100644
              }
 +            const tg = top orelse return null;
 +            var buf: [73]u8 = undefined;
-+            const name = std.fmt.bufPrintZ(&buf, "{s}", .{tg.name}) catch return tg;
++            const name = std.mem.printSentinel(&buf, "{s}", .{tg.name}, 0) catch return tg;
 +            if (hotty_host_takes_pointer(h, name.ptr, tg.x, tg.y)) return tg;
 +            below = top_z;
          }

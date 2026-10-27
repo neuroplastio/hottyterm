@@ -22,10 +22,10 @@ underline goes.
  3 files changed, 30 insertions(+), 11 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 7df27035..9fe53317 100644
+index 39854ff04..66efb1593 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -1723,6 +1723,9 @@ fn mouseRefreshLinks(
+@@ -1743,6 +1743,9 @@ fn mouseRefreshLinks(
      // No link, if we're previously over a link then we need to clear
      // the over-link apprt state.
      if (over_link) {
@@ -35,7 +35,7 @@ index 7df27035..9fe53317 100644
          _ = try self.rt_app.performAction(
              .{ .surface = self },
              .mouse_shape,
-@@ -4545,7 +4548,7 @@ fn linkAtPin(
+@@ -4571,7 +4574,7 @@ fn linkAtPin(
  ///
  /// The renderer state mutex must be held.
  fn mouseModsWithCapture(self: *Surface, mods: input.Mods) input.Mods {
@@ -45,7 +45,7 @@ index 7df27035..9fe53317 100644
      // are preserved.
      if (self.io.terminal.flags.mouse_event == .none) return mods;
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 3654e885..74cf404a 100644
+index d5c4b317f..824b37e9c 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -3956,10 +3956,11 @@ term: []const u8 = "xterm-ghostty",
@@ -64,7 +64,7 @@ index 3654e885..74cf404a 100644
  ///     reports the mouse: the program sees no click on a link, but a drag
  ///     that starts on one reaches it. A click with Ctrl (Cmd on macOS)
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index c9026e8d..25a6c1fb 100644
+index d765e54f7..ebd7426c2 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -1838,17 +1838,32 @@ fn osc8Gesture(s: *Surface, mods: input.Mods) bool {

@@ -22,7 +22,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 24 insertions(+)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 784a5214..8f7aa0b7 100644
+index 1aa3c1b65..c5b2d4cfe 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -82,6 +82,7 @@ extern fn hotty_host_has_dirty(h: *const Host) bool;

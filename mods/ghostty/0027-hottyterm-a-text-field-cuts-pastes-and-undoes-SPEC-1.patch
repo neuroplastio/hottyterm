@@ -22,10 +22,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 79 insertions(+), 2 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 14e9dcbf..b30b012f 100644
+index b7da38577..3d1a1d32d 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -6234,7 +6234,7 @@ fn startClipboardRequest(
+@@ -6262,7 +6262,7 @@ fn startClipboardRequest(
              const event = self.io.terminal.modes.get(.kitty_paste_events);
              self.renderer_state.mutex.unlock(global.io());
  
@@ -34,7 +34,7 @@ index 14e9dcbf..b30b012f 100644
                  .{ .list = clipboard }
              else
                  req;
-@@ -6271,6 +6271,7 @@ fn completeClipboardPaste(
+@@ -6299,6 +6299,7 @@ fn completeClipboardPaste(
      allow_unsafe: bool,
  ) !void {
      if (data.len == 0) return;
@@ -43,7 +43,7 @@ index 14e9dcbf..b30b012f 100644
      const encode_opts: input.paste.Options = encode_opts: {
          self.renderer_state.mutex.lockUncancelable(global.io());
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 52b1124d..d19e322e 100644
+index befb3ea25..02e966579 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -70,6 +70,10 @@ pub const Effects = extern struct {
@@ -97,7 +97,7 @@ index 52b1124d..d19e322e 100644
 +    fn onClipboard(ctx: ?*anyopaque, text: [*]const u8, len: usize) callconv(.c) void {
 +        const self: *Hotty = @ptrCast(@alignCast(ctx.?));
 +        if (self.cut) |c| self.alloc.free(c);
-+        self.cut = self.alloc.dupeZ(u8, text[0..len]) catch null;
++        self.cut = self.alloc.dupeSentinel(u8, text[0..len], 0) catch null;
 +    }
 +
 +    fn onPaste(ctx: ?*anyopaque) callconv(.c) void {

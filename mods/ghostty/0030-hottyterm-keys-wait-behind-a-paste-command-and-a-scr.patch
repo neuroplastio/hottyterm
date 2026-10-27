@@ -21,7 +21,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 89 insertions(+), 3 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 4ca93862..45069d97 100644
+index 3b57908b0..4808c7b47 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -381,10 +381,24 @@ pub const Hotty = struct {
@@ -162,10 +162,10 @@ index 4ca93862..45069d97 100644
  /// program's hides on Escape and on a key it does not list (SPEC §10.6).
  /// The key goes on.
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index 82324e1c..3de3b1dd 100644
+index 3cfb81eb5..10c0b492f 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
-@@ -709,14 +709,17 @@ pub const StreamHandler = struct {
+@@ -705,14 +705,17 @@ pub const StreamHandler = struct {
  
              .alt_screen_legacy => {
                  try self.terminal.switchScreenMode(.@"47", enabled);

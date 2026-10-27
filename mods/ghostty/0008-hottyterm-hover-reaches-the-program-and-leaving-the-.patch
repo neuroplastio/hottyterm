@@ -25,7 +25,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 38 insertions(+), 3 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 46599fb0..0835f46a 100644
+index 9977f2671..5da27c3b6 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -1066,6 +1066,23 @@ pub const Hotty = struct {
@@ -41,7 +41,7 @@ index 46599fb0..0835f46a 100644
 +        const h = self.host orelse return;
 +        const fx = self.effects();
 +        var buf: [73]u8 = undefined;
-+        const old = std.fmt.bufPrintZ(&buf, "{s}", .{self.hover[0..self.hover_len]}) catch "";
++        const old = std.mem.printSentinel(&buf, "{s}", .{self.hover[0..self.hover_len]}, 0) catch "";
 +        hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, &fx);
 +        self.hover_len = 0;
 +        self.shape = null;

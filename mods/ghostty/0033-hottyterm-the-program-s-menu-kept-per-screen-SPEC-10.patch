@@ -20,7 +20,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 9 insertions(+), 6 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 6dc7fcbd..3699cc7a 100644
+index 88650a4f4..5f6f47960 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -121,7 +121,7 @@ extern fn hotty_host_set_keys(h: *Host, meta: bool, edit: ?[*:0]const u8, comman

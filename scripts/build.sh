@@ -4,23 +4,17 @@
 #   scripts/build.sh [ReleaseFast|Debug] [zig build args...]
 #
 # The fork is at ../ghostty (scripts/fork.sh), hotty-blitz at HOTTY_BLITZ_DIR
-# or next to this repository. Two workarounds for this machine, neither needing
-# root:
-#   - Zig 0.16's own linker cannot link CachyOS's crt1.o (.sframe relocations),
-#     so the build uses a copy of Zig's lib dir whose std.Build defaults to LLVM
-#     and LLD, passed with --zig-lib-dir.
-#   - blueprint-compiler >= 0.20 is not packaged here; a checkout is cached,
-#     one per version.
-#     Ghostty runs it as a system command, and a zig build step fails on any
-#     stderr, so a wrapper passes its stderr on only when it fails: it warns
-#     about upstream's unused `using Adw 1;` imports.
+# or next to this repository. One workaround for this machine, not needing
+# root: blueprint-compiler >= 0.20 is not packaged here, so a checkout is
+# cached, one per version. Ghostty runs it as a system command, and a zig
+# build step fails on any stderr, so a wrapper passes its stderr on only when
+# it fails: it warns about upstream's unused `using Adw 1;` imports.
 set -eu
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 FORK="${HOTTYTERM_GHOSTTY:-$(dirname "$HERE")/ghostty}"
 OPT="${1:-ReleaseFast}"; [ $# -gt 0 ] && shift
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/hotty"
 ZIG="$(cd "$HERE" && mise which zig)"
-ZIG_LIB_SRC="$(dirname "$(readlink -f "$ZIG")")/lib"
 
 blitz_dir() {
   for d in "${HOTTY_BLITZ_DIR:-}" "$(dirname "$HERE")/../hotty-blitz/main" "$(dirname "$HERE")/hotty-blitz"; do
@@ -38,17 +32,7 @@ if [ "$at" != "$pin" ] || [ -n "$(git -C "$BLITZ" status --porcelain 2>/dev/null
   echo "note: building hotty-blitz as checked out in $BLITZ ($(echo "$at" | cut -c1-7), with its changes), not hotty-blitz-ref's $(echo "$pin" | cut -c1-7)" >&2
 fi
 
-# 1. Zig lib with LLVM + LLD as the default for every compile step.
-LIB="$CACHE/zig-lib-llvm"
-if [ ! -f "$LIB/.patched" ]; then
-  rm -rf "$LIB"; mkdir -p "$(dirname "$LIB")"; cp -r "$ZIG_LIB_SRC" "$LIB"
-  sed -i 's/^\(    use_llvm: ?bool = \)null,/\1true,/; s/^\(    use_lld: ?bool = \)null,/\1true,/' \
-    "$LIB/std/Build.zig" "$LIB/std/Build/Step/Compile.zig"
-  grep -c 'use_llvm: ?bool = true' "$LIB/std/Build.zig" >/dev/null
-  touch "$LIB/.patched"
-fi
-
-# 2. blueprint-compiler, configured the way meson would.
+# 1. blueprint-compiler, configured the way meson would.
 # Ghostty's build checks the version (src/apprt/gtk/build/blueprint.zig).
 BPC_VERSION=0.20.4
 BPC="$CACHE/blueprint-compiler-$BPC_VERSION"
@@ -68,14 +52,14 @@ err=\$(mktemp); python3 "$BIN/blueprint-compiler.py" "\$@" 2>"\$err"; rc=\$?
 WRAP
 chmod +x "$BIN/blueprint-compiler"
 
-# 3. hotty-blitz, as the shared library the fork links.
+# 2. hotty-blitz, as the shared library the fork links.
 (cd "$BLITZ" && make -s blitz >/dev/null && mise x -- cargo build -q --release -p hotty-blitz)
 
-# 4. The name a person reads the version by (gov P-5 rule 6), which --version
+# 3. The name a person reads the version by (gov P-5 rule 6), which --version
 # and the About window show (mods/ghostty/version-label.md).
 LABEL="$("$HERE/scripts/versions.sh" "$BLITZ" | sed -n 's/^label=//p')"
 
 cd "$FORK"
 HOTTY_BLITZ_LIB="$BLITZ/target/release" HOTTYTERM_LABEL="$LABEL" PATH="$BIN:$PATH" \
-  "$ZIG" build --zig-lib-dir "$LIB" -Doptimize="$OPT" "$@"
+  "$ZIG" build -Doptimize="$OPT" "$@"
 echo "built $FORK/zig-out/bin/hottyterm against $BLITZ"

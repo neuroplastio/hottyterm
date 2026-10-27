@@ -30,7 +30,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  6 files changed, 56 insertions(+), 61 deletions(-)
 
 diff --git a/build.zig.zon b/build.zig.zon
-index e42311e2..df1391ac 100644
+index 67dfd211f..f3278aafa 100644
 --- a/build.zig.zon
 +++ b/build.zig.zon
 @@ -109,6 +109,11 @@
@@ -46,19 +46,16 @@ index e42311e2..df1391ac 100644
              .url = "https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz",
              .hash = "N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO26s",
 diff --git a/build.zig.zon.txt b/build.zig.zon.txt
-index c5bbcbaa..53980113 100644
+index 85cbabae6..9b144ad02 100644
 --- a/build.zig.zon.txt
 +++ b/build.zig.zon.txt
-@@ -34,6 +34,7 @@ https://deps.files.ghostty.org/zf-c35c421f84895193246db06c40683c1a30e616ef.tar.g
- https://deps.files.ghostty.org/zig_js-3c23860e47fdcdc5af805efb7fd0bdac5fd3e9bc.tar.gz
- https://deps.files.ghostty.org/zig_objc-c8de82ff80281215ad92900866dab7103a8efa8b.tar.gz
+@@ -35,3 +35,4 @@ https://deps.files.ghostty.org/zig_js-3c23860e47fdcdc5af805efb7fd0bdac5fd3e9bc.t
+ https://deps.files.ghostty.org/zig_objc-3352c12a868f8787ab71bf2ca6eab9fcfb635c52.tar.gz
+ https://deps.files.ghostty.org/zig_wayland-27dda01712ddf3cb46ebd93380d88b01a7c828f8.tar.gz
  https://deps.files.ghostty.org/zlib-1220fed0c74e1019b3ee29edae2051788b080cd96e90d56836eea857b0b966742efb.tar.gz
 +https://download.gnome.org/sources/adwaita-fonts/50/adwaita-fonts-50.0.tar.xz
- https://github.com/jacobsandlund/uucode/archive/9d55524551411b493cca41ca06363625d90aff1e.tar.gz
- https://github.com/vancluever/arocc/archive/f97cdfc3779aec4b242299e2fc9a1c828c3547c6.tar.gz
- https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.18.3/fontconfig-2.18.3.tar.xz
 diff --git a/src/build/SharedDeps.zig b/src/build/SharedDeps.zig
-index 1e08e9bb..1704f7e7 100644
+index 8f4e23954..982ff00ed 100644
 --- a/src/build/SharedDeps.zig
 +++ b/src/build/SharedDeps.zig
 @@ -644,6 +644,26 @@ pub fn add(
@@ -89,7 +86,7 @@ index 1e08e9bb..1704f7e7 100644
          if (b.lazyDependency("nerd_fonts_symbols_only", .{})) |nf_symbols| {
              step.root_module.addAnonymousImport(
 diff --git a/src/font/SharedGridSet.zig b/src/font/SharedGridSet.zig
-index dc7d8dd7..498503b4 100644
+index 93451a01e..af5da0a26 100644
 --- a/src/font/SharedGridSet.zig
 +++ b/src/font/SharedGridSet.zig
 @@ -258,64 +258,26 @@ fn collection(
@@ -178,7 +175,7 @@ index dc7d8dd7..498503b4 100644
      // Nerd-font symbols fallback.
      _ = try c.add(
 diff --git a/src/font/embedded.zig b/src/font/embedded.zig
-index 8e0ae33b..bd8e51be 100644
+index 8e0ae33b8..bd8e51be9 100644
 --- a/src/font/embedded.zig
 +++ b/src/font/embedded.zig
 @@ -5,7 +5,14 @@
@@ -198,7 +195,7 @@ index 8e0ae33b..bd8e51be 100644
  pub const variable_italic = @embedFile("jetbrains_mono_variable_italic");
  
 diff --git a/src/inspector/Inspector.zig b/src/inspector/Inspector.zig
-index d1dc04f1..e1d55796 100644
+index d1dc04f17..e1d55796e 100644
 --- a/src/inspector/Inspector.zig
 +++ b/src/inspector/Inspector.zig
 @@ -46,8 +46,8 @@ pub fn setup() void {

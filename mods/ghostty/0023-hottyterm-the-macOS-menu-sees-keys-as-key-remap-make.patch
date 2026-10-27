@@ -30,7 +30,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  5 files changed, 59 insertions(+), 12 deletions(-)
 
 diff --git a/include/ghostty.h b/include/ghostty.h
-index 9a12b9ca..d93b3040 100644
+index 9a12b9cad..d93b30407 100644
 --- a/include/ghostty.h
 +++ b/include/ghostty.h
 @@ -1197,6 +1197,8 @@ GHOSTTY_API void ghostty_surface_set_color_scheme(ghostty_surface_t,
@@ -43,7 +43,7 @@ index 9a12b9ca..d93b3040 100644
  GHOSTTY_API bool ghostty_surface_key_is_binding(ghostty_surface_t,
                                                     ghostty_input_key_s,
 diff --git a/macos/Sources/App/AppDelegate.swift b/macos/Sources/App/AppDelegate.swift
-index a9e068c6..80ba1216 100644
+index a9e068c66..80ba12163 100644
 --- a/macos/Sources/App/AppDelegate.swift
 +++ b/macos/Sources/App/AppDelegate.swift
 @@ -1216,9 +1216,11 @@ extension AppDelegate {
@@ -60,10 +60,10 @@ index a9e068c6..80ba1216 100644
          syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
          syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index 02ff4bd3..7e612cac 100644
+index 280c46cf4..dccd76ffc 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
-@@ -1323,6 +1323,30 @@ extension Ghostty {
+@@ -1342,6 +1342,30 @@ extension Ghostty {
                  return false
              }
  
@@ -94,7 +94,7 @@ index 02ff4bd3..7e612cac 100644
              // Get information about if this is a binding.
              let bindingFlags = surfaceModel.flatMap { surface in
                  var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
-@@ -1345,7 +1369,7 @@ extension Ghostty {
+@@ -1364,7 +1388,7 @@ extension Ghostty {
                     bindingFlags.isDisjoint(with: [.all, .performable]),
                     bindingFlags.contains(.consumed) {
                      if let appDelegate = NSApp.delegate as? AppDelegate,
@@ -103,7 +103,7 @@ index 02ff4bd3..7e612cac 100644
                          return true
                      }
                  }
-@@ -1354,6 +1378,17 @@ extension Ghostty {
+@@ -1373,6 +1397,17 @@ extension Ghostty {
                  return true
              }
  
@@ -122,10 +122,10 @@ index 02ff4bd3..7e612cac 100644
              switch event.charactersIgnoringModifiers {
              case "\r":
 diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
-index 3c6b2c1f..c3efb691 100644
+index 697f0a786..e0f9cffce 100644
 --- a/src/apprt/embedded.zig
 +++ b/src/apprt/embedded.zig
-@@ -2065,6 +2065,20 @@ pub const CAPI = struct {
+@@ -2067,6 +2067,20 @@ pub const CAPI = struct {
          return @intCast(@as(input.Mods.Backing, @bitCast(result)));
      }
  
@@ -147,10 +147,10 @@ index 3c6b2c1f..c3efb691 100644
      /// This will handle the keymap translation and send the appropriate
      /// key and char events.
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 0961589c..0b095b9b 100644
+index 09e1fa08e..05b0008d4 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -7466,10 +7466,8 @@ pub const Keybinds = struct {
+@@ -7460,10 +7460,8 @@ pub const Keybinds = struct {
  
      /// hottyterm: no tabs, since plx has them, and windows and full screen
      /// are the window manager's: no default keys for tabs, for quitting,
@@ -162,7 +162,7 @@ index 0961589c..0b095b9b 100644
          var drop: std.ArrayList(inputpkg.Binding.Trigger) = .empty;
          defer drop.deinit(alloc);
          var it = set.bindings.iterator();
-@@ -7479,11 +7477,6 @@ pub const Keybinds = struct {
+@@ -7473,11 +7471,6 @@ pub const Keybinds = struct {
                  .leaf => |leaf| leaf.action,
                  else => continue,
              };
@@ -174,7 +174,7 @@ index 0961589c..0b095b9b 100644
              const gone = switch (action) {
                  .new_tab,
                  .close_tab,
-@@ -7493,11 +7486,12 @@ pub const Keybinds = struct {
+@@ -7487,11 +7480,12 @@ pub const Keybinds = struct {
                  .goto_tab,
                  .move_tab,
                  .toggle_tab_overview,

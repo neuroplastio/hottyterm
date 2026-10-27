@@ -27,10 +27,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 41 insertions(+)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 0dc771ea..ea46a48f 100644
+index d0b190bfc..81aea70a3 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -991,6 +991,7 @@ pub fn needsConfirmQuit(self: *Surface) bool {
+@@ -1011,6 +1011,7 @@ pub fn needsConfirmQuit(self: *Surface) bool {
          .always => true,
          .false => false,
          .true => true: {
@@ -38,7 +38,7 @@ index 0dc771ea..ea46a48f 100644
              self.renderer_state.mutex.lockUncancelable(global.io());
              defer self.renderer_state.mutex.unlock(global.io());
              break :true !self.io.terminal.cursorIsAtPrompt();
-@@ -998,6 +999,42 @@ pub fn needsConfirmQuit(self: *Surface) bool {
+@@ -1018,6 +1019,42 @@ pub fn needsConfirmQuit(self: *Surface) bool {
      };
  }
  
@@ -82,7 +82,7 @@ index 0dc771ea..ea46a48f 100644
  /// surface.
  pub fn handleMessage(self: *Surface, msg: Message) !void {
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 32d87044..86a20de2 100644
+index 17646e3fa..32d6e1337 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -2623,6 +2623,10 @@ keybind: Keybinds = .{},

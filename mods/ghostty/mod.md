@@ -2,7 +2,7 @@
 upstream: Ghostty
 url: https://github.com/ghostty-org/ghostty
 license: MIT
-base: e3ebb1d1bf772cf5d1bc70b5ae19e6943e33a110
+base: 4a4fc017940bec38c93b278c10c6a18c591f3e63
 builds: hottyterm
 public: true
 ---

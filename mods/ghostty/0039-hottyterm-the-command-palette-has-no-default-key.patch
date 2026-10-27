@@ -20,10 +20,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 4 insertions(+), 1 deletion(-)
 
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 74cf404a..32d87044 100644
+index 824b37e9c..17646e3fa 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -7481,7 +7481,9 @@ pub const Keybinds = struct {
+@@ -7475,7 +7475,9 @@ pub const Keybinds = struct {
  
      /// hottyterm: no tabs, since plx has them, and windows and full screen
      /// are the window manager's: no default keys for tabs, for quitting,
@@ -34,7 +34,7 @@ index 74cf404a..32d87044 100644
      fn hottytermDefaults(set: *inputpkg.Binding.Set, alloc: Allocator) !void {
          var drop: std.ArrayList(inputpkg.Binding.Trigger) = .empty;
          defer drop.deinit(alloc);
-@@ -7506,6 +7508,7 @@ pub const Keybinds = struct {
+@@ -7500,6 +7502,7 @@ pub const Keybinds = struct {
                  .close_all_windows,
                  .quit,
                  .toggle_fullscreen,

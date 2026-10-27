@@ -29,10 +29,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 145 insertions(+), 5 deletions(-)
 
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 7dc7a5d0..5b53f300 100644
+index d8c49643a..659c0b867 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
-@@ -43,6 +43,7 @@ const gtk_version = @import("../gtk_version.zig");
+@@ -44,6 +44,7 @@ const gtk_version = @import("../gtk_version.zig");
  const Overrides = @import("Overrides.zig");
  const scale_util = @import("../scale.zig");
  const DesktopNotifications = @import("../desktop_notifications.zig");
@@ -40,7 +40,7 @@ index 7dc7a5d0..5b53f300 100644
  
  const log = std.log.scoped(.gtk_ghostty_surface);
  
-@@ -675,6 +676,10 @@ pub const Surface = extern struct {
+@@ -688,6 +689,10 @@ pub const Surface = extern struct {
          /// scroll happen there, not where the mouse pointer was.
          touch_start: apprt.CursorPos = .{ .x = 0, .y = 0 },
  
@@ -51,7 +51,7 @@ index 7dc7a5d0..5b53f300 100644
          /// True when the child has exited.
          child_exited: bool = false,
  
-@@ -2884,6 +2889,9 @@ pub const Surface = extern struct {
+@@ -2952,6 +2957,9 @@ pub const Surface = extern struct {
              _ = widget.grabFocus();
          }
  
@@ -61,7 +61,7 @@ index 7dc7a5d0..5b53f300 100644
          // Report the event
          const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
  
-@@ -2952,6 +2960,9 @@ pub const Surface = extern struct {
+@@ -3020,6 +3028,9 @@ pub const Surface = extern struct {
          const gtk_mods = event.getModifierState();
          const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
  
@@ -71,7 +71,7 @@ index 7dc7a5d0..5b53f300 100644
          if (button == .left and priv.suppress_left_mouse_release) {
              priv.suppress_left_mouse_release = false;
              return;
-@@ -3079,7 +3090,7 @@ pub const Surface = extern struct {
+@@ -3147,7 +3158,7 @@ pub const Surface = extern struct {
      // alternate screen, then the scrollback — exactly as a touchpad does.
      // The gesture is touch-only, so a mouse drag still selects text.
      fn touchScrollBegin(
@@ -80,7 +80,7 @@ index 7dc7a5d0..5b53f300 100644
          start_x: f64,
          start_y: f64,
          self: *Self,
-@@ -3093,15 +3104,26 @@ pub const Surface = extern struct {
+@@ -3161,15 +3172,26 @@ pub const Surface = extern struct {
          const start = self.scaledCoordinates(start_x, start_y);
          priv.touch_start = .{ .x = @floatCast(start.x), .y = @floatCast(start.y) };
          priv.cursor_pos = priv.touch_start;
@@ -108,7 +108,7 @@ index 7dc7a5d0..5b53f300 100644
          const dx = offset_x - priv.touch_scroll_x;
          const dy = offset_y - priv.touch_scroll_y;
          priv.touch_scroll_x = offset_x;
-@@ -3122,14 +3144,33 @@ pub const Surface = extern struct {
+@@ -3190,14 +3212,33 @@ pub const Surface = extern struct {
      }
  
      fn touchScrollEnd(
@@ -146,7 +146,7 @@ index 7dc7a5d0..5b53f300 100644
  
      fn ecMouseScrollVertical(
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 944ddee4..56475318 100644
+index 6dcb41e6a..2883c1964 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -91,6 +91,8 @@ extern fn hotty_host_reset(h: *Host, fx: ?*const Effects) void;
@@ -233,7 +233,7 @@ index 944ddee4..56475318 100644
 +        }
 +        const own = self.touch_surface[0..self.touch_len];
 +        var name_buf: [73]u8 = undefined;
-+        const name = std.fmt.bufPrintZ(&name_buf, "{s}", .{own}) catch return .cells;
++        const name = std.mem.printSentinel(&name_buf, "{s}", .{own}, 0) catch return .cells;
 +        // Its surface gone from the screen: the touch is cancelled, and the
 +        // rest of it is the terminal's.
 +        const p = self.at(t, own, px, py);

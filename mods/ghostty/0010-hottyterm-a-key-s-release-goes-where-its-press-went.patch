@@ -18,7 +18,7 @@ lines change.
  1 file changed, 44 insertions(+), 28 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 9d3b8bff..56580eda 100644
+index 5bc29f184..cf9e97ee1 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -258,6 +258,9 @@ pub const Hotty = struct {
@@ -27,7 +27,7 @@ index 9d3b8bff..56580eda 100644
      link_press: bool = false,
 +    /// The keys whose press a surface took: their releases are the
 +    /// surface's too, wherever the keyboard is by then (`surfaceKey`).
-+    held_keys: std.EnumSet(input.Key) = .initEmpty(),
++    held_keys: std.EnumSet(input.Key) = .empty,
  
      const Place = struct {
          surface: [:0]u8,
@@ -67,7 +67,7 @@ index 9d3b8bff..56580eda 100644
 -        };
 -        var text_buf: [64]u8 = undefined;
 -        const text: ?[*:0]const u8 = if (code == 0 and event.utf8.len > 0 and event.utf8.len < text_buf.len)
--            (std.fmt.bufPrintZ(&text_buf, "{s}", .{event.utf8}) catch break :consumed false).ptr
+-            (std.mem.printSentinel(&text_buf, "{s}", .{event.utf8}, 0) catch break :consumed false).ptr
 -        else if (code == 0)
 -            break :consumed false
 -        else
@@ -111,7 +111,7 @@ index 9d3b8bff..56580eda 100644
 +    };
 +    var text_buf: [64]u8 = undefined;
 +    const text: ?[*:0]const u8 = if (code == 0 and event.utf8.len > 0 and event.utf8.len < text_buf.len)
-+        (std.fmt.bufPrintZ(&text_buf, "{s}", .{event.utf8}) catch return false).ptr
++        (std.mem.printSentinel(&text_buf, "{s}", .{event.utf8}, 0) catch return false).ptr
 +    else if (code == 0)
 +        return false
 +    else

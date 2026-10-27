@@ -25,10 +25,10 @@ lines: 68 (GTK apprt only).
  3 files changed, 68 insertions(+)
 
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 1fee0c54..045bd099 100644
+index f398ed296..045a9a936 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
-@@ -666,6 +666,11 @@ pub const Surface = extern struct {
+@@ -679,6 +679,11 @@ pub const Surface = extern struct {
          /// True when we have a precision scroll in progress
          precision_scroll: bool = false,
  
@@ -40,7 +40,7 @@ index 1fee0c54..045bd099 100644
          /// True when the child has exited.
          child_exited: bool = false,
  
-@@ -3065,6 +3070,55 @@ pub const Surface = extern struct {
+@@ -3133,6 +3138,55 @@ pub const Surface = extern struct {
          self.private().precision_scroll = false;
      }
  
@@ -96,7 +96,7 @@ index 1fee0c54..045bd099 100644
      fn ecMouseScrollVertical(
          _: *gtk.EventControllerScroll,
          x: f64,
-@@ -3866,6 +3920,9 @@ pub const Surface = extern struct {
+@@ -3967,6 +4021,9 @@ pub const Surface = extern struct {
              class.bindTemplateCallback("scroll_vertical_begin", &ecMouseScrollVerticalPrecisionBegin);
              class.bindTemplateCallback("scroll_vertical_end", &ecMouseScrollVerticalPrecisionEnd);
              class.bindTemplateCallback("scroll_horizontal", &ecMouseScrollHorizontal);
@@ -107,7 +107,7 @@ index 1fee0c54..045bd099 100644
              class.bindTemplateCallback("render_surface_realize", &renderSurfaceRealize);
              class.bindTemplateCallback("render_surface_unrealize", &renderSurfaceUnrealize);
 diff --git a/src/apprt/gtk/ui/1.0/surface-scrolled-window.blp b/src/apprt/gtk/ui/1.0/surface-scrolled-window.blp
-index 8ba27cb6..de8592d9 100644
+index 8ba27cb64..de8592d91 100644
 --- a/src/apprt/gtk/ui/1.0/surface-scrolled-window.blp
 +++ b/src/apprt/gtk/ui/1.0/surface-scrolled-window.blp
 @@ -11,6 +11,9 @@ template $GhostttySurfaceScrolledWindow: Adw.Bin {
@@ -121,7 +121,7 @@ index 8ba27cb6..de8592d9 100644
    }
  }
 diff --git a/src/apprt/gtk/ui/1.0/surface.blp b/src/apprt/gtk/ui/1.0/surface.blp
-index b62ff029..8dd0427e 100644
+index b62ff029d..8dd0427ea 100644
 --- a/src/apprt/gtk/ui/1.0/surface.blp
 +++ b/src/apprt/gtk/ui/1.0/surface.blp
 @@ -72,6 +72,14 @@ Overlay terminal_page {

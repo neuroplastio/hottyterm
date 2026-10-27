@@ -17,7 +17,7 @@ Upstream lines: none (hotty.zig only).
  1 file changed, 14 insertions(+), 2 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index c6287e59..827f24bc 100644
+index 76737c2a5..06beafade 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -24,7 +24,9 @@

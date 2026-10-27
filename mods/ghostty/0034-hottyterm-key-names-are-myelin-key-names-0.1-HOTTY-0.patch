@@ -19,10 +19,10 @@ Menus' cells_key and the copy keys take both names too.
  2 files changed, 183 insertions(+), 79 deletions(-)
 
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 14b42cef..3654e885 100644
+index 775eca573..d5c4b317f 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -6744,7 +6744,7 @@ pub const Keybinds = struct {
+@@ -6738,7 +6738,7 @@ pub const Keybinds = struct {
                  );
              }
  
@@ -32,7 +32,7 @@ index 14b42cef..3654e885 100644
              // is (SPEC §11). Before the platform's own keys below, which the
              // menu shows.
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 3699cc7a..c9026e8d 100644
+index 5f6f47960..d765e54f7 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -101,7 +101,7 @@ extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;
@@ -64,7 +64,7 @@ index 3699cc7a..c9026e8d 100644
 @@ -375,6 +375,10 @@ pub const Hotty = struct {
      /// The keys whose press a surface took: their releases are the
      /// surface's too, wherever the keyboard is by then (`surfaceKey`).
-     held_keys: std.EnumSet(input.Key) = .initEmpty(),
+     held_keys: std.EnumSet(input.Key) = .empty,
 +    /// A modifier key pressed with no other key since, and the modifiers
 +    /// held before it: its release is a tap (`modifierKey`, SPEC §10.4).
 +    tap_key: ?input.Key = null,

@@ -45,7 +45,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 92 insertions(+), 16 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 56475318..62a25841 100644
+index 2883c1964..59cbefab9 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -142,12 +142,24 @@ pub const Settings = struct {

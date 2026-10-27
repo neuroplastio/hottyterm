@@ -16,7 +16,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 2 insertions(+)
 
 diff --git a/src/build/GhosttyExe.zig b/src/build/GhosttyExe.zig
-index 790f4af4..d60ab456 100644
+index 72c32d48c..6793a1309 100644
 --- a/src/build/GhosttyExe.zig
 +++ b/src/build/GhosttyExe.zig
 @@ -41,6 +41,8 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty

@@ -24,7 +24,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 56 insertions(+), 8 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index d19e322e..fd230f8f 100644
+index 02e966579..9ad608c26 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -108,6 +108,7 @@ extern fn hotty_host_set_counts(h: *Host, on: bool) void;

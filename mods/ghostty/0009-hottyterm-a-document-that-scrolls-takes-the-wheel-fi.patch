@@ -37,10 +37,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 63 insertions(+)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 4d8e39c2..305d6c20 100644
+index 66bc25205..3d3f4ae9e 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -3579,6 +3579,9 @@ pub fn scrollCallback(
+@@ -3605,6 +3605,9 @@ pub fn scrollCallback(
      // Always show the mouse again if it is hidden
      if (self.mouse.hidden) self.showMouse();
  
@@ -51,7 +51,7 @@ index 4d8e39c2..305d6c20 100644
          // We use cell_size to determine if we have accumulated enough to trigger a scroll
          const cell_size: f64 = @floatFromInt(self.size.cell.height);
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 0835f46a..9d3b8bff 100644
+index 5da27c3b6..5bc29f184 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -88,6 +88,7 @@ extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;
@@ -92,7 +92,7 @@ index 0835f46a..9d3b8bff 100644
 +        const target: ?Target = if (self.program_hold) null else self.hit(t, px, py);
 +        var name_buf: [73]u8 = undefined;
 +        const name: ?[*:0]const u8 = if (target) |tg|
-+            (std.fmt.bufPrintZ(&name_buf, "{s}", .{tg.name}) catch return false).ptr
++            (std.mem.printSentinel(&name_buf, "{s}", .{tg.name}, 0) catch return false).ptr
 +        else
 +            null;
 +        const x: f32 = if (target) |tg| tg.x else 0;

@@ -33,14 +33,14 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  src/renderer/Metal.zig                  |   5 +
  src/renderer/OpenGL.zig                 |   4 +
- src/renderer/image.zig                  | 192 +++++++++++++++++++++++-
+ src/renderer/image.zig                  | 193 +++++++++++++++++++++++-
  src/terminal/kitty/graphics_exec.zig    |  86 ++++++++++-
  src/terminal/kitty/graphics_image.zig   | 137 +++++++++++++++++
  src/terminal/kitty/graphics_storage.zig |  15 ++
- 6 files changed, 436 insertions(+), 3 deletions(-)
+ 6 files changed, 437 insertions(+), 3 deletions(-)
 
 diff --git a/src/renderer/Metal.zig b/src/renderer/Metal.zig
-index a98dce87..f092070d 100644
+index 581b0ce37..5b3ad824e 100644
 --- a/src/renderer/Metal.zig
 +++ b/src/renderer/Metal.zig
 @@ -37,6 +37,11 @@ pub const custom_shader_y_is_down = true;
@@ -56,7 +56,7 @@ index a98dce87..f092070d 100644
  
  layer: IOSurfaceLayer,
 diff --git a/src/renderer/OpenGL.zig b/src/renderer/OpenGL.zig
-index ab6c9fa5..540f86f3 100644
+index 0abf318b9..7f69958fd 100644
 --- a/src/renderer/OpenGL.zig
 +++ b/src/renderer/OpenGL.zig
 @@ -33,6 +33,10 @@ pub const custom_shader_y_is_down = false;
@@ -71,10 +71,10 @@ index ab6c9fa5..540f86f3 100644
  
  /// We require at least OpenGL 4.3
 diff --git a/src/renderer/image.zig b/src/renderer/image.zig
-index ef0367bd..c9bcc158 100644
+index 4ffa63911..0904a18ca 100644
 --- a/src/renderer/image.zig
 +++ b/src/renderer/image.zig
-@@ -128,6 +128,9 @@ pub const State = struct {
+@@ -139,6 +139,9 @@ pub const State = struct {
                  .ready,
                  .unload_ready,
                  => |t| t,
@@ -84,7 +84,7 @@ index ef0367bd..c9bcc158 100644
                  else => {
                      log.warn("image not ready for placement image_id={}", .{p.image_id});
                      continue;
-@@ -757,6 +760,8 @@ pub const State = struct {
+@@ -458,6 +461,8 @@ pub const State = struct {
          alloc: Allocator,
          image: *const terminal.kitty.graphics.Image,
      ) PrepImageError!void {
@@ -93,7 +93,7 @@ index ef0367bd..c9bcc158 100644
          // For animated images this is the current animation frame;
          // the image generation changes whenever the current frame
          // does, so the upload cache stays coherent.
-@@ -783,6 +788,58 @@ pub const State = struct {
+@@ -484,6 +489,58 @@ pub const State = struct {
              },
          );
      }
@@ -152,7 +152,7 @@ index ef0367bd..c9bcc158 100644
  };
  
  /// Represents a single image placement on the grid.
-@@ -876,6 +933,10 @@ pub const Image = union(enum) {
+@@ -582,6 +639,10 @@ pub const Image = union(enum) {
      /// The image is uploaded and ready to be used.
      ready: Texture,
  
@@ -163,7 +163,7 @@ index ef0367bd..c9bcc158 100644
      /// The image isn't uploaded yet but is scheduled to be unloaded.
      unload_pending: Pending,
      /// The image is uploaded and is scheduled to be unloaded.
-@@ -883,12 +944,36 @@ pub const Image = union(enum) {
+@@ -589,12 +650,36 @@ pub const Image = union(enum) {
      /// The image is uploaded and scheduled to be replaced
      /// with new data, but it's also scheduled to be unloaded.
      unload_replace: Replace,
@@ -200,7 +200,7 @@ index ef0367bd..c9bcc158 100644
      /// Pending image data that needs to be uploaded to the GPU.
      pub const Pending = struct {
          height: u32,
-@@ -1003,6 +1088,11 @@ pub const Image = union(enum) {
+@@ -709,6 +794,11 @@ pub const Image = union(enum) {
              .ready,
              .unload_ready,
              => |t| t.deinit(),
@@ -212,7 +212,7 @@ index ef0367bd..c9bcc158 100644
          }
      }
  
-@@ -1012,11 +1102,13 @@ pub const Image = union(enum) {
+@@ -718,11 +808,13 @@ pub const Image = union(enum) {
              .unload_pending,
              .unload_replace,
              .unload_ready,
@@ -226,7 +226,7 @@ index ef0367bd..c9bcc158 100644
          };
      }
  
-@@ -1030,6 +1122,10 @@ pub const Image = union(enum) {
+@@ -736,6 +828,10 @@ pub const Image = union(enum) {
          if (self.getPending()) |p| {
              alloc.free(p.dataSlice());
          }
@@ -237,7 +237,7 @@ index ef0367bd..c9bcc158 100644
          // If we have an existing texture, use it in the replace.
          if (self.getTexture()) |t| {
              self.* = .{ .replace = .{
-@@ -1044,7 +1140,7 @@ pub const Image = union(enum) {
+@@ -750,7 +846,7 @@ pub const Image = union(enum) {
  
      /// Returns true if this image is pending upload.
      pub fn isPending(self: Image) bool {
@@ -246,7 +246,7 @@ index ef0367bd..c9bcc158 100644
      }
  
      /// Returns true if this image has an associated texture.
-@@ -1058,11 +1154,13 @@ pub const Image = union(enum) {
+@@ -764,11 +860,13 @@ pub const Image = union(enum) {
              .unload_pending,
              .unload_replace,
              .unload_ready,
@@ -260,7 +260,7 @@ index ef0367bd..c9bcc158 100644
              => false,
          };
      }
-@@ -1079,6 +1177,26 @@ pub const Image = union(enum) {
+@@ -785,6 +883,26 @@ pub const Image = union(enum) {
      })!void {
          assert(self.isPending());
  
@@ -287,7 +287,7 @@ index ef0367bd..c9bcc158 100644
          // Get our pending info
          const p = self.getPendingPointer().?;
  
-@@ -1134,6 +1252,10 @@ pub const Image = union(enum) {
+@@ -840,6 +958,10 @@ pub const Image = union(enum) {
              .unload_replace,
              => |r| r.texture,
  
@@ -298,7 +298,7 @@ index ef0367bd..c9bcc158 100644
              else => null,
          };
      }
-@@ -1517,3 +1639,71 @@ test "kitty renderer uploads the current animation frame" {
+@@ -1424,3 +1546,72 @@ test "kitty renderer uploads the current animation frame" {
          entry.image.pending.dataSlice(),
      );
  }
@@ -318,12 +318,13 @@ index ef0367bd..c9bcc158 100644
 +    defer state.deinit(alloc);
 +
 +    const storage = &t.screens.active.kitty_images;
++    const white: [16]u8 = @splat(255);
 +    try storage.addImage(io, alloc, t.screens.active, .{
 +        .id = 1,
 +        .width = 2,
 +        .height = 2,
 +        .format = .rgba,
-+        .data = .{ .complete = try alloc.dupe(u8, &(.{255} ** 16)) },
++        .data = .{ .complete = try alloc.dupe(u8, &white) },
 +    });
 +    const pin = try t.screens.active.pages.trackPin(
 +        t.screens.active.cursor.page_pin.*,
@@ -371,10 +372,10 @@ index ef0367bd..c9bcc158 100644
 +    _ = state.images.remove(id);
 +}
 diff --git a/src/terminal/kitty/graphics_exec.zig b/src/terminal/kitty/graphics_exec.zig
-index b1b968b2..e00869fd 100644
+index 13bdaf142..bd8bb6a8a 100644
 --- a/src/terminal/kitty/graphics_exec.zig
 +++ b/src/terminal/kitty/graphics_exec.zig
-@@ -732,9 +732,20 @@ fn completeAnimationFrame(
+@@ -754,9 +754,20 @@ fn completeAnimationFrame(
  
          if (number - 1 == anim.current_index) {
              // The displayed pixels changed; restart the frame's gap
@@ -397,7 +398,7 @@ index b1b968b2..e00869fd 100644
          } else {
              storage.markMutated(io);
          }
-@@ -2934,6 +2945,77 @@ test "kittygfx animation: edit root frame bumps generation" {
+@@ -3025,6 +3036,77 @@ test "kittygfx animation: edit root frame bumps generation" {
      try testing.expect(img.generation > gen1);
  }
  
@@ -476,10 +477,10 @@ index b1b968b2..e00869fd 100644
      const testing = std.testing;
      const alloc = testing.allocator;
 diff --git a/src/terminal/kitty/graphics_image.zig b/src/terminal/kitty/graphics_image.zig
-index c50e46ce..5bc6b73b 100644
+index d0e325291..851ed141e 100644
 --- a/src/terminal/kitty/graphics_image.zig
 +++ b/src/terminal/kitty/graphics_image.zig
-@@ -769,6 +769,38 @@ pub const Image = struct {
+@@ -795,6 +795,38 @@ pub const Image = struct {
      /// pointer and never own it).
      animation: ?*animation.Animation = null,
  
@@ -518,7 +519,7 @@ index c50e46ce..5bc6b73b 100644
      pub const Error = error{
          InsufficientData,
          InvalidData,
-@@ -825,6 +857,70 @@ pub const Image = struct {
+@@ -851,6 +883,70 @@ pub const Image = struct {
              alloc.destroy(anim);
              self.animation = null;
          }
@@ -589,7 +590,7 @@ index c50e46ce..5bc6b73b 100644
      }
  
      /// The pixel data that should be displayed for this image. For an
-@@ -2261,3 +2357,44 @@ test "limits: temporary file medium allowed by limits" {
+@@ -2387,3 +2483,44 @@ test "limits: temporary file medium allowed by limits" {
      );
      defer loading.deinit(alloc);
  }
@@ -635,10 +636,10 @@ index c50e46ce..5bc6b73b 100644
 +    try testing.expect(img.changesSince(7) == null);
 +}
 diff --git a/src/terminal/kitty/graphics_storage.zig b/src/terminal/kitty/graphics_storage.zig
-index 897c8944..31562367 100644
+index a2db22715..705dba79d 100644
 --- a/src/terminal/kitty/graphics_storage.zig
 +++ b/src/terminal/kitty/graphics_storage.zig
-@@ -975,6 +975,21 @@ pub const ImageStorage = struct {
+@@ -1154,6 +1154,21 @@ pub const ImageStorage = struct {
          img.generation = self.generation;
      }
  

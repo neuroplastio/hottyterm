@@ -19,7 +19,7 @@ Upstream files: none touched.
  1 file changed, 28 insertions(+), 2 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 483a5153..1cb01100 100644
+index 8080b0883..31f524bab 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -96,6 +96,9 @@ const osc_prefix = "7279;";

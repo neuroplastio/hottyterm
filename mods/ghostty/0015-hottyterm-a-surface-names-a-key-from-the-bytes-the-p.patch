@@ -27,10 +27,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 57 insertions(+), 38 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 29ca11a1..e4c5d76c 100644
+index bbc54b156..03d3c9267 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
-@@ -3384,7 +3384,7 @@ fn encodeKey(
+@@ -3410,7 +3410,7 @@ fn encodeKey(
      return write_req;
  }
  
@@ -39,15 +39,15 @@ index 29ca11a1..e4c5d76c 100644
      self.renderer_state.mutex.lockUncancelable(global.io());
      defer self.renderer_state.mutex.unlock(global.io());
      const t = &self.io.terminal;
-@@ -4981,6 +4981,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
-                 .esc => try std.fmt.bufPrint(&buf, "\x1b{s}", .{data}),
+@@ -5007,6 +5007,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+                 .esc => try std.mem.print(&buf, "\x1b{s}", .{data}),
                  else => unreachable,
              };
 +            if (hotty.surfaceBindingBytes(self, full_data)) return true; // hottyterm
              self.queueIo(try termio.Message.writeReq(
                  self.alloc,
                  full_data,
-@@ -5008,6 +5009,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+@@ -5035,6 +5036,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
                  );
                  return true;
              };
@@ -55,7 +55,7 @@ index 29ca11a1..e4c5d76c 100644
              self.queueIo(try termio.Message.writeReq(
                  self.alloc,
                  text,
-@@ -5040,6 +5042,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
+@@ -5067,6 +5069,7 @@ pub fn performBindingAction(self: *Surface, action: input.Binding.Action) !bool
                  break :normal !self.io.terminal.modes.get(.cursor_keys);
              };
  
@@ -64,7 +64,7 @@ index 29ca11a1..e4c5d76c 100644
                  self.queueIo(.{ .write_stable = ck.normal }, .unlocked);
              } else {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 827f24bc..944ddee4 100644
+index 06beafade..6dcb41e6a 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -89,7 +89,7 @@ extern fn hotty_host_render(h: *Host, ctx: ?*anyopaque, cb: FrameFn) void;
@@ -172,7 +172,7 @@ index 827f24bc..944ddee4 100644
      };
 -    var text_buf: [64]u8 = undefined;
 -    const text: ?[*:0]const u8 = if (code == 0 and event.utf8.len > 0 and event.utf8.len < text_buf.len)
--        (std.fmt.bufPrintZ(&text_buf, "{s}", .{event.utf8}) catch return false).ptr
+-        (std.mem.printSentinel(&text_buf, "{s}", .{event.utf8}, 0) catch return false).ptr
 -    else if (code == 0)
 -        return false
 -    else
