@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Mon, 26 Oct 2026 22:42:03 +0100
-Subject: [PATCH 40/40] hottyterm: closing a window over plx asks nothing
+Subject: [PATCH 40/41] hottyterm: closing a window over plx asks nothing
 
 plx keeps its panes, tabs and running jobs in its daemon when its
 terminal closes, and plain `plx` brings them back. Ghostty's close

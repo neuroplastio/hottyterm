@@ -1,0 +1,829 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Thu, 29 Oct 2026 22:29:42 +0100
+Subject: [PATCH 41/41] hottyterm: stage stamps for the latency rig
+ (HOTTY_TRACE)
+
+With HOTTY_TRACE=<dir>, the terminal writes hottyterm-<pid>.jsonl in the
+trace format hotty/1 (hottyterm's docs/trace.md): one line per stage on
+the shared monotonic clock. The stages are the key and pointer events,
+the pty's reads and writes, each parsed batch and hotty command,
+hotty-blitz's rendering, the renderer's draw and upload, and GTK taking
+the frame. Off, a stamp is one atomic load and a branch.
+
+The writer is in hotty.zig. Upstream files get 17 lines of hooks:
+Surface.zig 4, termio/Exec.zig 6, renderer/generic.zig 5,
+apprt/gtk/class/render_surface.zig 2.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/Surface.zig                        |  42 +++---
+ src/apprt/gtk/class/render_surface.zig |  47 ++++++
+ src/apprt/gtk/class/surface.zig        |   1 +
+ src/renderer/generic.zig               |   7 +
+ src/termio/Exec.zig                    |   6 +-
+ src/termio/hotty.zig                   | 189 +++++++++++++++++++++----
+ 6 files changed, 243 insertions(+), 49 deletions(-)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 81aea70a3..3025103f5 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -1660,7 +1660,7 @@ fn modsChanged(self: *Surface, mods: input.Mods) void {
+         // highlight links. Additionally, mark the screen as dirty so
+         // that the highlight state of all links is properly updated.
+         {
+-            self.renderer_state.mutex.lockUncancelable(global.io());
++            hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+             defer self.renderer_state.mutex.unlock(global.io());
+             self.renderer_state.mouse.mods = self.mouseModsWithCapture(self.mouse.mods);
+ 
+@@ -2267,7 +2267,7 @@ pub fn imePoint(self: *const Surface) apprt.IMEPos {
+ /// Same as `imePoint`, but divides our sizes by the given scale instead
+ /// of the content scale.
+ pub fn imePointScaled(self: *const Surface, scale: apprt.ContentScale) apprt.IMEPos {
+-    self.renderer_state.mutex.lockUncancelable(global.io());
++    hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+     const cursor = self.renderer_state.terminal.screens.active.cursor;
+     const preedit_width: usize = if (self.renderer_state.preedit) |preedit| preedit.width() else 0;
+     self.renderer_state.mutex.unlock(global.io());
+@@ -2721,7 +2721,7 @@ pub fn preeditCallback(self: *Surface, preedit_: ?[]const u8) !void {
+     crash.sentry.thread_state = self.crashThreadState();
+     defer crash.sentry.thread_state = null;
+ 
+-    self.renderer_state.mutex.lockUncancelable(global.io());
++    hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+     defer self.renderer_state.mutex.unlock(global.io());
+ 
+     // We clear our selection when ANY OF:
+@@ -2841,6 +2841,7 @@ pub fn keyCallback(
+     self: *Surface,
+     event_orig: input.KeyEvent,
+ ) !InputEffect {
++    hotty.trace.instant(if (event_orig.action == .release) "term.key.up" else "term.key");
+     // log.warn("text keyCallback event={}", .{event_orig});
+ 
+     // Apply key remappings to transform modifiers before any processing.
+@@ -2892,7 +2893,7 @@ pub fn keyCallback(
+     )) |v| return v;
+     // If we allow KAM and KAM is enabled then we do nothing.
+     if (self.config.vt_kam_allowed) {
+-        self.renderer_state.mutex.lockUncancelable(global.io());
++        hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+         defer self.renderer_state.mutex.unlock(global.io());
+         if (self.io.terminal.modes.get(.disable_keyboard)) return .consumed;
+     }
+@@ -2927,7 +2928,7 @@ pub fn keyCallback(
+         {
+             // Refresh our link state
+             const pos = self.rt_surface.getCursorPos() catch break :mouse_mods;
+-            self.renderer_state.mutex.lockUncancelable(global.io());
++            hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+             defer self.renderer_state.mutex.unlock(global.io());
+             self.mouseRefreshLinks(
+                 pos,
+@@ -3024,7 +3025,7 @@ pub fn keyCallback(
+     // some data to send to the pty, then we move the viewport down to the
+     // bottom. We also clear the selection for any key other then modifiers.
+     if (!event.key.modifier()) {
+-        self.renderer_state.mutex.lockUncancelable(global.io());
++        hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+         defer self.renderer_state.mutex.unlock(global.io());
+ 
+         if (self.config.selection_clear_on_typing or
+@@ -3457,7 +3458,7 @@ fn encodeKey(
+ }
+ 
+ pub fn encodeKeyOpts(self: *const Surface) input.key_encode.Options {
+-    self.renderer_state.mutex.lockUncancelable(global.io());
++    hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+     defer self.renderer_state.mutex.unlock(global.io());
+     const t = &self.io.terminal;
+ 
+@@ -3604,7 +3605,7 @@ pub fn focusCallback(self: *Surface, focused: bool) !void {
+ 
+     // Update the focus state and notify the terminal
+     {
+-        self.renderer_state.mutex.lockUncancelable(global.io());
++        hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+         self.io.terminal.flags.focused = focused;
+         self.renderer_state.mutex.unlock(global.io());
+         self.queueIo(.{ .focused = focused }, .unlocked);
+@@ -3647,6 +3648,7 @@ pub fn scrollCallback(
+     yoff: f64,
+     scroll_mods: input.ScrollMods,
+ ) !void {
++    hotty.trace.instant("term.wheel");
+     // log.info("SCROLL: xoff={} yoff={} mods={}", .{ xoff, yoff, scroll_mods });
+ 
+     // Crash metadata in case we crash in here
+@@ -3741,7 +3743,7 @@ pub fn scrollCallback(
+     // log.info("SCROLL: delta_y={} delta_x={}", .{ y.delta, x.delta });
+ 
+     {
+-        self.renderer_state.mutex.lockUncancelable(global.io());
++        hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+         defer self.renderer_state.mutex.unlock(global.io());
+ 
+         // If we have an active mouse reporting mode, clear the selection.
+@@ -3868,7 +3870,7 @@ fn isMouseReporting(self: *const Surface) bool {
+ }
+ 
+ pub fn mouseReportingActive(self: *Surface) bool {
+-    self.renderer_state.mutex.lockUncancelable(global.io());
++    hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+     defer self.renderer_state.mutex.unlock(global.io());
+     return self.isMouseReporting();
+ }
+@@ -3970,7 +3972,7 @@ pub fn mouseShiftCapture(self: *const Surface, lock: bool) bool { // hottyterm:
+ /// Returns true if the mouse is currently captured by the terminal
+ /// (i.e. reporting events).
+ pub fn mouseCaptured(self: *Surface) bool {
+-    self.renderer_state.mutex.lockUncancelable(global.io());
++    hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+     defer self.renderer_state.mutex.unlock(global.io());
+     return self.io.terminal.flags.mouse_event != .none;
+ }
+@@ -3984,6 +3986,7 @@ pub fn mouseButtonCallback(
+     button: input.MouseButton,
+     mods: input.Mods,
+ ) !bool {
++    hotty.trace.instant("term.button");
+     // Crash metadata in case we crash in here
+     crash.sentry.thread_state = self.crashThreadState();
+     defer crash.sentry.thread_state = null;
+@@ -4011,7 +4014,7 @@ pub fn mouseButtonCallback(
+     // program reports the mouse.
+     if (hotty.cellLinkButton(self, action, button)) |open| {
+         if (open) {
+-            self.renderer_state.mutex.lockUncancelable(global.io());
++            hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+             defer self.renderer_state.mutex.unlock(global.io());
+             const pos = try self.rt_surface.getCursorPos();
+             if (self.processLinks(pos)) |_| {} else |err| log.warn("error processing links err={}", .{err});
+@@ -4058,7 +4061,7 @@ pub fn mouseButtonCallback(
+     }
+ 
+     if (button == .left and action == .release) {
+-        self.renderer_state.mutex.lockUncancelable(global.io());
++        hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+         defer self.renderer_state.mutex.unlock(global.io());
+ 
+         // The selection gesture tracks whether a press became a drag by
+@@ -4134,7 +4137,7 @@ pub fn mouseButtonCallback(
+ 
+     // Report mouse events if enabled
+     {
+-        self.renderer_state.mutex.lockUncancelable(global.io());
++        hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+         defer self.renderer_state.mutex.unlock(global.io());
+         if (self.isMouseReporting()) report: {
+             // If we have shift-pressed and we aren't allowed to capture it,
+@@ -4174,7 +4177,7 @@ pub fn mouseButtonCallback(
+     // For left button clicks we always record some information for
+     // selection/highlighting purposes.
+     if (button == .left and action == .press) click: {
+-        self.renderer_state.mutex.lockUncancelable(global.io());
++        hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+         defer self.renderer_state.mutex.unlock(global.io());
+         const t: *terminal.Terminal = self.renderer_state.terminal;
+         const screen: *terminal.Screen = self.renderer_state.terminal.screens.active;
+@@ -4274,7 +4277,7 @@ pub fn mouseButtonCallback(
+     // want to be careful in the future we can add a function to apprts
+     // that let's us know.
+     if (button == .right and action == .press) sel: {
+-        self.renderer_state.mutex.lockUncancelable(global.io());
++        hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+         defer self.renderer_state.mutex.unlock(global.io());
+ 
+         // Get our viewport pin
+@@ -4719,7 +4722,7 @@ pub fn mousePressureCallback(
+     if (self.mouse.click_state[left_idx] == .press and
+         stage == .deep)
+     select: {
+-        self.renderer_state.mutex.lockUncancelable(global.io());
++        hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+         defer self.renderer_state.mutex.unlock(global.io());
+ 
+         const sel = self.mouse.selection_gesture.deepPress(
+@@ -4759,6 +4762,7 @@ pub fn cursorPosCallback(
+     pos: apprt.CursorPos,
+     mods: ?input.Mods,
+ ) !void {
++    hotty.trace.instant("term.pointer");
+     // Crash metadata in case we crash in here
+     crash.sentry.thread_state = self.crashThreadState();
+     defer crash.sentry.thread_state = null;
+@@ -4788,7 +4792,7 @@ pub fn cursorPosCallback(
+             try self.queueRender();
+         }
+ 
+-        self.renderer_state.mutex.lockUncancelable(global.io());
++        hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+         defer self.renderer_state.mutex.unlock(global.io());
+ 
+         // No mouse point so we don't highlight links
+@@ -4815,7 +4819,7 @@ pub fn cursorPosCallback(
+     self.mouse.over_link = false;
+ 
+     // We are reading/writing state for the remainder
+-    self.renderer_state.mutex.lockUncancelable(global.io());
++    hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+     defer self.renderer_state.mutex.unlock(global.io());
+ 
+     // Update our mouse state. We set this to null initially because we only
+diff --git a/src/apprt/gtk/class/render_surface.zig b/src/apprt/gtk/class/render_surface.zig
+index 2d02195f3..d98dccd06 100644
+--- a/src/apprt/gtk/class/render_surface.zig
++++ b/src/apprt/gtk/class/render_surface.zig
+@@ -13,6 +13,7 @@ const CoreSurface = @import("../../../Surface.zig");
+ const rendererpkg = @import("../../../renderer.zig");
+ const ExportedFrame = rendererpkg.Renderer.ExportedFrame;
+ const Dmabuf = @import("../../../renderer/Dmabuf.zig");
++const hotty = @import("../../../termio/hotty.zig");
+ const Planes = Dmabuf.Planes;
+ 
+ const log = std.log.scoped(.gtk_render_surface);
+@@ -104,6 +105,7 @@ pub const RenderSurface = extern struct {
+         // realized. The snapshot will pull from the renderer's queue.
+         self.connectScaleNotify();
+         self.as(gtk.Widget).queueDraw();
++        traceFrames(self.as(gtk.Widget)); // hottyterm: gov R-22's stamps
+     }
+ 
+     fn unrealize(self: *Self) callconv(.c) void {
+@@ -155,6 +157,7 @@ pub const RenderSurface = extern struct {
+         // currently displaying.
+         if (priv.core_surface) |core| {
+             if (core.renderer.takeFrame()) |frame| {
++                hotty.trace.instant(if (frame == .dmabuf) "term.snapshot" else "term.snapshot.cpu");
+                 self.rebuildTexture(frame) catch |err| switch (err) {
+                     // GTK can't import our DMABUFs, e.g. due to an
+                     // incompatible format modifier on multi-GPU setups.
+@@ -204,6 +207,50 @@ pub const RenderSurface = extern struct {
+         });
+     }
+ 
++    /// hottyterm: with HOTTY_TRACE set, stamps GTK's frame clock (gov
++    /// R-22): `term.fc` as each phase of a frame begins (`a.p`), `term.frame`
++    /// after each paint, with the frame's counter, its frame time and its
++    /// predicted presentation; `term.presented` when the compositor reports
++    /// a frame shown, at that time. GDK's times are g_get_monotonic_time's,
++    /// the trace's clock, in µs.
++    fn traceFrames(widget: *gtk.Widget) void {
++        if (!hotty.trace.on()) return;
++        const clock = widget.getFrameClock() orelse return;
++        const S = gdk.FrameClock.signals;
++        _ = S.flush_events.connect(clock, ?*anyopaque, &phase("flush-events").f, null, .{});
++        _ = S.before_paint.connect(clock, ?*anyopaque, &phase("before-paint").f, null, .{});
++        _ = S.update.connect(clock, ?*anyopaque, &phase("update").f, null, .{});
++        _ = S.layout.connect(clock, ?*anyopaque, &phase("layout").f, null, .{});
++        _ = S.paint.connect(clock, ?*anyopaque, &phase("paint").f, null, .{});
++        _ = S.resume_events.connect(clock, ?*anyopaque, &phase("resume-events").f, null, .{});
++        _ = S.after_paint.connect(clock, ?*anyopaque, &afterPaint, null, .{});
++    }
++
++    fn phase(comptime name: []const u8) type {
++        return struct {
++            fn f(clock: *gdk.FrameClock, _: ?*anyopaque) callconv(.c) void {
++                hotty.trace.emit("term.fc", hotty.trace.now(), null, "\"p\":\"" ++ name ++ "\",\"frame\":{d}", .{clock.getFrameCounter()});
++            }
++        };
++    }
++
++    var presented_upto: i64 = 0;
++
++    fn afterPaint(clock: *gdk.FrameClock, _: ?*anyopaque) callconv(.c) void {
++        const n = clock.getFrameCounter();
++        if (clock.getCurrentTimings()) |t| hotty.trace.emit("term.frame", hotty.trace.now(), null, "\"frame\":{d},\"frame_t\":{d},\"predicted\":{d}", .{
++            n, t.getFrameTime() * 1000, t.getPredictedPresentationTime() * 1000,
++        });
++        var k: i64 = @max(presented_upto + 1, n - 8);
++        while (k < n) : (k += 1) {
++            const t = clock.getTimings(k) orelse continue;
++            if (t.getComplete() == 0) break;
++            presented_upto = k;
++            const at = t.getPresentationTime();
++            if (at > 0) hotty.trace.emit("term.presented", @intCast(at * 1000), null, "\"frame\":{d}", .{k});
++        }
++    }
++
+     //---------------------------------------------------------------
+     // Presenting
+ 
+diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
+index d34c969f5..fd2a39dfd 100644
+--- a/src/apprt/gtk/class/surface.zig
++++ b/src/apprt/gtk/class/surface.zig
+@@ -848,6 +848,7 @@ pub const Surface = extern struct {
+     /// then we should force a redraw.
+     pub fn redraw(self: *Self) void {
+         const priv = self.private();
++        hotty.trace.instant("term.redraw"); // hottyterm: gov R-22's stamps
+         priv.render_surface.as(gtk.Widget).queueDraw();
+     }
+ 
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index df70aa3c7..f67629e7f 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -3,6 +3,7 @@ const builtin = @import("builtin");
+ const global = @import("../global.zig");
+ const xev = global.xev;
+ const wuffs = @import("wuffs");
++const hotty = @import("../termio/hotty.zig");
+ const apprt = @import("../apprt.zig");
+ const configpkg = @import("../config.zig");
+ const font = @import("../font/main.zig");
+@@ -1417,8 +1418,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 //     std.log.err("[updateFrame critical time] start={}\tduration={} us", .{ start_micro, end.since(start) / std.time.ns_per_us });
+                 // }
+ 
++                const t_lock = hotty.trace.now();
+                 state.lockDemand(global.io());
+                 defer state.unlockDemand(global.io());
++                hotty.trace.waited(t_lock, "updateFrame");
+ 
+                 // If we're in a synchronized output state, we pause all rendering.
+                 if (state.terminal.modes.get(.synchronized_output)) {
+@@ -1741,6 +1744,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             self: *Self,
+             sync: bool,
+         ) !bool {
++            const t_draw = hotty.trace.now();
++            defer hotty.trace.span("term.draw", t_draw);
+             // After the graphics API is complete (so we defer) we want to
+             // update our scrollbar state.
+             defer if (self.scrollbar_dirty) {
+@@ -1866,7 +1871,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             }
+ 
+             // Upload images to the GPU as necessary.
++            const t_upload = hotty.trace.now();
+             _ = self.images.upload(self.alloc, &self.api);
++            hotty.trace.span("term.upload", t_upload);
+ 
+             // Upload the background image to the GPU as necessary.
+             try self.uploadBackgroundImage();
+diff --git a/src/termio/Exec.zig b/src/termio/Exec.zig
+index df57e0f4f..238c20cb0 100644
+--- a/src/termio/Exec.zig
++++ b/src/termio/Exec.zig
+@@ -22,6 +22,7 @@ const shell_integration = @import("shell_integration.zig");
+ const terminal = @import("../terminal/main.zig");
+ const termio = @import("../termio.zig");
+ const Command = @import("../Command.zig");
++const hotty = @import("hotty.zig");
+ const ptypkg = @import("../pty.zig");
+ const Pty = ptypkg.Pty;
+ const EnvMap = std.process.Environ.Map;
+@@ -483,7 +484,7 @@ fn ttyWrite(
+         log.err("write error: {}", .{err});
+         return .disarm;
+     };
+-    _ = d;
++    hotty.trace.instantN("term.pty.write", d);
+     //log.info("WROTE: {d}", .{d});
+ 
+     return .disarm;
+@@ -1492,7 +1493,9 @@ pub const ReadThread = struct {
+ 
+             // The batch buffer is owned by this stage until we advance
+             // the tail below, so it is safe to read outside the lock.
++            const t_parse = hotty.trace.now();
+             io.processOutput(batch);
++            hotty.trace.spanN("term.parse", t_parse, batch.len);
+ 
+             {
+                 pipeline.mutex.lockUncancelable(global.io());
+@@ -1686,6 +1689,7 @@ pub const ReadThread = struct {
+                 // child process dies. Deliver what we have and let the
+                 // outer poll detect HUP.
+                 if (n == 0) break :gather;
++                hotty.trace.instantN("term.pty.read", n);
+ 
+                 total += n;
+ 
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index b394c77c6..6d0b7fd6c 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -59,6 +59,122 @@ pub const version_label: [:0]const u8 = if (build_options.hottyterm_label.len >
+ else
+     build_config.version_string;
+ 
++/// Stage stamps for gov R-22's latency rig, in the trace format hotty/1
++/// (hottyterm's docs/trace.md). Off unless `HOTTY_TRACE` names a directory,
++/// where the terminal writes `hottyterm-<pid>.jsonl`: then each stamp is one
++/// line, written with one write(2) to the file opened for appending, on the
++/// clock every process of the rig shares (CLOCK_MONOTONIC; macOS's
++/// CLOCK_UPTIME_RAW). Off, a stamp is one atomic load and a branch.
++/// hotty-blitz stamps its own stages into a file of its own.
++pub const trace = struct {
++    /// -2: not looked up yet; -1: off; else the file.
++    var fd: std.atomic.Value(c_int) = .init(-2);
++
++    const clock_id: std.c.clockid_t = if (builtin.os.tag.isDarwin()) .UPTIME_RAW else .MONOTONIC;
++    extern "c" fn pthread_threadid_np(thread: ?std.c.pthread_t, id: *u64) c_int;
++
++    fn file() ?c_int {
++        const v = fd.load(.acquire);
++        if (v >= 0) return v;
++        if (v == -1) return null;
++        const opened = open();
++        // Threads racing to the first stamp: one file wins.
++        if (fd.cmpxchgStrong(-2, opened, .acq_rel, .acquire)) |cur| {
++            if (opened >= 0) _ = std.c.close(opened);
++            return if (cur >= 0) cur else null;
++        }
++        if (opened < 0) return null;
++        var buf: [160]u8 = undefined;
++        const head = std.fmt.bufPrint(&buf, "{{\"trace\":\"hotty/1\",\"proc\":\"hottyterm\",\"pid\":{d},\"clock\":\"{s}\"}}\n", .{
++            std.c.getpid(),
++            if (builtin.os.tag.isDarwin()) "uptime-raw" else "monotonic",
++        }) catch return opened;
++        _ = std.c.write(opened, head.ptr, head.len);
++        return opened;
++    }
++
++    fn open() c_int {
++        const dir = std.posix.system.getenv("HOTTY_TRACE") orelse return -1;
++        const d = std.mem.span(dir);
++        if (d.len == 0) return -1;
++        var buf: [std.fs.max_path_bytes]u8 = undefined;
++        const path = std.mem.printSentinel(&buf, "{s}/hottyterm-{d}.jsonl", .{ d, std.c.getpid() }, 0) catch return -1;
++        const f = std.c.open(path.ptr, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true, .CLOEXEC = true }, @as(c_uint, 0o644));
++        return if (f < 0) -1 else f;
++    }
++
++    /// Whether stamps are on.
++    pub fn on() bool {
++        return file() != null;
++    }
++
++    /// The time on the shared clock, in ns; 0 while stamps are off.
++    pub fn now() u64 {
++        if (!on()) return 0;
++        return clock();
++    }
++
++    fn clock() u64 {
++        var ts: std.c.timespec = undefined;
++        _ = std.c.clock_gettime(clock_id, &ts);
++        return @as(u64, @intCast(ts.sec)) * std.time.ns_per_s + @as(u64, @intCast(ts.nsec));
++    }
++
++    fn tid() u64 {
++        if (comptime builtin.os.tag == .linux) return @intCast(std.os.linux.gettid());
++        if (comptime builtin.os.tag.isDarwin()) {
++            var id: u64 = 0;
++            _ = pthread_threadid_np(null, &id);
++            return id;
++        }
++        return 0;
++    }
++
++    /// One line: an instant at `t`, or a span from `t` lasting `dur`.
++    /// `a` is the inside of the line's arguments object, formatted with
++    /// `args`, as in `"\"n\":{d}"`.
++    pub fn emit(name: []const u8, t: u64, dur: ?u64, comptime a: []const u8, args: anytype) void {
++        const f = file() orelse return;
++        var buf: [512]u8 = undefined;
++        var w: std.Io.Writer = .fixed(&buf);
++        w.print("{{\"t\":{d},\"n\":\"{s}\"", .{ t, name }) catch return;
++        if (dur) |d| w.print(",\"dur\":{d}", .{d}) catch return;
++        w.print(",\"tr\":{d}", .{tid()}) catch return;
++        if (a.len > 0) w.print(",\"a\":{{" ++ a ++ "}}", args) catch return;
++        w.writeAll("}\n") catch return;
++        const line = w.buffered();
++        _ = std.c.write(f, line.ptr, line.len);
++    }
++
++    /// An instant, now.
++    pub fn instant(name: []const u8) void {
++        if (on()) emit(name, clock(), null, "", .{});
++    }
++
++    /// An instant, now, of `n` bytes.
++    pub fn instantN(name: []const u8, n: usize) void {
++        if (on()) emit(name, clock(), null, "\"n\":{d}", .{n});
++    }
++
++    /// A span from `t0` (from `now`) to now.
++    pub fn span(name: []const u8, t0: u64) void {
++        if (on()) emit(name, t0, clock() -| t0, "", .{});
++    }
++
++    /// A span from `t0` to now, of `n` bytes.
++    pub fn spanN(name: []const u8, t0: u64, n: usize) void {
++        if (on()) emit(name, t0, clock() -| t0, "\"n\":{d}", .{n});
++    }
++
++    /// The wait for the terminal's lock since `t0`, as `term.lock`, when
++    /// it was long enough to be a wait (`a.fn`: where).
++    pub fn waited(t0: u64, comptime where: []const u8) void {
++        if (!on()) return;
++        const d = clock() -| t0;
++        if (d >= 20 * std.time.ns_per_us) emit("term.lock", t0, d, "\"fn\":\"{s}\"", .{where});
++    }
++};
++
+ // --- hotty-blitz C ABI -----------------------------------------------------
+ 
+ pub const Host = opaque {};
+@@ -671,6 +787,8 @@ pub const Hotty = struct {
+     /// StreamHandler (anytype, because it imports this file).
+     pub fn osc(self: *Hotty, handler: anytype, value: terminal.osc.Command.Unknown) !void {
+         if (!std.mem.startsWith(u8, value.content, osc_prefix)) return;
++        const t0 = trace.now();
++        defer trace.spanN("term.osc", t0, value.content.len);
+         if (value.truncated) {
+             log.warn("HOTTY command over {} bytes dropped", .{max_osc_bytes});
+             return;
+@@ -1041,6 +1159,8 @@ pub const Hotty = struct {
+     /// out, for the renderer to draw.
+     fn render(self: *Hotty, t: *terminal.Terminal) bool {
+         const h = self.host orelse return false;
++        const t0 = trace.now();
++        defer trace.span("term.render", t0);
+         var ctx: RenderCtx = .{ .self = self, .t = t };
+         hotty_host_render(h, &ctx, onFrame);
+         // What drawing told the program (`fit`, SPEC §5.2): with the
+@@ -1682,6 +1802,17 @@ pub const Hotty = struct {
+ 
+ // --- from Surface ------------------------------------------------------------
+ 
++/// Takes the terminal's lock for the app's thread, stamping the wait as
++/// `term.lock` (gov R-22): host-local input (hover, a field, the wheel)
++/// waits here while `io-reader` parses and paints the program's output.
++/// `Surface.zig`'s input callbacks (keys, the pointer, focus, IME) take it
++/// here too.
++pub fn lockState(s: *const Surface, comptime src: std.builtin.SourceLocation) void {
++    const t0 = trace.now();
++    s.renderer_state.mutex.lockUncancelable(global.io());
++    trace.waited(t0, src.fn_name);
++}
++
+ fn hostMods(mods: input.Mods) u32 {
+     var m: u32 = 0;
+     if (mods.shift) m |= 1;
+@@ -1718,7 +1849,7 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M
+     defer if (open) |u| s.alloc.free(u);
+     var drew = false;
+     const took = took: {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const hs = &s.io.terminal_stream.handler.hotty;
+         // A hyperlink (SPEC §9) is the terminal's: with the OSC 8 gesture,
+@@ -1794,7 +1925,7 @@ pub fn copySelection(s: *Surface) bool {
+ fn clipboard(s: *Surface) void {
+     const hs = &s.io.terminal_stream.handler.hotty;
+     const cut, const paste = taken: {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         defer hs.cut = null;
+         defer hs.paste_wanted = false;
+@@ -1816,7 +1947,7 @@ pub fn pasteInto(s: *Surface, data: []const u8) bool {
+     if (s.readonly or !holdsKeyboard(s)) return false;
+     var drew = false;
+     const took = took: {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const hs = &s.io.terminal_stream.handler.hotty;
+         const h = hs.host orelse break :took false;
+@@ -1837,7 +1968,7 @@ pub fn pasteInto(s: *Surface, data: []const u8) bool {
+ pub fn pastesText(s: *Surface) bool {
+     if (holdsKeyboard(s)) return true;
+     // A paste command (SPEC §10.6) reads the text too.
+-    s.renderer_state.mutex.lockUncancelable(global.io());
++    lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+     return s.io.terminal_stream.handler.hotty.paste_pending;
+ }
+@@ -1853,14 +1984,14 @@ fn setClipboards(s: *Surface, clipboards: []const apprt.Clipboard, text: [:0]con
+ /// its own, as without HOTTY, kept from the surface holding the keyboard
+ /// (SPEC §11).
+ fn cellsSelect(s: *Surface) bool {
+-    s.renderer_state.mutex.lockUncancelable(global.io());
++    lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+     return s.io.terminal.screens.active.selection != null;
+ }
+ 
+ /// Whether a surface has a selection, which its keymap copies (SPEC §11).
+ fn surfaceSelects(s: *Surface) bool {
+-    s.renderer_state.mutex.lockUncancelable(global.io());
++    lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+     const h = s.io.terminal_stream.handler.hotty.host orelse return false;
+     return hotty_host_selected_text(h) != null;
+@@ -1879,7 +2010,7 @@ fn keymapCopyKey(p: *const Press) bool {
+ /// shortcuts, keyboard or not (SPEC §11): true if its keymap copies with
+ /// it, and the key goes no further.
+ fn selectionCopy(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+-    s.renderer_state.mutex.lockUncancelable(global.io());
++    lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+     const hs = &s.io.terminal_stream.handler.hotty;
+     const h = hs.host orelse return false;
+@@ -1946,7 +2077,7 @@ pub fn cellLinkButton(s: *Surface, action: input.MouseButtonState, button: input
+     for (s.mouse.click_state, 0..) |state, i| {
+         if (i != @intFromEnum(button) and state == .press) return null;
+     }
+-    s.renderer_state.mutex.lockUncancelable(global.io());
++    lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+     if (!s.config.mouse_reporting or s.io.terminal.flags.mouse_event == .none) return null;
+     hs.cell_link_press = s.rt_surface.getCursorPos() catch return null;
+@@ -2007,7 +2138,7 @@ fn openLink(s: *Surface, url: []const u8) void {
+ /// loaded at, and the size in the settings, for the CSS px (`cssPx`). The
+ /// resize that follows a change re-renders the surfaces with it.
+ pub fn surfaceFont(s: *Surface) void {
+-    s.renderer_state.mutex.lockUncancelable(global.io());
++    lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+     s.io.terminal_stream.handler.hotty.font_size = s.font_size;
+     s.io.terminal_stream.handler.hotty.original_points = s.config.original_font_size;
+@@ -2022,7 +2153,7 @@ pub fn surfaceMods(s: *Surface) void {
+     var preview: ?[:0]u8 = null;
+     defer if (preview) |p| s.alloc.free(p);
+     {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const hs = &s.io.terminal_stream.handler.hotty;
+         if (hs.hover_len == 0) return; // not over a surface: the cells' business
+@@ -2141,7 +2272,7 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
+ /// which a click on a surface carries (SPEC §9). An apprt that hands none
+ /// over leaves the press to be counted as Ghostty counts one.
+ pub fn surfaceClickCount(s: *Surface, n: c_int) void {
+-    s.renderer_state.mutex.lockUncancelable(global.io());
++    lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+     s.io.terminal_stream.handler.hotty.platform_count = @intCast(@max(n, 0));
+ }
+@@ -2161,7 +2292,7 @@ pub fn surfaceMove(s: *Surface, pos: apprt.CursorPos, mods: ?input.Mods) bool {
+ fn windowLeft(s: *Surface, mods: input.Mods) void {
+     var drew = false;
+     {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const hs = &s.io.terminal_stream.handler.hotty;
+         hs.leaveWindow(&s.io.terminal, hostMods(mods));
+@@ -2190,7 +2321,7 @@ pub fn surfaceScroll(s: *Surface, xoff: f64, yoff: f64, scroll_mods: input.Scrol
+         .{ -xoff * cell_w, -yoff * cell_h * m.discrete };
+     var drew = false;
+     const took = took: {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const hs = &s.io.terminal_stream.handler.hotty;
+         const took = hs.wheel(&s.io.terminal, tp.x, tp.y, dx, dy, hostMods(s.mouse.mods));
+@@ -2214,7 +2345,7 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
+     const tp = coord.convert(.terminal, s.size).terminal;
+     var drew = false;
+     const r: Touch = r: {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const hs = &s.io.terminal_stream.handler.hotty;
+         // A touch that only focuses the split, as a click then does
+@@ -2289,7 +2420,7 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
+     // Another key pressed makes a modifier held a chord's, not a tap.
+     if (event.action == .press) hs.tap_key = null;
+     if (event.action == .release) {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         if (!hs.held_keys.contains(event.key)) return false;
+         hs.held_keys.remove(event.key);
+@@ -2309,7 +2440,7 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
+     }
+     var drew = false;
+     const used = used: {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const used = hs.keyPressed(&s.io.terminal, name);
+         hs.held_keys.setPresent(event.key, used);
+@@ -2337,7 +2468,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+     const name = p.only();
+     const hs = &s.io.terminal_stream.handler.hotty;
+     const command = command: {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const h = hs.host orelse return false;
+         const c = hotty_host_edit_command(h, namePtr(p.physical), p.physical.len, namePtr(p.character), p.character.len) orelse return false;
+@@ -2351,7 +2482,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+     }
+     if (std.mem.eql(u8, std.mem.span(command), "paste")) {
+         {
+-            s.renderer_state.mutex.lockUncancelable(global.io());
++            lockState(s, @src());
+             defer s.renderer_state.mutex.unlock(global.io());
+             const n = @min(name.len, hs.paste_key.len);
+             @memcpy(hs.paste_key[0..n], name[0..n]);
+@@ -2366,7 +2497,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+         return true;
+     }
+     {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const fx = hs.effects();
+         hotty_host_command(command, name.ptr, name.len, null, 0, &fx);
+@@ -2380,7 +2511,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+ /// none when it holds none. False when no paste command waits.
+ pub fn commandPaste(s: *Surface, data: []const u8) bool {
+     {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const hs = &s.io.terminal_stream.handler.hotty;
+         if (hs.paste_abandoned) {
+@@ -2414,7 +2545,7 @@ const paste_late_ms = 10_000;
+ /// keys held go on, and so does this one.
+ fn holdForPaste(s: *Surface, event: input.KeyEvent) bool {
+     {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const hs = &s.io.terminal_stream.handler.hotty;
+         if (!hs.paste_pending) return false;
+@@ -2432,7 +2563,7 @@ fn holdForPaste(s: *Surface, event: input.KeyEvent) bool {
+         }
+     }
+     _ = commandPaste(s, "");
+-    s.renderer_state.mutex.lockUncancelable(global.io());
++    lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+     s.io.terminal_stream.handler.hotty.paste_abandoned = true;
+     return false;
+@@ -2443,7 +2574,7 @@ fn holdForPaste(s: *Surface, event: input.KeyEvent) bool {
+ fn releaseHeld(s: *Surface) void {
+     var held: [64]Hotty.HeldKey = undefined;
+     const n = n: {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const hs = &s.io.terminal_stream.handler.hotty;
+         const n = hs.paste_held_len;
+@@ -2466,7 +2597,7 @@ fn cellsKey(s: *Surface, event: input.KeyEvent) void {
+     var press: Press = .{};
+     if (!press.name(event, true)) press.character = event.utf8;
+     if (press.physical.len == 0 and press.character.len == 0) return;
+-    s.renderer_state.mutex.lockUncancelable(global.io());
++    lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+     const hs = &s.io.terminal_stream.handler.hotty;
+     if (!hs.menu_shown or hs.hasKeyboard()) return;
+@@ -2491,7 +2622,7 @@ pub fn bindingFlags(s: *Surface, event: input.KeyEvent, flags: input.Binding.Fla
+ /// Whether a key is one of an edit command the program took (SPEC
+ /// §10.6).
+ fn takesCommand(s: *Surface, p: *const Press) bool {
+-    s.renderer_state.mutex.lockUncancelable(global.io());
++    lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+     const hs = &s.io.terminal_stream.handler.hotty;
+     const h = hs.host orelse return false;
+@@ -2637,7 +2768,7 @@ fn modifierKey(s: *Surface, event: input.KeyEvent) bool {
+     press.character = cw.buffered();
+     var drew = false;
+     const used = used: {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const used = hs.keyPressed(&s.io.terminal, &press);
+         drew = hs.drew;
+@@ -2699,7 +2830,7 @@ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+     const bytes = if (event.action == .release or !holdsKeyboard(s)) "" else encodeKey(s, event, &buf);
+     var drew = false;
+     const consumed = consumed: {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         if (event.action == .release) {
+             const held = hs.held_keys.contains(event.key);
+@@ -2727,7 +2858,7 @@ pub fn surfaceBindingBytes(s: *Surface, bytes: []const u8) bool {
+     if (s.readonly) return false;
+     var drew = false;
+     const used = used: {
+-        s.renderer_state.mutex.lockUncancelable(global.io());
++        lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const hs = &s.io.terminal_stream.handler.hotty;
+         const used = hs.keyBytes(&s.io.terminal, bytes);
+@@ -2741,7 +2872,7 @@ pub fn surfaceBindingBytes(s: *Surface, bytes: []const u8) bool {
+ }
+ 
+ fn holdsKeyboard(s: *Surface) bool {
+-    s.renderer_state.mutex.lockUncancelable(global.io());
++    lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+     return s.io.terminal_stream.handler.hotty.hasKeyboard();
+ }

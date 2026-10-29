@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 17 Oct 2026 18:32:57 +0200
-Subject: [PATCH 35/40] hottyterm: a plain click opens only an OSC 8 hyperlink
+Subject: [PATCH 35/41] hottyterm: a plain click opens only an OSC 8 hyperlink
 
 With hotty-link-click = plain, no modifier held was the link gesture
 for every link, so a URL or a path the link regex found underlined under
