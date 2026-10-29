@@ -44,12 +44,12 @@ git -C "$NEUROPLASTIO/plx/main" archive 1a2b3c4 | tar -x -C "$SIDE_WORK"
 cd "$SIDE_WORK" && go build -o "$SIDE_DIR/bin/" ./cmd/plx ./cmd/plx-script
 cp -a /usr/lib/hottyterm/. "$SIDE_DIR/"
 '''
-run = 'exec "$SIDE_DIR/bin/plx"'
+run = 'exec "$SIDE_WORK/scripts/perf/plx-run.sh" --bin "$SIDE_DIR/bin" -- fish'
 
 [after]
 label = "plx p/feel-fix at 5d6e7f8"
 build = '''...the same, at 5d6e7f8...'''
-run = 'exec "$SIDE_DIR/bin/plx"'
+run = 'exec "$SIDE_WORK/scripts/perf/plx-run.sh" --bin "$SIDE_DIR/bin" -- fish'
 ```
 
 - **`build`** (optional) runs under `sh -e` in `compare prepare`, with
@@ -68,13 +68,18 @@ run = 'exec "$SIDE_DIR/bin/plx"'
   (any process carrying its `PLX_DIR` or its `COMPARE_RUN` mark, its plxd
   included) and the window closes. If it fails, the window waits for
   Enter so the error stays readable.
-- **R-23's after side runs as a tool in a throwaway plx**: `run` starts
-  plx with the tool, e.g. `exec "$SIDE_DIR/bin/plx" -- my-tool`, so both
-  sides sit in plx.
-- **plx's own plugins run from beside its binary**, so build `plx` and
-  `plx-script` into the same `$SIDE_DIR/bin`. A plugin that needs a
-  grant gets it in `run`, before plx starts:
-  `"$SIDE_DIR/bin/plx" plugin allow script host; exec "$SIDE_DIR/bin/plx"`.
+- **A side that runs plx starts it through the side's own launcher**,
+  plx's `scripts/perf/plx-run.sh --bin "$SIDE_DIR/bin" [--setup FILE] --
+  <program>`. plx trusts a plugin beside its binary only when that binary
+  sits in a `builds/<commit>` directory, never in a checkout's `bin/`.
+  Run bare, `plx-script` would come from `PATH`, which can be the
+  installed one. The launcher copies the build into such a directory
+  under a throwaway `PLX_DIR`, drops the `PATH` entries that hold a plx,
+  keeps `COMPARE_RUN` (so close still finds the side's processes), and
+  cleans up on exit and on SIGTERM. `--setup` registers and opens what the
+  side needs once the session answers.
+- **R-23's after side runs as a tool in that throwaway plx**, e.g.
+  `-- my-tool`, so both sides sit in plx.
 
 ## Keeping it blind
 

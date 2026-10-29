@@ -60,6 +60,15 @@ process. The parts add up to T1 − T0 exactly.
    or a span's start, a wait's being hottyterm's): that process was
    working towards it. With no stamp left before T1, it is "present".
    A window without any stamp of the stack is "unstamped".
+6. Except after the hand-off: the write the host reads that the frame
+   answers (HANDOFFS: plx's viewer.write, else the program's prog.write).
+   It is the last one before the frame that no later input precedes: once
+   a write has gone, an upstream process reading input again
+   (REQUESTS: viewer.input, prog.read) is answering a later input, such
+   as the key's release, and so are its writes. From the hand-off on, the
+   host has the input: only the host's spans count (rule 4), and time
+   they don't cover goes to the host's next stamp, or to "present". Other
+   processes' stamps there are off the path.
 Shares go by proc, so hotty-blitz stands apart from hottyterm, whose pid it
 shares. A run's pP row is the input at pP of end to end, split: one real
 input, so its row adds up. "mean" is every input's split averaged, which
@@ -89,6 +98,8 @@ SMOKE_STARTS = ("term.key", "term.button", "term.wheel")  # pointer moves come i
 FRAMES = ("term.snapshot", "term.snapshot.cpu")
 WAITS = {"term.lock": "lock wait"}
 IDLE = ("term.key.up",)
+HANDOFFS = ("viewer.write", "prog.write")  # rule 6, plx's first
+REQUESTS = ("viewer.input", "prog.read")
 DIMS = ("host", "sc", "scenario", "scale", "size", "round", "plx")
 INPUT, PRESENT, UNSTAMPED = "input", "present", "unstamped"
 # The waterfall's columns, left to right; other procs go before present.
@@ -118,6 +129,18 @@ def windows(run, starts):
         yield st, evs[lo:hi]
 
 
+def handoff(stamps, last):
+    """Rule 6: when the host got the write the frame answers, or None."""
+    for name in HANDOFFS:
+        ws = [e["t"] for e in stamps if e["n"] == name and e["t"] <= last]
+        if not ws:
+            continue
+        later = [e["t"] for e in stamps if e["n"] in REQUESTS and ws[0] < e["t"] <= last]
+        cut = min(later, default=last)
+        return max(t for t in ws if t <= cut)
+    return None
+
+
 def split(t0, t1, stamps, host):
     """{share: ns} for one input, by the rules at the top; adds up to t1 − t0."""
     spans, marks = [], []
@@ -125,10 +148,11 @@ def split(t0, t1, stamps, host):
         s = e["t"]
         if s > t1 or e["n"] in IDLE:
             continue
-        marks.append((s, e["proc"]))
+        mine = e["pid"] == host
+        marks.append((s, e["proc"], mine))
         if e.get("dur"):
             wait = WAITS.get(e["n"])
-            spans.append((s, min(s + e["dur"], t1), wait or e["proc"], wait is not None))
+            spans.append((s, min(s + e["dur"], t1), wait or e["proc"], wait is not None, mine))
     if not marks:
         return {UNSTAMPED: t1 - t0}
     marks.sort(key=lambda m: m[0])  # stable: same-t marks keep the merge's order
@@ -139,27 +163,34 @@ def split(t0, t1, stamps, host):
     frames = [t for t in frames if t <= t1]
     last = max(max(frames), first) if frames else t1
     shares = collections.Counter({INPUT: first - t0, PRESENT: t1 - last})
+    h = handoff(stamps, last)
+    h = last if h is None else max(h, first)
     at = [m[0] for m in marks]
-    live = sorted((max(s, first), e, s, p, w) for s, e, p, w in spans if e > first and s < last)
-    cuts = {first, last}
+    mine = [m for m in marks if m[2]]
+    at_mine = [m[0] for m in mine]
+    live = sorted((max(s, first), e, s, p, w, m) for s, e, p, w, m in spans if e > first and s < last)
+    cuts = {first, last, h} - {None}
     cuts.update(t for t in at if first < t < last)
     for s, e, *_ in live:
         cuts.update(x for x in (s, e) if first < x < last)
-    cuts = sorted(cuts)
+    cuts = sorted(t for t in cuts if first <= t <= last)
     heap, k = [], 0
     for a, b in zip(cuts, cuts[1:]):
         while k < len(live) and live[k][0] <= a:
-            _, e, s, p, w = live[k]
+            _, e, s, p, w, m = live[k]
             # waits on top, then the latest started, then the shortest
-            heapq.heappush(heap, (not w, -s, e, k, p))
+            heapq.heappush(heap, (not w, -s, e, k, p, m))
             k += 1
         while heap and heap[0][2] <= a:
             heapq.heappop(heap)
-        if heap:
-            owner = heap[0][4]
+        after = a >= h  # rule 6: the host has it
+        top = min((x for x in heap if x[2] > a and (x[5] or not after)), default=None)
+        if top:
+            owner = top[4]
         else:
-            j = bisect.bisect_left(at, b)
-            owner = marks[j][1] if j < len(marks) else PRESENT
+            ts, ms = (at_mine, mine) if after else (at, marks)
+            j = bisect.bisect_left(ts, b)
+            owner = ms[j][1] if j < len(ms) else PRESENT
         shares[owner] += b - a
     return {k: v for k, v in shares.items() if v}
 
