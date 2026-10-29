@@ -1,0 +1,25 @@
+# An example, not a pair to judge: both sides are the installed hottyterm
+# running the same trivial program, so there is nothing to tell apart. It
+# is here to try compare itself: the workspace, the two windows, the
+# clients check, close and verdict. docs/compare.md explains the format.
+example = true
+track = "example"
+brief = "Example only, both sides are the same: does typing echo as quickly in A as in B?"
+
+[before]
+label = "the installed hottyterm, cat"
+run = '''
+printf 'compare example: type a line and it echoes back. Ctrl-D closes this side.\n\n'
+env | grep -E '^(PLX_|COMPARE_)' | sort
+echo
+exec cat
+'''
+
+[after]
+label = "the installed hottyterm, cat (the same)"
+run = '''
+printf 'compare example: type a line and it echoes back. Ctrl-D closes this side.\n\n'
+env | grep -E '^(PLX_|COMPARE_)' | sort
+echo
+exec cat
+'''

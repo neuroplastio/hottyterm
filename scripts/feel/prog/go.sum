@@ -1,0 +1,12 @@
+github.com/neuroplastio/hotty-go v0.5.5 h1:AFuw9FbiZEUKhzITtT1/O3e1tbCVb+spZJDc8mU6W6U=
+github.com/neuroplastio/hotty-go v0.5.5/go.mod h1:Jpc6zXV2vFn0EWfxy1dDuXswBwj/MZGGi9FY20Nv4R0=
+github.com/neuroplastio/myelin/myelinkey v0.1.0 h1:c1XVForIsnqnYxmmwwN/UHFdtUzQYv3fD94hyxGe8cI=
+github.com/neuroplastio/myelin/myelinkey v0.1.0/go.mod h1:lnIMTPFSwjs8dsx9R8zsPNGaRnlzS4rScUY4exrjLus=
+github.com/philhofer/fwd v1.2.0 h1:e6DnBTl7vGY+Gz322/ASL4Gyp1FspeMvx1RNDoToZuM=
+github.com/philhofer/fwd v1.2.0/go.mod h1:RqIHx9QI14HlwKwm98g9Re5prTQ6LdeRQn+gXJFxsJM=
+github.com/tinylib/msgp v1.6.5 h1:iAH6XTP7BpzErjBZlujJQXxA+GmRi2YWs6M4KdLtNbE=
+github.com/tinylib/msgp v1.6.5/go.mod h1:RSp0LW9oSxFut3KzESt5Voq4GVWyS+PSulT77roAqEA=
+golang.org/x/sys v0.49.0 h1:XbzkgYJHdqh/8m2Uu0W/dQv8nktxx4BFHp1M0gROTXA=
+golang.org/x/sys v0.49.0/go.mod h1:hNLxWAXmnKAxqDtdwIYC4bM9oQPEecfsnNMuSxOs3og=
+golang.org/x/term v0.47.0 h1:cpyOwQkr2Nzxe2p6KnrTG7Ei2wtzjsuSjhpXXepZ/BM=
+golang.org/x/term v0.47.0/go.mod h1:efAfAuG6RKABvg1ArGebRkvX6LXul14SM67o2e4mUCY=
