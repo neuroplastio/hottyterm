@@ -1,0 +1,130 @@
+{
+ "name": "E7",
+ "brief": "plx's own chrome: switching tabs, panes and workspaces, and the palette, each on its leader key (ctrl+b); every cycle starts with its leader, so each of its ten timed keys is plx's (a step list split its first leader into the lead, and a repeat sent Tab without one)",
+ "plx": true,
+ "setup": "plx/main/scripts/perf/e7.sh",
+ "argv": [
+  "sh",
+  "-c",
+  "cat"
+ ],
+ "roi_frac": [
+  0,
+  0,
+  1,
+  1
+ ],
+ "n": 30,
+ "lead": [],
+ "cycle": [
+  {
+   "key": "b",
+   "mods": [
+    "ctrl"
+   ],
+   "untimed": true
+  },
+  {
+   "key": "Tab",
+   "note": "tab.next"
+  },
+  {
+   "key": "b",
+   "mods": [
+    "ctrl"
+   ],
+   "untimed": true
+  },
+  {
+   "key": "Tab",
+   "note": "tab.next"
+  },
+  {
+   "key": "b",
+   "mods": [
+    "ctrl"
+   ],
+   "untimed": true
+  },
+  {
+   "key": "Tab",
+   "mods": [
+    "shift"
+   ],
+   "note": "tab.prev"
+  },
+  {
+   "key": "b",
+   "mods": [
+    "ctrl"
+   ],
+   "untimed": true
+  },
+  {
+   "key": "Tab",
+   "mods": [
+    "shift"
+   ],
+   "note": "tab.prev"
+  },
+  {
+   "key": "b",
+   "mods": [
+    "ctrl"
+   ],
+   "untimed": true
+  },
+  {
+   "key": "l",
+   "note": "focus.right"
+  },
+  {
+   "key": "b",
+   "mods": [
+    "ctrl"
+   ],
+   "untimed": true
+  },
+  {
+   "key": "h",
+   "note": "focus.left"
+  },
+  {
+   "key": "b",
+   "mods": [
+    "ctrl"
+   ],
+   "untimed": true
+  },
+  {
+   "key": "bracketright",
+   "note": "workspace.next"
+  },
+  {
+   "key": "b",
+   "mods": [
+    "ctrl"
+   ],
+   "untimed": true
+  },
+  {
+   "key": "bracketleft",
+   "note": "workspace.prev"
+  },
+  {
+   "key": "b",
+   "mods": [
+    "ctrl"
+   ],
+   "untimed": true
+  },
+  {
+   "key": "colon",
+   "note": "palette.open"
+  },
+  {
+   "key": "Escape",
+   "note": "palette.close"
+  }
+ ]
+}
