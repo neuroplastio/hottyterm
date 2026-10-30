@@ -195,6 +195,17 @@ mkdir -p "$HOME/.config/ghostty"
 # scenario's program) with HOTTY_TRACE, cgevent.py types or moves the
 # pointer, and the trace stays in the run's dir.
 VIA=cgevent
+# Stops a run's app the same way whatever happened: TERM, up to 5 s to
+# exit, then KILL; in plx 2 s more, plx-run.sh stopping its session within
+# 1.5 s of the terminal's hangup, so the next run starts on a clean slate.
+stop_app() { # <pid>
+  [ -n "$1" ] || return 0
+  kill "$1" 2>/dev/null
+  for _ in $(seq 1 10); do kill -0 "$1" 2>/dev/null || break; sleep 0.5; done
+  kill -9 "$1" 2>/dev/null
+  [ -n "$PLX" ] && sleep 2
+  return 0
+}
 latency() { # <app> <side> <e1|e2|e3|E7|E7K> <round>
   app="$1"; side="$2"; sc="$3"; r="$4"
   dir="$OUT/latency/$side-$sc-r$r"; mkdir -p "$dir"
@@ -236,14 +247,17 @@ CFG
   for _ in $(seq 1 60); do [ -s "$ready" ] && break; sleep 1; done
   pid=$(pgrep -n -f "$app/Contents/MacOS/")
   if [ ! -s "$ready" ] || [ -z "$pid" ]; then
-    echo "the program never started"; [ -n "$pid" ] && kill "$pid"; return 1
+    # Which of them didn't come up: the app, or the program in it (in plx,
+    # plx-run.sh writes plx-pane.json once its session and setup are done).
+    echo "the program never started: $( [ -n "$pid" ] && echo "the app runs (pid $pid)" || echo "no app process"), no $(basename "$ready") after 60 s; the run's dir holds: $(ls "$dir" | tr '\n' ' ')"
+    stop_app "$pid"; return 1
   fi
   sleep 2
   # A build from before the stamps writes no trace, even with its program
   # drawn, and cgevent.py would take its first input for a refused one.
   if ! ls "$dir"/hottyterm-*.jsonl >/dev/null 2>&1; then
     echo "no hottyterm trace: the build has no stamps, or HOTTY_TRACE did not reach it"
-    kill "$pid"; mkdir -p "$OUT/unstamped" && mv "$dir" "$OUT/unstamped/"; return 4
+    stop_app "$pid"; mkdir -p "$OUT/unstamped" && mv "$dir" "$OUT/unstamped/"; return 4
   fi
   grep -qs '"n":"term.contents"' "$dir"/hottyterm-*.jsonl \
     || echo "no term.contents yet: the build has no macOS stamps, and the report no end for its inputs"
@@ -257,11 +271,7 @@ CFG
   fi
   rc=$?
   sleep 1
-  kill "$pid" 2>/dev/null
-  for _ in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
-  kill -9 "$pid" 2>/dev/null
-  # plx-run.sh stops its session within 1.5 s of the terminal's hangup.
-  [ -n "$PLX" ] && sleep 2
+  stop_app "$pid"
   # A refused run's trace is set aside, out of the report.
   [ $rc -eq 3 ] && mkdir -p "$OUT/refused" && mv "$dir" "$OUT/refused/"
   return $rc
