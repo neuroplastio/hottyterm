@@ -61,14 +61,13 @@ process. The parts add up to T1 − T0 exactly.
    working towards it. With no stamp left before T1, it is "present".
    A window without any stamp of the stack is "unstamped".
 6. Except after the hand-off: the write the host reads that the frame
-   answers (HANDOFFS: plx's viewer.write, else the program's prog.write).
-   It is the last one before the frame that no later input precedes: once
-   a write has gone, an upstream process reading input again
-   (REQUESTS: viewer.input, prog.read) is answering a later input, such
-   as the key's release, and so are its writes. From the hand-off on, the
-   host has the input: only the host's spans count (rule 4), and time
-   they don't cover goes to the host's next stamp, or to "present". Other
-   processes' stamps there are off the path.
+   answers (HANDOFFS: plx's viewer.write, else the program's prog.write),
+   the last one before the frame in the window. A write plx marks as
+   changing nothing (its viewer.render's quiet) isn't one. From the
+   hand-off on, the host has the input: only the host's spans count
+   (rule 4), and time they don't cover goes to the host's next stamp, or
+   to "present". Other processes' stamps there are off the path, such as
+   plx reading the key's release after its last write.
 Shares go by proc, so hotty-blitz stands apart from hottyterm, whose pid it
 shares. A run's pP row is the input at pP of end to end, split: one real
 input, so its row adds up. "mean" is every input's split averaged, which
@@ -99,7 +98,6 @@ FRAMES = ("term.snapshot", "term.snapshot.cpu")
 WAITS = {"term.lock": "lock wait"}
 IDLE = ("term.key.up",)
 HANDOFFS = ("viewer.write", "prog.write")  # rule 6, plx's first
-REQUESTS = ("viewer.input", "prog.read")
 DIMS = ("host", "sc", "scenario", "scale", "size", "round", "plx")
 INPUT, PRESENT, UNSTAMPED = "input", "present", "unstamped"
 # The waterfall's columns, left to right; other procs go before present.
@@ -132,12 +130,16 @@ def windows(run, starts):
 def handoff(stamps, last):
     """Rule 6: when the host got the write the frame answers, or None."""
     for name in HANDOFFS:
-        ws = [e["t"] for e in stamps if e["n"] == name and e["t"] <= last]
-        if not ws:
-            continue
-        later = [e["t"] for e in stamps if e["n"] in REQUESTS and ws[0] < e["t"] <= last]
-        cut = min(later, default=last)
-        return max(t for t in ws if t <= cut)
+        ws, quiet = [], False
+        for e in stamps:
+            if e["t"] > last:
+                break
+            if e["n"] == "viewer.render":
+                quiet = bool(e.get("a", {}).get("quiet"))
+            elif e["n"] == name and not (name == "viewer.write" and quiet):
+                ws.append(e["t"])
+        if ws:
+            return ws[-1]
     return None
 
 
