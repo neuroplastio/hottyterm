@@ -8,7 +8,9 @@
 Each run is one host × scenario × scale × size × round, in a directory of
 its own under --out, with:
 - every process's trace (HOTTY_TRACE, docs/trace.md);
-- meta.json: the labels, the builds, and the load before and after.
+- meta.json: the labels, the builds, the load before and after, and with
+  --gate-cpus the gate's figures and what else ran on those CPUs during the
+  run (quiet.py).
 
 The hosts alternate within each round, so a change in the machine's load
 reaches all of them. After every run, merge.py and report.py write the
@@ -73,6 +75,7 @@ import time
 sys.dont_write_bytecode = True  # no __pycache__ in scripts/feel
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import blackbox  # noqa: E402  (its SwayIPC, for window_b)
+import quiet  # noqa: E402  (the load gate)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCENARIOS = os.path.join(HERE, "scenarios")
@@ -491,8 +494,15 @@ def run_one(args, host, sc, scale, size, rnd, port, spec=None):
         argv = plx_wrap(argv, setup)
     env = clean_env(run_dir, dict(e.split("=", 1) for e in args.env))
     meta = {"host": host, "sc": sc, "scale": scale, "size": size, "round": rnd, "plx": args.plx,
-            "on_demand": args.on_demand, "env": args.env,
-            "bin": HOSTS[host], "load_before": load(), "argv": argv}
+            "on_demand": args.on_demand, "env": args.env, "bin": HOSTS[host], "argv": argv}
+    if args.gate_cpus:
+        meta["gate"] = quiet.gate(args.gate_cpus, args.gate_busy, wait=args.gate_wait)
+        meta["gate"]["cpu_list"] = args.gate_cpus_text
+        if not meta["gate"]["passed"]:
+            print(f"{name}: the gate's CPUs stayed {meta['gate']['busy_pct']}% busy for "
+                  f"{args.gate_wait:g} s; running anyway", file=sys.stderr, flush=True)
+    meta["load_before"] = load()
+    during = quiet.During(args.gate_cpus) if args.gate_cpus else None
     if spec and spec["params"]:
         meta["params"] = spec["params"]
     two = bool(spec and spec.get("window_b"))
@@ -534,6 +544,8 @@ def run_one(args, host, sc, scale, size, rnd, port, spec=None):
         time.sleep(0.4)  # the trace's 300 ms of quiet before the stop
     finally:
         stop(procs)
+    if during:
+        meta["during"] = during.end()
     meta["load_after"] = load()
     with open(os.path.join(run_dir, "meta.json"), "w") as f:
         json.dump(meta, f, indent=1)
@@ -572,8 +584,15 @@ def main():
                    "(see Scenario files at the top)")
     p.add_argument("--param", action="append", default=[], metavar="K=V",
                    help="a scenario file's param for this run (a number, or else a string)")
+    p.add_argument("--gate-cpus", default=os.environ.get("FEEL_GATE_CPUS", ""), metavar="LIST",
+                   help="before each run, wait until these CPUs (0-3,12-15) are under --gate-busy "
+                   "percent busy over 5 s, and record what else ran on them during it (FEEL_GATE_CPUS)")
+    p.add_argument("--gate-busy", type=float, default=10.0)
+    p.add_argument("--gate-wait", type=float, default=300.0, help="seconds the gate waits at most")
     p.add_argument("--out", default=os.path.join(REPO, "out", "feel", time.strftime("%Y%m%d-%H%M%S")))
     args = p.parse_args()
+    args.gate_cpus_text = args.gate_cpus
+    args.gate_cpus = quiet.parse_cpus(args.gate_cpus)
     hosts = args.hosts.split(",")
     for h in hosts:
         if not os.access(HOSTS[h], os.X_OK):
