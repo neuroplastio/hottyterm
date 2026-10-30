@@ -23,7 +23,7 @@ W="$SIDE_WORK"
 at() { # <repo> <dir> <commit> <branch>
   rm -rf "$2"
   git clone -q --shared --no-checkout "$1" "$2"
-  git -C "$2" checkout -q -b "$4" "$3"
+  git -C "$2" checkout -q -B "$4" "$3"
 }
 apply() { # <dir> <patches dir>
   set -- "$1" "$2"/*.patch
