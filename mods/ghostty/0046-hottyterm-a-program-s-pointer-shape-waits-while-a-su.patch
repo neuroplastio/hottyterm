@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Fri, 30 Oct 2026 15:23:18 +0100
+Subject: [PATCH 46/46] hottyterm: a program's pointer shape waits while a
+ surface is hovered
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A motion over a hotty surface is the surface's and never reaches the
+program, so the program's idea of the pointer is the last cell it saw
+before the surface. A program that sets the pointer's shape per cell
+(OSC 22) sends its change one of its frames after the motion. When the
+pointer crosses into a surface within that frame, the change for the
+cell it left arrived while the surface was hovered, and
+Surface.handleMessage showed it at once, over the surface's CSS cursor.
+Hotty.shapeChange then showed the surface's shape again only once that
+shape changed, or the pointer left the surface.
+
+While a surface is hovered, .set_mouse_shape now shows nothing: the
+stream handler has already kept the shape in terminal.mouse_shape, and
+shapeChange shows it when the pointer leaves the surface (SPEC §9: over
+a surface, the pointer is its document's).
+---
+ src/Surface.zig      |  3 +++
+ src/termio/hotty.zig | 11 +++++++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 31b68a50f..cdb7fdf9a 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -1134,6 +1134,9 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {
+ 
+         .set_mouse_shape => |shape| {
+             log.debug("changing mouse shape: {}", .{shape});
++            // hottyterm: over a surface the pointer is its document's; the
++            // program's shows when the pointer leaves it.
++            if (hotty.surfaceHovered(self)) return;
+             _ = try self.rt_app.performAction(
+                 .{ .surface = self },
+                 .mouse_shape,
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 78b009b27..4723b9c44 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -2637,6 +2637,17 @@ fn sameCell(s: *Surface, a: apprt.CursorPos, b: apprt.CursorPos) bool {
+     return @floor(ta.x / w) == @floor(tb.x / w) and @floor(ta.y / h) == @floor(tb.y / h);
+ }
+ 
++/// Surface.handleMessage, for the program's pointer shape (OSC 22): whether
++/// a surface is hovered. Its document's shape is then shown (SPEC §9), and
++/// the program's, kept in terminal.mouse_shape, is shown when the pointer
++/// leaves the surface (`shapeChange`). The program sees no motion over a
++/// surface, so the shape it sends then is for where it saw the pointer last.
++pub fn surfaceHovered(s: *Surface) bool {
++    lockState(s, @src());
++    defer s.renderer_state.mutex.unlock(global.io());
++    return s.io.terminal_stream.handler.hotty.hover_len > 0;
++}
++
+ /// Shows the pointer's shape and the link preview that changed.
+ fn apply(s: *Surface, shape: ?terminal.MouseShape, preview: ?[:0]const u8) void {
+     // The pointer shows what the surface under it asks for (SPEC §9).
