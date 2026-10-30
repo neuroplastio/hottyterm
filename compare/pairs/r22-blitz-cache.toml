@@ -1,0 +1,24 @@
+# gov R-22: hotty-blitz's main against its branch r22/blitz-cache, which
+# keeps what every new document paid for again: the scratch document takes
+# no stylesheet, a system font loads once, the user agent stylesheet is
+# parsed once and the system's fallback font is asked for once. In plx's
+# palette, a document new at every opening, hotty-blitz's last frame came
+# 6 ms sooner (51 to 45 ms after the key, R-22's E7 at 60 Hz, where the
+# frame it lands on stays the same). Both sides are hottyterm main built the same way
+# (scripts/compare-build.sh), with hotty-blitz at the branch or at its
+# merge-base, and run the installed plx, as the maintainer works.
+brief = "Use plx's palette (:) a few times, and its dialogs: does A or B open them sooner?"
+track = "R-22"
+results = "docs/feel.md"
+hottyterm = "$SIDE_DIR/bin/hottyterm"
+seed = ["config/plx", "config/fish"]
+
+[before]
+label = "hotty-blitz main (r22/blitz-cache's merge-base), in hottyterm main"
+build = '"$COMPARE_REPO/scripts/compare-build.sh" main "$(git -C "$NEUROPLASTIO/hotty-blitz/main" merge-base main r22/blitz-cache)"'
+run = "exec plx"
+
+[after]
+label = "hotty-blitz r22/blitz-cache, in hottyterm main"
+build = '"$COMPARE_REPO/scripts/compare-build.sh" main r22/blitz-cache'
+run = "exec plx"
