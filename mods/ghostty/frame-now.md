@@ -24,7 +24,7 @@ a painted frame still waits for the compositor's frame callback (the
 clock is stopped then, with no source to make ready), its own animations
 keep their pace, and the surface never asks for more than one paint a
 refresh. GTK's `no-vsync` debug flag removes the same hold, but it also
-unpaced everything else: 6,237 paints a second while the overlay
+unpaced everything else: 34,000 paints a second while the overlay
 scrollbar faded. So it was dropped.
 
 **For upstream:** maybe. The hold is GTK's, and so is the real fix: a
