@@ -15,7 +15,10 @@
 # Each run's trace goes to <out dir>/latency/<side>-<scenario>-r<round>/,
 # and scripts/feel/report.py --end term.contents sums them up: from the
 # input to the main thread setting the layer's contents. It needs Go.
-# LATENCY_DRY=1 posts nothing (cgevent.py --dry).
+# LATENCY_DRY=1 posts nothing (cgevent.py --dry). If the runner refuses
+# CoreGraphics the first key, keys go through System Events from then on
+# (cgevent.py --via osascript), and e3, which has no pointer then, is left
+# out.
 #
 # `regions` probes partial frames instead (kitty frame edits drawn into the
 # image's texture, renderer `texture_region_updates`): a program colours one
@@ -166,6 +169,7 @@ system_profiler SPDisplaysDataType 2>/dev/null | grep -iE 'resolution|refresh|re
 mkdir -p "$HOME/.config/ghostty"
 # One run: the app runs feelprog's scenario with HOTTY_TRACE, cgevent.py
 # types or moves the pointer, and the trace stays in the run's dir.
+VIA=cgevent
 latency() { # <app> <side> <e1|e2|e3> <round>
   app="$1"; side="$2"; sc="$3"; r="$4"
   dir="$OUT/latency/$side-$sc-r$r"; mkdir -p "$dir"
@@ -193,12 +197,14 @@ CFG
   ls "$dir"/hottyterm-*.jsonl >/dev/null 2>&1 || echo "no hottyterm trace: HOTTY_TRACE did not reach the app"
   echo "front: $(lsappinfo info -only name "$(lsappinfo front)" 2>/dev/null)"
   "$OUT/venv/bin/python" -I "$REPO/scripts/feel/cgevent.py" "$dir" "$sc" --pid "$pid" \
-    --layout "$dir/layout.json" --n "$N" --seed "$r" ${LATENCY_DRY:+--dry}
+    --layout "$dir/layout.json" --n "$N" --seed "$r" --via "$VIA" ${LATENCY_DRY:+--dry}
   rc=$?
   sleep 1
   kill "$pid" 2>/dev/null
   for _ in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
   kill -9 "$pid" 2>/dev/null
+  # A refused run's trace is set aside, out of the report.
+  [ $rc -eq 3 ] && mkdir -p "$OUT/refused" && mv "$dir" "$OUT/refused/"
   return $rc
 }
 # The sides alternate, first one then the other, so that drift on the
@@ -209,8 +215,13 @@ while [ "$k" -le "$ROUNDS" ]; do
   for who in $sides; do
     which="$APP"; [ "$who" = base ] && which="$BASE"
     for what in e1 e2 e3; do
+      if [ "$what" = e3 ] && [ "$VIA" = osascript ]; then echo "-- $who e3 r$k: left out, no pointer"; continue; fi
       latency "$which" "$who" "$what" "$k"
-      if [ $? -eq 3 ]; then echo "== latency: stopped, input is not delivered here"; exit 0; fi
+      [ $? -eq 3 ] || continue
+      if [ "$VIA" = osascript ]; then echo "== latency: stopped, no input is delivered here"; exit 0; fi
+      echo "== latency: CoreGraphics refused, keys go through System Events from here"
+      VIA=osascript
+      [ "$what" = e3 ] || latency "$which" "$who" "$what" "$k"
     done
   done
   k=$((k + 1))

@@ -3,7 +3,7 @@
 
     scripts/feel/cgevent.py <trace dir> <e1|e2|e3> --pid PID --layout FILE
                             [--n 60] [--warmup 3] [--gap-ms 150:300]
-                            [--seed S] [--dry]
+                            [--seed S] [--via cgevent|osascript] [--dry]
 
 scripts/probe-macos.sh (latency) runs it beside hottyterm, which runs
 feelprog's scenario (scripts/feel/prog) with HOTTY_TRACE=<trace dir>. It
@@ -29,6 +29,11 @@ stamp the terminal makes of its frame.
   decides. It asks CGPreflightPostEventAccess first, and checks after the
   first input that the terminal stamped it (term.key or term.pointer in its
   trace): if not, it says so and exits 3.
+- --via osascript posts keys through System Events instead (key code),
+  which the probe's text-input mode has shown the runner allows, for when
+  CoreGraphics is refused. Each osascript starts a process, so its
+  rig.input (a.via) is well before the key: the host's stages, from
+  term.key on, are the numbers then. It has no pointer.
 - --dry posts nothing and stamps anyway, on CLOCK_MONOTONIC off macOS: it
   checks the plan anywhere.
 """
@@ -37,6 +42,7 @@ import glob
 import json
 import os
 import random
+import subprocess
 import sys
 import time
 
@@ -54,11 +60,12 @@ def now():
 
 
 class Poster:
-    """CGEventPost, or nothing with --dry."""
+    """CGEventPost, System Events with --via osascript, or nothing with --dry."""
 
-    def __init__(self, dry):
+    def __init__(self, dry, via):
         self.dry = dry
-        if dry:
+        self.via = via
+        if dry or via == "osascript":
             return
         import Quartz  # pyobjc-framework-Quartz, in the probe's venv
         self.q = Quartz
@@ -68,6 +75,11 @@ class Poster:
 
     def key(self, code, down):
         if self.dry:
+            return
+        if self.via == "osascript":  # a press and its release, on the press
+            if down:
+                subprocess.run(["osascript", "-e", f'tell application "System Events" to key code {code}'],
+                               check=False)
             return
         q = self.q
         ev = q.CGEventCreateKeyboardEvent(None, code, down)
@@ -85,6 +97,8 @@ class Poster:
         """The top-left, in points, of pid's largest on-screen window."""
         if self.dry:
             return 0.0, 0.0
+        if self.via == "osascript":
+            sys.exit("cgevent: --via osascript has no pointer")
         q = self.q
         wins = q.CGWindowListCopyWindowInfo(q.kCGWindowListOptionOnScreenOnly, q.kCGNullWindowID) or []
         best = None
@@ -147,11 +161,12 @@ def main():
     ap.add_argument("--warmup", type=int, default=3, help="unstamped inputs first")
     ap.add_argument("--gap-ms", default="150:300", help="the wait after an input, uniform in lo:hi")
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--via", choices=["cgevent", "osascript"], default="cgevent")
     ap.add_argument("--dry", action="store_true", help="post nothing")
     a = ap.parse_args()
     lo, hi = (float(v) for v in a.gap_ms.split(":"))
     rng = random.Random(a.seed)
-    post = Poster(a.dry)
+    post = Poster(a.dry, a.via)
     sc = a.scenario.upper()
     kind = "move" if a.scenario == "e3" else "key"
     lay = read_layout(a.layout, kind == "move")
@@ -180,13 +195,14 @@ def main():
             if kind == "key":
                 code = KEYS[k % len(KEYS)]
                 post.key(code, True)
-                time.sleep(HOLD_NS / 1e9)
+                if a.via == "cgevent":
+                    time.sleep(HOLD_NS / 1e9)
                 post.key(code, False)
             else:
                 post.move(*targets[k % 2])
             if i >= 0:
-                out.write(json.dumps({"t": t, "n": "rig.input", "tr": "input",
-                                      "a": {"i": i, "sc": sc, "kind": kind}}) + "\n")
+                stamp = {"i": i, "sc": sc, "kind": kind, **({"via": a.via} if a.via != "cgevent" else {})}
+                out.write(json.dumps({"t": t, "n": "rig.input", "tr": "input", "a": stamp}) + "\n")
                 out.flush()
             if k == 0 and not a.dry and not host_stamped(a.trace_dir, DELIVERED[kind], t):
                 print(f"cgevent: the terminal never stamped the first {kind} ({DELIVERED[kind]}): "
