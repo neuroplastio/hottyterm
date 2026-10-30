@@ -1,0 +1,20 @@
+# gov R-22: hottyterm main against the branch r22/frame-now, which paints a
+# frame for input when it is ready rather than a refresh later
+# (mods/ghostty/frame-now.md, key-draws-changes.md). Both sides are hottyterm
+# built the same way (scripts/compare-build.sh) and run the installed plx, as
+# the maintainer works; only the fork's patches differ.
+brief = "Type in the shell, hover, and use plx's palette: does A or B answer sooner?"
+track = "R-22"
+results = "docs/feel.md"
+hottyterm = "$SIDE_DIR/bin/hottyterm"
+seed = ["config/plx", "config/fish"]
+
+[before]
+label = "hottyterm main (r22/frame-now's merge-base)"
+build = '"$COMPARE_REPO/scripts/compare-build.sh" "$(git -C "$COMPARE_REPO" merge-base main r22/frame-now)"'
+run = "exec plx"
+
+[after]
+label = "hottyterm r22/frame-now: 0042 frame-now, 0043 key draws only changes"
+build = '"$COMPARE_REPO/scripts/compare-build.sh" r22/frame-now'
+run = "exec plx"
