@@ -15,13 +15,17 @@ that every process of neuroplastio's rig shares. The stages are:
 - every wait for the terminal's lock on the input path and in the
   renderer's frame, which `io-reader` holds while it parses and paints;
 - the renderer's draw and texture upload, and its redraw reaching GTK;
-- each phase of GTK's frame clock, the frame taken, and its presentation.
+- each phase of GTK's frame clock, the frame taken, and its presentation;
+- on macOS, the display link's tick, the finished frame's IOSurface
+  handed to the main thread, and the main thread setting the layer's
+  `contents`.
 
 Without the variable, a stamp is one atomic load and a branch. The writer
 lives in `hotty.zig`. Upstream files get hooks: the input callbacks' lock
 sites in `Surface.zig` go through one function (19 lines), a few lines in
-`termio/Exec.zig`, `renderer/generic.zig` and `apprt/gtk/class/surface.zig`,
-and the frame clock's in `apprt/gtk/class/render_surface.zig`.
+`termio/Exec.zig`, `renderer/generic.zig`, `renderer/metal/IOSurfaceLayer.zig`
+and `apprt/gtk/class/surface.zig`, and the frame clock's in
+`apprt/gtk/class/render_surface.zig`.
 
 **Why we carry it:** gov R-22 times what a key, a click or a hover takes to
 reach the screen, process by process. The terminal's own stages are the

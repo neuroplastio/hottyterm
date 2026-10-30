@@ -8,22 +8,28 @@ With HOTTY_TRACE=<dir>, the terminal writes hottyterm-<pid>.jsonl in the
 trace format hotty/1 (hottyterm's docs/trace.md): one line per stage on
 the shared monotonic clock. The stages are the key and pointer events,
 the pty's reads and writes, each parsed batch and hotty command,
-hotty-blitz's rendering, the renderer's draw and upload, and GTK taking
-the frame. Off, a stamp is one atomic load and a branch.
+hotty-blitz's rendering, the renderer's draw and upload, and the frame on
+its way to the screen: on Linux, GTK's frame clock taking it; on macOS,
+the display link's tick, the IOSurface handed to the main thread, and
+the main thread setting the layer's contents. Off, a stamp is one atomic
+load and a branch.
 
-The writer is in hotty.zig. Upstream files get 17 lines of hooks:
-Surface.zig 4, termio/Exec.zig 6, renderer/generic.zig 5,
-apprt/gtk/class/render_surface.zig 2.
+The writer is in hotty.zig. Upstream files get hooks: the input
+callbacks' lock sites in Surface.zig go through one function, a few
+lines in termio/Exec.zig, renderer/generic.zig,
+renderer/metal/IOSurfaceLayer.zig and apprt/gtk/class/surface.zig, and
+the frame clock's in apprt/gtk/class/render_surface.zig.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  src/Surface.zig                        |  42 +++---
  src/apprt/gtk/class/render_surface.zig |  47 ++++++
  src/apprt/gtk/class/surface.zig        |   1 +
- src/renderer/generic.zig               |   7 +
+ src/renderer/generic.zig               |   8 ++
+ src/renderer/metal/IOSurfaceLayer.zig  |   5 +
  src/termio/Exec.zig                    |   6 +-
  src/termio/hotty.zig                   | 189 +++++++++++++++++++++----
- 6 files changed, 243 insertions(+), 49 deletions(-)
+ 7 files changed, 249 insertions(+), 49 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
 index 81aea70a3..3025103f5 100644
@@ -324,7 +330,7 @@ index d34c969f5..fd2a39dfd 100644
      }
  
 diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
-index df70aa3c7..f67629e7f 100644
+index df70aa3c7..2b4099471 100644
 --- a/src/renderer/generic.zig
 +++ b/src/renderer/generic.zig
 @@ -3,6 +3,7 @@ const builtin = @import("builtin");
@@ -335,7 +341,15 @@ index df70aa3c7..f67629e7f 100644
  const apprt = @import("../apprt.zig");
  const configpkg = @import("../config.zig");
  const font = @import("../font/main.zig");
-@@ -1417,8 +1418,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+@@ -1079,6 +1080,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             _: *macos.video.DisplayLink,
+             ud: ?*xev.Async,
+         ) void {
++            hotty.trace.instant("term.vsync"); // hottyterm: gov R-22's stamps
+             const draw_now = ud orelse return;
+             draw_now.notify() catch |err| {
+                 log.err("error notifying draw_now err={}", .{err});
+@@ -1417,8 +1419,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                  //     std.log.err("[updateFrame critical time] start={}\tduration={} us", .{ start_micro, end.since(start) / std.time.ns_per_us });
                  // }
  
@@ -346,7 +360,7 @@ index df70aa3c7..f67629e7f 100644
  
                  // If we're in a synchronized output state, we pause all rendering.
                  if (state.terminal.modes.get(.synchronized_output)) {
-@@ -1741,6 +1744,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+@@ -1741,6 +1745,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
              self: *Self,
              sync: bool,
          ) !bool {
@@ -355,7 +369,7 @@ index df70aa3c7..f67629e7f 100644
              // After the graphics API is complete (so we defer) we want to
              // update our scrollbar state.
              defer if (self.scrollbar_dirty) {
-@@ -1866,7 +1871,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+@@ -1866,7 +1872,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
              }
  
              // Upload images to the GPU as necessary.
@@ -365,6 +379,50 @@ index df70aa3c7..f67629e7f 100644
  
              // Upload the background image to the GPU as necessary.
              try self.uploadBackgroundImage();
+diff --git a/src/renderer/metal/IOSurfaceLayer.zig b/src/renderer/metal/IOSurfaceLayer.zig
+index cd97126a4..8a11a3590 100644
+--- a/src/renderer/metal/IOSurfaceLayer.zig
++++ b/src/renderer/metal/IOSurfaceLayer.zig
+@@ -6,6 +6,7 @@ const std = @import("std");
+ const Allocator = std.mem.Allocator;
+ const objc = @import("objc");
+ const macos = @import("macos");
++const hotty = @import("../../termio/hotty.zig"); // hottyterm: gov R-22's stamps
+ 
+ const IOSurface = macos.iosurface.IOSurface;
+ 
+@@ -51,6 +52,7 @@ pub fn release(self: *IOSurfaceLayer) void {
+ ///
+ /// Makes sure to do so on the main thread to avoid visual artifacts.
+ pub inline fn setSurface(self: *IOSurfaceLayer, surface: *IOSurface) !void {
++    hotty.trace.instant("term.present"); // hottyterm: gov R-22's stamps
+     // We retain the surface to make sure it's not GC'd
+     // before we can set it as the contents of the layer.
+     //
+@@ -86,6 +88,7 @@ pub inline fn setSurface(self: *IOSurfaceLayer, surface: *IOSurface) !void {
+ /// Does not ensure this happens on the main thread.
+ pub inline fn setSurfaceSync(self: *IOSurfaceLayer, surface: *IOSurface) void {
+     self.layer.setProperty("contents", surface);
++    hotty.trace.emit("term.contents", hotty.trace.now(), null, "\"sync\":true", .{}); // hottyterm
+ }
+ 
+ const SetSurfaceBlock = objc.Block(struct {
+@@ -112,6 +115,7 @@ fn setSurfaceCallback(
+     const width: usize = @intFromFloat(bounds.size.width * scale);
+     const height: usize = @intFromFloat(bounds.size.height * scale);
+     if (width != surface.getWidth() or height != surface.getHeight()) {
++        hotty.trace.emit("term.contents", hotty.trace.now(), null, "\"discard\":true", .{}); // hottyterm
+         log.debug(
+             "setSurfaceCallback(): surface is wrong size for layer, discarding. surface = {d}x{d}, layer = {d}x{d}",
+             .{ surface.getWidth(), surface.getHeight(), width, height },
+@@ -120,6 +124,7 @@ fn setSurfaceCallback(
+     }
+ 
+     layer.setProperty("contents", surface);
++    hotty.trace.instant("term.contents"); // hottyterm: gov R-22's stamps
+ }
+ 
+ pub const DisplayCallback = ?*align(8) const fn (?*anyopaque) void;
 diff --git a/src/termio/Exec.zig b/src/termio/Exec.zig
 index df57e0f4f..238c20cb0 100644
 --- a/src/termio/Exec.zig

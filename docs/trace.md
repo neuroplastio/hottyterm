@@ -86,10 +86,15 @@ Each line after the header is one event, a JSON object:
 | `term.snapshot`, `term.snapshot.cpu` | instant | GTK's main thread takes the frame (a DMABUF, or a CPU copy when DMABUFs fail) |
 | `term.frame` | instant | after a painted cycle (`a.frame`; `a.frame_t`, the frame clock's time for it; `a.predicted`, its predicted presentation), on GTK's clock converted to the trace's |
 | `term.presented` | instant | stamped at the time the compositor reports a frame presented (`a.frame`), once its timings complete |
+| `term.vsync` | instant | macOS: the display link's tick, on CoreVideo's thread. While the link runs, the renderer draws only on a tick |
+| `term.present` | instant | macOS: the GPU finished a frame, and its IOSurface goes to the main thread |
+| `term.contents` | instant | macOS: the main thread sets the layer's `contents` to it (`a.sync`: a draw on the main thread itself, during a resize; `a.discard`: the frame was the wrong size and is dropped) |
 
 The frame's presentation is the rig's `rig.pixels` on Linux. On macOS, where
-the rig has no screen copies, a `term.present` from the Metal layer's
-presented handler is to come.
+the rig has no screen copies (scripts/probe-macos.sh, `latency`), the last
+the terminal sees of a frame is `term.contents`: Core Animation commits it
+with the main thread's run loop and the window server shows it at a later
+refresh.
 
 ### hotty-blitz
 
