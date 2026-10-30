@@ -194,7 +194,14 @@ CFG
     echo "the program never started"; [ -n "$pid" ] && kill "$pid"; return 1
   fi
   sleep 2
-  ls "$dir"/hottyterm-*.jsonl >/dev/null 2>&1 || echo "no hottyterm trace: HOTTY_TRACE did not reach the app"
+  # A build from before the stamps writes no trace, even with its program
+  # drawn, and cgevent.py would take its first input for a refused one.
+  if ! ls "$dir"/hottyterm-*.jsonl >/dev/null 2>&1; then
+    echo "no hottyterm trace: the build has no stamps, or HOTTY_TRACE did not reach it"
+    kill "$pid"; mkdir -p "$OUT/unstamped" && mv "$dir" "$OUT/unstamped/"; return 4
+  fi
+  grep -qs '"n":"term.contents"' "$dir"/hottyterm-*.jsonl \
+    || echo "no term.contents yet: the build has no macOS stamps, and the report no end for its inputs"
   echo "front: $(lsappinfo info -only name "$(lsappinfo front)" 2>/dev/null)"
   "$OUT/venv/bin/python" -I "$REPO/scripts/feel/cgevent.py" "$dir" "$sc" --pid "$pid" \
     --layout "$dir/layout.json" --n "$N" --seed "$r" --via "$VIA" ${LATENCY_DRY:+--dry}
@@ -210,14 +217,18 @@ CFG
 # The sides alternate, first one then the other, so that drift on the
 # runner falls on both.
 k=1
+unstamped=""
 while [ "$k" -le "$ROUNDS" ]; do
   if [ -z "$BASE" ]; then sides="new"; elif [ $((k % 2)) -eq 1 ]; then sides="new base"; else sides="base new"; fi
   for who in $sides; do
+    case " $unstamped " in *" $who "*) continue ;; esac
     which="$APP"; [ "$who" = base ] && which="$BASE"
     for what in e1 e2 e3; do
       if [ "$what" = e3 ] && [ "$VIA" = osascript ]; then echo "-- $who e3 r$k: left out, no pointer"; continue; fi
       latency "$which" "$who" "$what" "$k"
-      [ $? -eq 3 ] || continue
+      rc=$?
+      if [ $rc -eq 4 ]; then echo "-- $who: left out, it writes no stamps"; unstamped="$unstamped $who"; break; fi
+      [ $rc -eq 3 ] || continue
       if [ "$VIA" = osascript ]; then echo "== latency: stopped, no input is delivered here"; exit 0; fi
       echo "== latency: CoreGraphics refused, keys go through System Events from here"
       VIA=osascript
