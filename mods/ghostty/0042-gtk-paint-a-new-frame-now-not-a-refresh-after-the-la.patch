@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Fri, 30 Oct 2026 00:50:57 +0100
-Subject: [PATCH 42/43] gtk: paint a new frame now, not a refresh after the
+Subject: [PATCH 42/44] gtk: paint a new frame now, not a refresh after the
  last input
 
 GTK handles every input event in a frame clock cycle of its own
@@ -15,40 +15,22 @@ than it could.
 
 When the renderer hands GTK a frame, the surface now queues its draw
 and, if the frame clock's source is waiting only for that hold, makes
-it ready now. A painted frame still waits for the compositor's frame
-callback (the clock is stopped then, with no source), and the surface
-never asks for more than one paint a refresh.
+it ready now. The pace stays the compositor's: after a paint, GDK
+freezes the surface's updates until the frame callback, and the
+clock, stopped, has no source, so a frame drawn meanwhile waits for
+the callback as before.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- src/apprt/gtk/class/render_surface.zig | 29 ++++++++++++++++++++++++++
+ src/apprt/gtk/class/render_surface.zig | 20 ++++++++++++++++++++
  src/apprt/gtk/class/surface.zig        |  2 +-
- 2 files changed, 30 insertions(+), 1 deletion(-)
+ 2 files changed, 21 insertions(+), 1 deletion(-)
 
 diff --git a/src/apprt/gtk/class/render_surface.zig b/src/apprt/gtk/class/render_surface.zig
-index d98dccd06..078c7a39c 100644
+index d98dccd06..df5b520ee 100644
 --- a/src/apprt/gtk/class/render_surface.zig
 +++ b/src/apprt/gtk/class/render_surface.zig
-@@ -73,6 +73,10 @@ pub const RenderSurface = extern struct {
-         /// One-shot so we log the first real allocation, not every size-allocate.
-         scale_logged_size: bool = false,
- 
-+        /// hottyterm: when GTK last painted the surface (GLib's monotonic
-+        /// clock, µs), for queueFrame.
-+        painted_us: i64 = 0,
-+
-         pub var offset: c_int = 0;
-     };
- 
-@@ -150,6 +154,7 @@ pub const RenderSurface = extern struct {
- 
-     fn snapshot(self: *Self, snap: *gtk.Snapshot) callconv(.c) void {
-         const priv = self.private();
-+        priv.painted_us = glib.getMonotonicTime(); // hottyterm: for queueFrame
- 
-         // Take the latest present from the renderer's queue, if any, and
-         // build a texture from it. `take` closes any present that was
-@@ -251,6 +256,30 @@ pub const RenderSurface = extern struct {
+@@ -251,6 +251,26 @@ pub const RenderSurface = extern struct {
          }
      }
  
@@ -58,18 +40,14 @@ index d98dccd06..078c7a39c 100644
 +    /// back until a refresh after it began (`min_next_frame_time` in GDK's
 +    /// gdkframeclockidle.c), so a key's frame, ready a few ms after the
 +    /// key, would wait out the rest of that refresh. When GTK's clock is
-+    /// waiting only for that, its source runs now. While a painted frame
-+    /// awaits the compositor's frame callback, GTK's clock is stopped and
-+    /// has no source, and nothing changes; nor more than one paint a
-+    /// refresh.
++    /// waiting only for that, its source runs now. The pace stays the
++    /// compositor's: after a paint, GDK freezes the surface's updates
++    /// until the frame callback (gdksurface-wayland.c), and the clock,
++    /// stopped, has no source, so nothing changes until the callback.
 +    pub fn queueFrame(self: *Self) void {
 +        const widget = self.as(gtk.Widget);
 +        widget.queueDraw();
 +        const clock = widget.getFrameClock() orelse return;
-+        var interval: i64 = 16_667;
-+        var presented: i64 = 0;
-+        clock.getRefreshInfo(0, &interval, &presented);
-+        if (glib.getMonotonicTime() - self.private().painted_us < interval) return;
 +        const source = glib.MainContext.findSourceByUserData(null, clock) orelse return;
 +        const name = source.getName() orelse return;
 +        if (!std.mem.eql(u8, std.mem.span(name), "[gtk] gdk_frame_clock_frame")) return;

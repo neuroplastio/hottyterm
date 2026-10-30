@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Fri, 30 Oct 2026 01:15:06 +0100
-Subject: [PATCH 43/43] core: a keystroke draws only what it changed
+Subject: [PATCH 43/44] core: a keystroke draws only what it changed
 
 Every key that writes to the pty drew a frame twice over: the surface
 queued a render to show the selection it clears and the viewport it

@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Fri, 30 Oct 2026 02:28:48 +0100
+Subject: [PATCH 44/44] hottyterm: a HOTTY command draws once, with the output
+ it came in
+
+Each HOTTY command queued a render of its own, although Termio had
+queued one when the output arrived, and the renderer, waiting on the
+lock the parse holds, draws it once the parse is done, with everything
+the commands changed and what the end of the batch rendered. The second
+wakeup drew the same frame again, and GTK gave that frame a refresh of
+its own: a dashboard at 10 frames a second painted 20, and a key typed
+meanwhile waited behind the copy. A command now queues a render only
+after sending a reply, which can let go of the lock when the mailbox is
+full, so that a draw may already have run.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 6d0b7fd6c..6ee43d95b 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -801,13 +801,20 @@ pub const Hotty = struct {
+         const fx = self.effects();
+         hotty_host_osc(h, body.ptr, body.len, &fx);
+         self.apply(t);
++        // No render to queue: Termio queued one when this output arrived,
++        // and the renderer draws it once the parse lets go of the lock,
++        // with what this command changed and what `flush` renders. A
++        // second would draw the same frame again, and GTK would give it
++        // a refresh of its own. Only a send can let go of the lock early
++        // (the mailbox was full), so a draw may run in between: then the
++        // rest of the parse needs another.
+         if (self.replies.items.len > 0) {
+             defer self.replies.clearRetainingCapacity();
+             // What the handler's (private) messageWriter does.
+             handler.termio_mailbox.send(try termio.Message.writeReq(self.alloc, self.replies.items), handler.renderer_state.mutex);
+             handler.termio_messaged = true;
++            try handler.queueRender();
+         }
+-        try handler.queueRender();
+     }
+ 
+     /// Full reset (RIS): every surface goes (SPEC §5.4). The terminal has
