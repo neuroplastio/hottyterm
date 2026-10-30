@@ -63,12 +63,24 @@
 #   - prints hottyterm's log lines about hotty.
 # The runner's own settings decide whether screenshots and keystrokes are
 # allowed; the probe says when they are not.
+#
+# Every mode first prints the runner's cores: the CPU, and each performance
+# level with its logical CPUs (gov R-22: on Apple silicon a thread's QoS
+# class chooses the level it runs on, so it shows only where there are two).
 set -u
 APP="$1"
 OUT="$2"
 MODE="${3:-}"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
+
+levels=$(sysctl -n hw.nperflevels 2>/dev/null || echo 1)
+echo "== cpu: $(sysctl -n machdep.cpu.brand_string 2>/dev/null), $levels performance level(s): $(
+  l=0; while [ "$l" -lt "$levels" ]; do
+    [ "$l" -gt 0 ] && printf ', '
+    printf '%s %s CPUs' "$(sysctl -n hw.perflevel$l.name 2>/dev/null || echo "level $l")" "$(sysctl -n hw.perflevel$l.logicalcpu 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev/null || echo ?)"
+    l=$((l + 1))
+  done)"
 
 if [ "$MODE" = regions ]; then
 BASE="${4:-}"
