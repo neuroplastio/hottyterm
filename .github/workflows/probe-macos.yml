@@ -17,6 +17,9 @@
 # the traces are the artifact:
 #
 #   gh workflow run probe-macos.yml --ref <branch> -f run=<ci run id> -f latency=true -f baseline_run=<ci run id>
+#
+# `rounds` sets latency's rounds (3 when empty), each about 2.6 minutes: a
+# difference in the share of slow frames needs more of them to show.
 name: probe-macos
 
 on:
@@ -50,11 +53,15 @@ on:
         description: Or a ci run whose macOS build is the baseline
         required: false
         default: ""
+      rounds:
+        description: With latency, how many rounds (3 when empty)
+        required: false
+        default: ""
 
 jobs:
   probe:
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
 
@@ -94,6 +101,7 @@ jobs:
         env:
           MODE: ${{ inputs.latency && 'latency' || inputs.regions && 'regions' || inputs.remap && 'remap' || '' }}
           BASE: ${{ (inputs.baseline || inputs.baseline_run) && format('{0}/base/hottyterm.app', runner.temp) || '' }}
+          LATENCY_ROUNDS: ${{ inputs.rounds }}
         run: scripts/probe-macos.sh /Applications/hottyterm.app probe "$MODE" "$BASE"
 
       - uses: actions/upload-artifact@v7
