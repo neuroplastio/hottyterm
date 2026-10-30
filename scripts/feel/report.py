@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """report.py: where an input's time goes, in runs of the latency rig (gov R-22).
 
-    scripts/feel/report.py <dir>... [--label k=v ...] [--md out.md]
+    scripts/feel/report.py <dir>... [--label k=v ...] [--end NAME] [--md out.md]
 
 Each <dir> is one run (host × scenario × scale × size × round), read with
 merge.py's loader (docs/trace.md). Its labels come from the dir's meta.json:
@@ -19,12 +19,19 @@ Windows
   ends the input. Without one the input is a miss: rig.miss says the rig
   timed out ("timeout"); with neither, the trace stopped short ("lost").
 - The stages and the waterfall come from the inputs with pixels.
+- --end NAME (term.contents on macOS, whose probe has no screen copies):
+  an input without rig.pixels ends at the host's first NAME after the
+  frame that answers it. That frame is the first draw (DRAWS) to start
+  once the host's first response (RESPONSES: the output parsed, or the
+  surfaces rendered after input the host handles) after its input stamp
+  is done. On Linux, --end term.snapshot on runs with their rig.pixels
+  taken out finds the same inputs' frames.
 - A trace without rig lines (a smoke run) gets windows from the host's own
   input stamps (SMOKE_STARTS: term.key, term.button, term.wheel), each to
   the next or to the trace's end, and stages alone.
 
 Numbers
-- End to end: rig.pixels − rig.input.
+- End to end: rig.pixels − rig.input (or --end's stamp − rig.input).
 - Stages: for each (proc, name) in a window, but rig.input, rig.miss and
   counter samples, its first offset from the window's start (a span's
   start) and, for spans, their summed duration in the window (spans in
@@ -95,6 +102,8 @@ HOSTS = ("hottyterm",)
 INPUT_STAMPS = ("term.key", "term.pointer", "term.button", "term.wheel")
 SMOKE_STARTS = ("term.key", "term.button", "term.wheel")  # pointer moves come in floods
 FRAMES = ("term.snapshot", "term.snapshot.cpu")
+RESPONSES = ("term.parse", "term.render")  # --end: the host's work an input's frame shows
+DRAWS = ("term.draw",)
 WAITS = {"term.lock": "lock wait"}
 IDLE = ("term.key.up",)
 HANDOFFS = ("viewer.write", "prog.write")  # rule 6, plx's first
@@ -143,8 +152,9 @@ def handoff(stamps, last):
     return None
 
 
-def split(t0, t1, stamps, host):
-    """{share: ns} for one input, by the rules at the top; adds up to t1 − t0."""
+def split(t0, t1, stamps, host, end=None):
+    """{share: ns} for one input, by the rules at the top; adds up to t1 − t0.
+    With --end, its stamp is a frame stamp too."""
     spans, marks = [], []
     for e in stamps:
         s = e["t"]
@@ -161,7 +171,7 @@ def split(t0, t1, stamps, host):
     own = [e for e in stamps if e["pid"] == host and e["t"] <= t1 and e["n"] not in IDLE]
     given = [e["t"] for e in own if e["n"] in INPUT_STAMPS]
     first = min(given or [e["t"] for e in own] or [marks[0][0]])
-    frames = [e["t"] + e.get("dur", 0) for e in own if e["n"] in FRAMES]
+    frames = [e["t"] + e.get("dur", 0) for e in own if e["n"] in FRAMES or e["n"] == end]
     frames = [t for t in frames if t <= t1]
     last = max(max(frames), first) if frames else t1
     shares = collections.Counter({INPUT: first - t0, PRESENT: t1 - last})
@@ -197,7 +207,25 @@ def split(t0, t1, stamps, host):
     return {k: v for k, v in shares.items() if v}
 
 
-def analyse(start, win, host, stamped):
+def host_end(win, host, end):
+    """--end: the host's first `end` after the frame that answers the
+    window's input (the rules at the top), or None."""
+    own = [e for e in win if e["pid"] == host and e["proc"] in HOSTS]
+    given = next((e for e in own if e["n"] in INPUT_STAMPS), None)
+    if given is None:
+        return None
+    resp = next((e for e in own if e["n"] in RESPONSES and e["t"] >= given["t"]), None)
+    if resp is None:
+        return None
+    done = resp["t"] + resp.get("dur", 0)
+    draw = next((e for e in own if e["n"] in DRAWS and e["t"] >= done), None)
+    if draw is None:
+        return None
+    drawn = draw["t"] + draw.get("dur", 0)
+    return next((e for e in own if e["n"] == end and e["t"] >= drawn), None)
+
+
+def analyse(start, win, host, stamped, end=None):
     """One window: its stages and, from a rig.input, its end to end and
     split, or how it missed."""
     a = start.get("a", {}) if start["n"] == "rig.input" else {}
@@ -208,6 +236,9 @@ def analyse(start, win, host, stamped):
     if start["n"] == "rig.input":
         px = next((e for e in win if e["n"] == "rig.pixels" and e["t"] >= t0
                    and e.get("a", {}).get("i", i) == i), None)
+        if px is None and end:
+            px = host_end(win, host, end)
+            rec["end"] = end if px is not None else None
     # With pixels, the stages are the input's path: what starts after them
     # (a cursor's redraw, the next frame) is left out, and spans are cut there.
     limit = px["t"] if px else None
@@ -232,7 +263,7 @@ def analyse(start, win, host, stamped):
     t1 = px["t"]
     rec["e2e"] = t1 - t0
     if stamped:
-        rec["shares"] = split(t0, t1, [e for e in win if e["proc"] != "rig" and "c" not in e], host)
+        rec["shares"] = split(t0, t1, [e for e in win if e["proc"] != "rig" and "c" not in e], host, end)
     return rec
 
 
@@ -268,7 +299,7 @@ def label_text(labels):
     return " ".join(parts)
 
 
-def summarise(path, given):
+def summarise(path, given, end=None):
     labels = labels_of(path, given)
     out = {"dir": path, "labels": labels, "label": label_text(labels) or os.path.basename(path.rstrip("/"))}
     try:
@@ -283,13 +314,15 @@ def summarise(path, given):
     if not starts:  # a smoke run: the host's own input stamps
         starts = [e for e in run.events if e["n"] in SMOKE_STARTS and e["pid"] == host]
         out["from"] = "host" if starts else "rig.input"
-    recs = [analyse(st, win, host, stamped) for st, win in windows(run, starts)]
+    recs = [analyse(st, win, host, stamped, end) for st, win in windows(run, starts)]
     hits = [r for r in recs if "e2e" in r]
     e2e = sorted(r["e2e"] for r in hits)
     out.update({
+        "end": end,
         "stamped": stamped,
         "inputs": len(recs),
         "hits": len(hits),
+        "host_ends": sum(bool(r.get("end")) for r in recs),
         "misses": sum("miss" in r for r in recs),
         "timeouts": sum(r.get("miss") == "timeout" for r in recs),
         "e2e": {p: pct(e2e, p) for p in PCTS},
@@ -373,6 +406,7 @@ def markdown(runs):
     md = ["# Feel report", "",
           "Times in ms. Percentiles are nearest rank: pP of n values is the ⌈P·n/100⌉-th smallest. "
           "End to end is rig.pixels − rig.input; a miss is an input without pixels. "
+          "With --end NAME, an input without pixels ends at the host's NAME of its frame. "
           "The top of scripts/feel/report.py says how the waterfall splits an input.", ""]
     ok = [r for r in runs if "error" not in r and r["from"] == "rig.input"]
     md += ["## End to end", ""]
@@ -406,7 +440,11 @@ def markdown(runs):
                        f"({', '.join(SMOKE_STARTS)}), each to the next or to the trace's end: "
                        "stages alone, offsets from that stamp.")
         else:
-            md[-1] += (f": {r['inputs']} inputs, {r['hits']} with pixels, {r['misses']} misses"
+            ends = r["host_ends"]
+            px = r["hits"] - ends
+            md[-1] += (f": {r['inputs']} inputs, {px} with pixels"
+                       + (f", {ends} ended at the host's {r['end']}" if r.get("end") else "")
+                       + f", {r['misses']} misses"
                        + (f" ({r['timeouts']} timed out)" if r["misses"] else "") + ".")
         if not r["inputs"]:
             md += ["", "No rig.input in the trace, nor an input stamp of the host: nothing to split it by."]
@@ -438,7 +476,9 @@ def as_json(runs):
             j["error"] = r["error"]
             out.append(j)
             continue
-        j.update({k: r[k] for k in ("from", "stamped", "inputs", "hits", "misses", "timeouts")})
+        j.update({k: r[k] for k in ("from", "stamped", "inputs", "hits", "host_ends", "misses", "timeouts")})
+        if r.get("end"):
+            j["end"] = r["end"]
         j["e2e_ms"] = pcts(r["e2e"])
         j["stages"] = [{"name": s["name"], "proc": s["proc"], "n": s["n"], "at_ms": pcts(s["at"]),
                         "span_ms": pcts(s["dur"]) if s["dur"] else None} for s in r["stages"]]
@@ -448,7 +488,7 @@ def as_json(runs):
                                  for p, w in r["waterfall"].items()}
             j["share_pcts_ms"] = {k: pcts(v) for k, v in r["share_pcts"].items()}
         j["inputs_ms"] = [{"i": x["i"], "sc": x["sc"], "kind": x["kind"], "e2e": ms(x.get("e2e")),
-                           "miss": x.get("miss"),
+                           "miss": x.get("miss"), **({"end": x["end"]} if x.get("end") else {}),
                            "shares": {k: ms(v) for k, v in x["shares"].items()} if "shares" in x else None}
                           for x in r["per_input"]]
         out.append(j)
@@ -460,6 +500,8 @@ def main(argv):
     ap.add_argument("dirs", nargs="+", metavar="dir")
     ap.add_argument("--label", action="append", default=[], metavar="k=v")
     ap.add_argument("--md", metavar="out.md")
+    ap.add_argument("--end", metavar="NAME",
+                    help="end an input without rig.pixels at the host's NAME of its frame (term.contents on macOS)")
     args = ap.parse_intermixed_args(argv)
     given = {}
     for kv in args.label:
@@ -467,7 +509,7 @@ def main(argv):
         if not eq or not k:
             ap.error(f"--label {kv!r}: not k=v")
         given[k] = v
-    runs = [summarise(d, given) for d in args.dirs]
+    runs = [summarise(d, given, args.end) for d in args.dirs]
     seen = collections.Counter(r["label"] for r in runs)
     for r in runs:
         if seen[r["label"]] > 1:

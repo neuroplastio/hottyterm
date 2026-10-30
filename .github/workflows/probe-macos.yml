@@ -11,6 +11,12 @@
 # release) when given:
 #
 #   gh workflow run probe-macos.yml -f run=<ci run id> -f regions=true -f baseline=<tag>
+#
+# `latency` times keys and pointer moves through hottyterm's stage stamps
+# (gov R-22, docs/trace.md), against a baseline that can be a ci run too;
+# the traces are the artifact:
+#
+#   gh workflow run probe-macos.yml --ref <branch> -f run=<ci run id> -f latency=true -f baseline_run=<ci run id>
 name: probe-macos
 
 on:
@@ -33,16 +39,31 @@ on:
         type: boolean
         default: false
       baseline:
-        description: With regions, a release tag to measure the same way
+        description: With regions or latency, a release tag to measure the same way
+        required: false
+        default: ""
+      latency:
+        description: Time keys and pointer moves through the stage stamps (HOTTY_TRACE) instead
+        type: boolean
+        default: false
+      baseline_run:
+        description: Or a ci run whose macOS build is the baseline
         required: false
         default: ""
 
 jobs:
   probe:
     runs-on: macos-26
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+
+      # The latency rig's programs (scripts/feel/prog) are Go.
+      - uses: actions/setup-go@v7
+        if: inputs.latency
+        with:
+          go-version-file: scripts/feel/prog/go.mod
+          cache: false
 
       - name: Install the build
         env:
@@ -50,6 +71,7 @@ jobs:
           TAG: ${{ inputs.release }}
           RUN: ${{ inputs.run }}
           BASE: ${{ inputs.baseline }}
+          BASE_RUN: ${{ inputs.baseline_run }}
         run: |
           if [ -n "$RUN" ]; then
             gh run download "$RUN" -R "$GITHUB_REPOSITORY" -n hottyterm-macos-arm64 -D dl
@@ -58,16 +80,20 @@ jobs:
           fi
           ditto -x -k dl/*.zip /Applications
           xattr -dr com.apple.quarantine /Applications/hottyterm.app || true
-          if [ -n "$BASE" ]; then
+          if [ -n "$BASE_RUN" ]; then
+            gh run download "$BASE_RUN" -R "$GITHUB_REPOSITORY" -n hottyterm-macos-arm64 -D dl-base
+          elif [ -n "$BASE" ]; then
             gh release download "$BASE" -R "$GITHUB_REPOSITORY" -p '*macos-arm64.zip' -D dl-base
+          fi
+          if [ -d dl-base ]; then
             mkdir -p "$RUNNER_TEMP/base" && ditto -x -k dl-base/*.zip "$RUNNER_TEMP/base"
             xattr -dr com.apple.quarantine "$RUNNER_TEMP/base/hottyterm.app" || true
           fi
 
       - name: Probe
         env:
-          MODE: ${{ inputs.regions && 'regions' || inputs.remap && 'remap' || '' }}
-          BASE: ${{ inputs.baseline && format('{0}/base/hottyterm.app', runner.temp) || '' }}
+          MODE: ${{ inputs.latency && 'latency' || inputs.regions && 'regions' || inputs.remap && 'remap' || '' }}
+          BASE: ${{ (inputs.baseline || inputs.baseline_run) && format('{0}/base/hottyterm.app', runner.temp) || '' }}
         run: scripts/probe-macos.sh /Applications/hottyterm.app probe "$MODE" "$BASE"
 
       - uses: actions/upload-artifact@v7
@@ -78,4 +104,5 @@ jobs:
             probe/*.png
             probe/*/*.png
             probe/replies.log
+            probe/latency/
           retention-days: 3

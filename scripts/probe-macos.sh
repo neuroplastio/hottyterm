@@ -3,6 +3,19 @@
 #
 #   scripts/probe-macos.sh /Applications/hottyterm.app <out dir> [remap]
 #   scripts/probe-macos.sh /Applications/hottyterm.app <out dir> regions [baseline.app]
+#   scripts/probe-macos.sh /Applications/hottyterm.app <out dir> latency [baseline.app]
+#
+# `latency` times input through hottyterm's stage stamps (gov R-22,
+# docs/trace.md), there being no screen copies here: in each of
+# LATENCY_ROUNDS rounds (3), for the app and then the baseline (the order
+# turning each round), the rig's programs (scripts/feel/prog) e1 (shell
+# echo), e2 (a key in a hotty field) and e3 (the pointer across :hover
+# rows) run under HOTTY_TRACE, and scripts/feel/cgevent.py posts
+# LATENCY_N (60) keys or pointer moves with CoreGraphics, stamping each.
+# Each run's trace goes to <out dir>/latency/<side>-<scenario>-r<round>/,
+# and scripts/feel/report.py --end term.contents sums them up: from the
+# input to the main thread setting the layer's contents. It needs Go.
+# LATENCY_DRY=1 posts nothing (cgevent.py --dry).
 #
 # `regions` probes partial frames instead (kitty frame edits drawn into the
 # image's texture, renderer `texture_region_updates`): a program colours one
@@ -138,6 +151,72 @@ PY
 }
 regions "$APP" new
 [ -n "$BASE" ] && regions "$BASE" baseline
+exit 0
+fi
+
+if [ "$MODE" = latency ]; then
+BASE="${4:-}"
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+N="${LATENCY_N:-60}"
+ROUNDS="${LATENCY_ROUNDS:-3}"
+echo "== latency: $ROUNDS round(s) of e1 e2 e3, $N inputs each"
+go build -C "$REPO/scripts/feel/prog" -o "$OUT/feelprog" . || { echo "feelprog does not build"; exit 0; }
+python3 -m venv "$OUT/venv" >/dev/null && "$OUT/venv/bin/pip" -q install pyobjc-framework-Quartz >/dev/null
+system_profiler SPDisplaysDataType 2>/dev/null | grep -iE 'resolution|refresh|retina' | sed 's/^ */display: /'
+mkdir -p "$HOME/.config/ghostty"
+# One run: the app runs feelprog's scenario with HOTTY_TRACE, cgevent.py
+# types or moves the pointer, and the trace stays in the run's dir.
+latency() { # <app> <side> <e1|e2|e3> <round>
+  app="$1"; side="$2"; sc="$3"; r="$4"
+  dir="$OUT/latency/$side-$sc-r$r"; mkdir -p "$dir"
+  cat > "$HOME/.config/ghostty/config" <<CFG
+command = $OUT/feelprog $sc --layout $dir/layout.json
+font-size = 16
+window-width = 80
+window-height = 24
+window-padding-x = 0
+window-padding-y = 0
+macos-titlebar-style = hidden
+cursor-style-blink = false
+confirm-close-surface = false
+quit-after-last-window-closed = true
+CFG
+  printf '{"host": "%s", "sc": "%s", "round": %d}\n' "$side" "$(echo "$sc" | tr a-z A-Z)" "$r" > "$dir/meta.json"
+  echo "-- $side $sc r$r"
+  open -n -a "$app" --env "HOTTY_TRACE=$dir"
+  for _ in $(seq 1 30); do [ -s "$dir/layout.json" ] && break; sleep 1; done
+  pid=$(pgrep -n -f "$app/Contents/MacOS/")
+  if [ ! -s "$dir/layout.json" ] || [ -z "$pid" ]; then
+    echo "the program never started"; [ -n "$pid" ] && kill "$pid"; return 1
+  fi
+  sleep 2
+  ls "$dir"/hottyterm-*.jsonl >/dev/null 2>&1 || echo "no hottyterm trace: HOTTY_TRACE did not reach the app"
+  echo "front: $(lsappinfo info -only name "$(lsappinfo front)" 2>/dev/null)"
+  "$OUT/venv/bin/python" -I "$REPO/scripts/feel/cgevent.py" "$dir" "$sc" --pid "$pid" \
+    --layout "$dir/layout.json" --n "$N" --seed "$r" ${LATENCY_DRY:+--dry}
+  rc=$?
+  sleep 1
+  kill "$pid" 2>/dev/null
+  for _ in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
+  kill -9 "$pid" 2>/dev/null
+  return $rc
+}
+# The sides alternate, first one then the other, so that drift on the
+# runner falls on both.
+k=1
+while [ "$k" -le "$ROUNDS" ]; do
+  if [ -z "$BASE" ]; then sides="new"; elif [ $((k % 2)) -eq 1 ]; then sides="new base"; else sides="base new"; fi
+  for who in $sides; do
+    which="$APP"; [ "$who" = base ] && which="$BASE"
+    for what in e1 e2 e3; do
+      latency "$which" "$who" "$what" "$k"
+      if [ $? -eq 3 ]; then echo "== latency: stopped, input is not delivered here"; exit 0; fi
+    done
+  done
+  k=$((k + 1))
+done
+"$OUT/venv/bin/python" -I "$REPO/scripts/feel/report.py" "$OUT"/latency/*/ --end term.contents --md "$OUT/latency/report.md" \
+  && cat "$OUT/latency/report.md"
 exit 0
 fi
 

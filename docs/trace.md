@@ -61,7 +61,7 @@ Each line after the header is one event, a JSON object:
 
 | component | process |
 | --- | --- |
-| `rig.*` | the rig: `rig.input` when it injects input N (`a`: `i`, `sc`, `kind`), `rig.pixels` at the presented time of the first frame that shows the change, `rig.mark` when it sends a step a scenario marked (`a`: `mark`, `sc`, `kind`), timed or not, such as the `:` E7W and E7T don't wait on |
+| `rig.*` | the rig: `rig.input` when it injects input N (`a`: `i`, `sc`, `kind`), `rig.pixels` at the presented time of the first frame that shows the change, `rig.mark` when it sends a step a scenario marked (`a`: `mark`, `sc`, `kind`), timed or not, such as the `:` E7W and E7T don't wait on. On macOS `scripts/feel/cgevent.py` writes `rig.input` alone |
 | `term.*` | hottyterm |
 | `blitz.*` | hotty-blitz |
 | `prog.*` | the rig's programs: `prog.read` when input arrives, `prog.write` when the answer is written |
