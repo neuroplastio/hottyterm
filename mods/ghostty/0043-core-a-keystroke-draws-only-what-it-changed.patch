@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Fri, 30 Oct 2026 01:15:06 +0100
+Subject: [PATCH 43/43] core: a keystroke draws only what it changed
+
+Every key that writes to the pty queued a render, to show the selection
+it clears and the viewport it scrolls to the bottom. Most keys do
+neither: the selection is empty and the viewport is at the bottom, so
+the frame is the one already shown. That frame still goes to the app,
+and on GTK it takes the refresh: the frame with the program's echo,
+ready a millisecond later, waits for the compositor's frame callback
+of the one before. A key now queues a render only when it cleared a
+selection or moved the viewport. The echo's output queues its own.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/Surface.zig | 14 ++++++++++++--
+ 1 file changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 3025103f5..31b68a50f 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -3028,15 +3028,25 @@ pub fn keyCallback(
+         hotty.lockState(self, @src()); // hottyterm: the wait, stamped
+         defer self.renderer_state.mutex.unlock(global.io());
+ 
++        // Draw only what the key changed. Until the program answers, a key
++        // that clears no selection and moves no viewport has nothing to
++        // show, and a frame drawn now could take the refresh that the
++        // answer's frame needs.
++        const screen = self.io.terminal.screens.active;
++        var changed = false;
+         if (self.config.selection_clear_on_typing or
+             event.key == .escape)
+         {
++            changed = screen.selection != null;
+             try self.setSelection(null);
+         }
+ 
+-        if (self.config.scroll_to_bottom.keystroke) self.io.terminal.scrollViewport(.bottom);
++        if (self.config.scroll_to_bottom.keystroke) {
++            changed = changed or !screen.viewportIsBottom();
++            self.io.terminal.scrollViewport(.bottom);
++        }
+ 
+-        try self.queueRender();
++        if (changed) try self.queueRender();
+     }
+ 
+     return .consumed;
