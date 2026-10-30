@@ -3,7 +3,8 @@
 
     scripts/feel/blackbox.py [--roi X,Y,W,H] [--settle-ms 200] [--timeout-ms 3000]
                              [--scenario E1] [--warmup N] [--json] [--output NAME]
-                             [--hold-ms 30] [--builtin-keymap] [STEPS.jsonl ... | -]
+                             [--hold-ms 30] [--builtin-keymap] [--ipc SOCKET]
+                             [STEPS.jsonl ... | -]
 
 It plays steps on the display in $WAYLAND_DISPLAY (the perf sway,
 scripts/feel/sway.sh; when unset, the one in ~/.cache/hotty/sway-feel/display)
@@ -18,7 +19,10 @@ only (as hotty-blitz's scripts/vpointer.py is), and it holds for its whole life:
   keyboard drops its first key, so it starts with a Shift press and release;
 - a virtual pointer (zwlr_virtual_pointer_v1) on the output;
 - a screencopy (zwlr_screencopy_v1, no cursor overlaid) of the output, or of
-  the step's region of interest, into two wl_shm buffers.
+  the step's region of interest, into two wl_shm buffers;
+- with a focus step, the compositor's IPC (sway's i3-ipc): --ipc, or the
+  perf sway's, from ~/.cache/hotty/sway-feel/ipc, and never $SWAYSOCK. Its
+  peer must be the process the Wayland socket's is.
 
 It refuses a display that isn't a headless output, or that is Hyprland's.
 
@@ -47,13 +51,38 @@ and lines that start with "#" are skipped. A step is an object with one action:
                                    or "middle" for another
   {"wheel": [x, y, n]}             move there, then n notches of the wheel at
                                    once (n > 0 scrolls down, n < 0 up)
+  {"focus": 17}                    the keyboard focus to the window whose
+                                   container id (sway's con_id) this is, by the
+                                   IPC's `[con_id=17] focus`; its input is sent
+                                   when sway's reply comes. Every focus step's
+                                   window must exist before the first step
   {"sleep_ms": 500}                wait; nothing is sent, nothing is timed
 
 Any of them may add:
 
+  "hold_ms": 10                    with key, keys or click: how long it stays
+                                   down, instead of --hold-ms
   "untimed": true                  a setup step: sent but not timed; the next
                                    step waits until the screen has settled
                                    after it (not with sleep_ms)
+  "settle": false                  with untimed: the next step starts as soon
+                                   as this one's input is all sent (a key's or
+                                   a click's release, its hold after the
+                                   press; a focus's reply), the screen
+                                   settled or not
+  "quiet": false                   on a timed step: sent as soon as the step
+                                   before it is done, without waiting for its
+                                   ROI to be quiet first and without the
+                                   jitter (Timing, 1 and 2): what it times is
+                                   an input that follows another, as typing
+                                   does. Its --json line's quiet_before is null
+  "mark": "open"                   a name ([a-z0-9_.-], at most 40): when its
+                                   input is sent (a sleep: when it starts),
+                                   rig.mark is stamped, warmup or not, and
+                                   the next timed step's --json line gives
+                                   since_mark, {name: ms from the latest such
+                                   mark to its input}, for the marks since the
+                                   timed step before it
   "roi": [x, y, w, h]              where this step's change shows, instead of
                                    --roi
   "roi_frac": [fx, fy, fw, fh]     the same in fractions of the output's
@@ -70,12 +99,20 @@ measurement compares.
 A leader sequence is {"key": "b", "mods": ["ctrl"], "untimed": true} followed
 by {"key": "2"}: the leader's own redraw settles before "2" takes its baseline.
 
+Two keys typed fast, the second timed, are {"key": "colon", "untimed": true,
+"settle": false} followed by {"key": "a", "quiet": false}: "a" goes down as
+":" comes up, its hold (--hold-ms, or its hold_ms) after its press, whatever
+":" is drawing then.
+
 Timing
 ------
 For each timed step:
 1. The ROI must have been quiet (no frame changed it) for --settle-ms. When
    the step's ROI isn't the one being captured, the capture moves to it, its
    first frame is the new baseline, and the quiet counts from that frame.
+   The capture moves before a step is sent, timed or not, so a step that
+   doesn't wait ("quiet": false) should share the ROI of the steps before it
+   that don't either, or the move costs it a frame.
 2. It waits a random time, uniform in [0, --jitter-ms) (one refresh period
    by default; seeded by --seed). The quiet ends at a frame's time plus
    --settle-ms, and 200 ms is 12 frames at 60 Hz, so without the wait every
@@ -108,7 +145,8 @@ Output
 ------
 - With $HOTTY_TRACE set: $HOTTY_TRACE/rig-<pid>.jsonl in the trace format
   hotty/1 (docs/trace.md): rig.input, rig.pixels and rig.miss, each with a.i,
-  a.sc and a.kind; written after each step, at exit and on SIGTERM.
+  a.sc and a.kind, and rig.mark (a.mark, a.sc, a.kind) for a step's mark;
+  written after each timed step, at exit and on SIGTERM.
 - On stdout, a summary: the inputs, the misses, p50/p95/p99 of pixels − input
   in ms (nearest rank), what a copy costs and the frame rate kept. With
   --json, stdout is JSON lines only: one per timed step, then
@@ -122,6 +160,7 @@ import math
 import mmap
 import os
 import random
+import re
 import select
 import shutil
 import signal
@@ -134,9 +173,10 @@ import time
 GRACE = 50_000_000  # ns past the timeout for a frame still being copied
 CLOCK_MONOTONIC = 1  # wp_presentation.clock_id's value for it on Linux
 BUTTONS = {"left": 0x110, "right": 0x111, "middle": 0x112}
-ALLOWED = {"key", "keys", "mods", "move", "click", "button", "wheel", "sleep_ms",
-           "untimed", "roi", "roi_frac", "note"}
-ACTIONS = ("key", "keys", "move", "click", "wheel", "sleep_ms")
+ALLOWED = {"key", "keys", "mods", "move", "click", "button", "wheel", "focus", "sleep_ms", "hold_ms",
+           "untimed", "settle", "quiet", "mark", "roi", "roi_frac", "note"}
+ACTIONS = ("key", "keys", "move", "click", "wheel", "focus", "sleep_ms")
+MARK = re.compile(r"^[a-z0-9_.-]{1,40}$")
 
 
 def now():
@@ -338,14 +378,35 @@ def expand(st):
         raise ValueError("mods go with key or keys")
     if "button" in st and act != "click":
         raise ValueError("button goes with click")
-    base = {"untimed": untimed, "roi": roi}
+    settle, quiet, mark = st.get("settle", True), st.get("quiet", True), st.get("mark")
+    for k, v in (("settle", settle), ("quiet", quiet)):
+        if not isinstance(v, bool):
+            raise ValueError(f"{k} is true or false")
+    if "settle" in st and (act == "sleep_ms" or not untimed):
+        raise ValueError("settle goes with untimed: a timed step always settles, and a sleep never")
+    if "quiet" in st and (act == "sleep_ms" or untimed):
+        raise ValueError("quiet goes with a timed step")
+    if mark is not None and not (isinstance(mark, str) and MARK.match(mark)):
+        raise ValueError("mark is a name of [a-z0-9_.-], at most 40 long")
+    hold = st.get("hold_ms")
+    if hold is not None:
+        if act not in ("key", "keys", "click"):
+            raise ValueError("hold_ms goes with key, keys or click")
+        if isinstance(hold, bool) or not isinstance(hold, (int, float)) or hold < 0:
+            raise ValueError("hold_ms is a number of ms")
+    base = {"untimed": untimed, "roi": roi, "settle": settle, "quiet": quiet, "mark": mark, "hold_ms": hold}
     if act == "sleep_ms":
         ms = st["sleep_ms"]
-        if not isinstance(ms, (int, float)) or ms < 0:
+        if isinstance(ms, bool) or not isinstance(ms, (int, float)) or ms < 0:
             raise ValueError("sleep_ms is a number of ms")
         if untimed:
             raise ValueError("a sleep is never timed: no untimed")
         return [{**base, "kind": "sleep", "untimed": True, "ms": ms}]
+    if act == "focus":
+        con = st["focus"]
+        if isinstance(con, bool) or not isinstance(con, int) or con < 1:
+            raise ValueError("focus is a window's container id (sway's con_id): a positive int")
+        return [{**base, "kind": "focus", "con": con}]
     if act in ("key", "keys"):
         chars = [st["key"]] if act == "key" else list(st["keys"]) if isinstance(st["keys"], str) else None
         if not chars:
@@ -509,6 +570,93 @@ class Wire:
         self.drop(cb)
 
 
+def peer_pid(sock):
+    """The pid of the process at the other end of a unix socket (SO_PEERCRED)."""
+    pid, _, _ = struct.unpack("3i", sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED,
+                                                    struct.calcsize("3i")))
+    return pid
+
+
+def perf_sway_ipc():
+    """The perf sway's IPC socket (scripts/feel/sway.sh writes its path)."""
+    f = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")),
+                     "hotty", "sway-feel", "ipc")
+    try:
+        with open(f) as fh:
+            path = fh.read().strip()
+    except OSError:
+        raise Fatal(f"no perf sway's IPC socket in {f} (scripts/feel/sway.sh start)")
+    if not path:
+        raise Fatal(f"{f} is empty: is the perf sway running?")
+    return path
+
+
+class SwayIPC:
+    """sway's IPC (the i3-ipc framing: "i3-ipc", the payload's length and the
+    message's type as native u32s, then the payload): commands, and the
+    tree's windows. Never $SWAYSOCK, which may be a session's own sway."""
+    MAGIC = b"i3-ipc"
+    RUN_COMMAND, GET_TREE = 0, 4
+
+    def __init__(self, path=None):
+        self.path = path or perf_sway_ipc()
+        self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.sock.settimeout(5)
+        try:
+            self.sock.connect(self.path)
+        except OSError as e:
+            raise Fatal(f"can't connect to sway's IPC at {self.path}: {e}")
+        self.pid = peer_pid(self.sock)
+
+    def recv(self, n):
+        b = b""
+        while len(b) < n:
+            try:
+                chunk = self.sock.recv(n - len(b))
+            except socket.timeout:
+                raise Fatal("sway's IPC didn't answer in 5 s")
+            if not chunk:
+                raise Fatal("sway closed its IPC connection")
+            b += chunk
+        return b
+
+    def call(self, kind, payload=b""):
+        """Sends one message; returns when it went out and the reply."""
+        msg = self.MAGIC + struct.pack("=II", len(payload), kind) + payload
+        t = now()
+        self.sock.sendall(msg)
+        head = self.recv(len(self.MAGIC) + 8)
+        n, got = struct.unpack("=II", head[len(self.MAGIC):])
+        if head[:len(self.MAGIC)] != self.MAGIC or got != kind:
+            raise Fatal(f"sway's IPC answered type {got} to {kind}")
+        return t, json.loads(self.recv(n))
+
+    def command(self, cmd):
+        """Runs a sway command; returns when it went out. Fatal if it failed."""
+        t, r = self.call(self.RUN_COMMAND, cmd.encode())
+        bad = [x for x in r if not x.get("success")]
+        if bad:
+            raise Fatal(f"sway: {cmd!r}: {bad[0].get('error', 'failed')}")
+        return t
+
+    def windows(self):
+        """Every window in the tree, in its order: {"id", "pid", "focused",
+        "rect": [x, y, w, h] of its content in logical px of the layout}."""
+        _, tree = self.call(self.GET_TREE)
+        out = []
+
+        def walk(n):
+            if n.get("pid"):
+                r, w = n["rect"], n.get("window_rect") or {"x": 0, "y": 0, "width": n["rect"]["width"],
+                                                          "height": n["rect"]["height"]}
+                out.append({"id": n["id"], "pid": n["pid"], "focused": bool(n.get("focused")),
+                            "rect": [r["x"] + w["x"], r["y"] + w["y"], w["width"], w["height"]]})
+            for c in n.get("nodes", []) + n.get("floating_nodes", []):
+                walk(c)
+        walk(tree)
+        return out
+
+
 # ---- the rig
 
 def pct(xs, q):
@@ -546,6 +694,9 @@ class Rig:
         self.records = []
         self.trace = None
         self.trace_lines = []
+        self.pending = 0  # releases scheduled and not sent yet
+        self.ipc = None  # sway's IPC, for focus steps
+        self.marks = {}  # name -> when, since the last timed step
         self.load = [loadavg()]
         self.connect()
         self.libc_memcmp()
@@ -916,15 +1067,29 @@ class Rig:
         return [self.wl.msg(self.ptr, 1, u32(ms_clock(), px, py, ex, ey)), self.wl.msg(self.ptr, 4)]
 
     def send_later(self, delay, build):
-        self.later(delay, lambda: self.wl.send_timed(build()))
+        self.pending += 1
+
+        def send():
+            self.pending -= 1
+            self.wl.send_timed(build())
+        self.later(delay, send)
+
+    def sent(self):
+        """Until every release scheduled has gone out."""
+        while self.pending:
+            self.poll(self.hold + 1_000_000_000)
 
     def inject(self, st):
         """Sends a step's input; returns when its first and its last bytes go out."""
         kind = st["kind"]
+        if kind == "focus":
+            t = self.ipc.command(f"[con_id={st['con']}] focus")
+            return t, now()
+        hold = self.hold if st.get("hold_ms") is None else int(st["hold_ms"] * 1e6)
         if kind == "key":
             t = self.wl.send_timed(self.key_down(st["code"], st["mods"]))
-            self.send_later(self.hold, lambda: self.key_up(st["code"], st["mods"]))
-            return t, t + self.hold
+            self.send_later(hold, lambda: self.key_up(st["code"], st["mods"]))
+            return t, t + hold
         if kind == "move":
             t = self.wl.send_timed(self.motion(*st["xy"]))
             return t, t
@@ -932,9 +1097,9 @@ class Rig:
             b = st["button"]
             t = self.wl.send_timed(self.motion(*st["xy"]) + [
                 self.wl.msg(self.ptr, 2, u32(ms_clock(), b, 1)), self.wl.msg(self.ptr, 4)])
-            self.send_later(self.hold, lambda: [self.wl.msg(self.ptr, 2, u32(ms_clock(), b, 0)),
-                                                self.wl.msg(self.ptr, 4)])
-            return t, t + self.hold
+            self.send_later(hold, lambda: [self.wl.msg(self.ptr, 2, u32(ms_clock(), b, 0)),
+                                           self.wl.msg(self.ptr, 4)])
+            return t, t + hold
         if kind == "wheel":
             n = st["notches"]
             sign = 1 if n > 0 else -1
@@ -958,8 +1123,30 @@ class Rig:
 
     def stamp(self, t, name, a):
         if self.trace:
-            self.trace_lines.append(json.dumps({"t": t, "n": name, "tr": "input" if name == "rig.input"
-                                                else "pixels", "a": a}))
+            tr = "input" if name in ("rig.input", "rig.mark") else "pixels"
+            self.trace_lines.append(json.dumps({"t": t, "n": name, "tr": tr, "a": a}))
+
+    def mark(self, st, t):
+        """A step's mark, sent at t."""
+        if st["mark"]:
+            self.marks[st["mark"]] = t
+            self.stamp(t, "rig.mark", {"mark": st["mark"], "sc": self.args.scenario, "kind": st["kind"]})
+
+    def connect_ipc(self, steps):
+        """sway's IPC, when a step moves the focus: the display's own
+        compositor, with every window the steps name."""
+        cons = sorted({st["con"] for st in steps if st["kind"] == "focus"})
+        if not cons:
+            return
+        self.ipc = SwayIPC(self.args.ipc)
+        wl_pid = peer_pid(self.wl.sock)
+        if self.ipc.pid != wl_pid:
+            raise Fatal(f"the IPC at {self.ipc.path} is pid {self.ipc.pid}'s and the display {self.display} "
+                        f"pid {wl_pid}'s: not one compositor")
+        have = {w["id"] for w in self.ipc.windows()}
+        missing = [c for c in cons if c not in have]
+        if missing:
+            raise Fatal(f"no window with con_id {', '.join(map(str, missing))} in sway's tree")
 
     def flush_trace(self):
         if self.trace and self.trace_lines:
@@ -978,6 +1165,7 @@ class Rig:
             else:
                 st["box"] = own if st["roi"] else self.box(a.roi)
                 nxt = st["box"]
+        self.connect_ipc(steps)
         self.warm_keyboard()
         self.use_roi(steps[0]["box"] if steps else self.box(a.roi))
         self.wait_quiet(cap=now() + self.timeout)
@@ -985,11 +1173,16 @@ class Rig:
         for st in steps:
             self.use_roi(st["box"])
             if st["kind"] == "sleep":
+                self.mark(st, now())
                 self.pump_until(now() + int(st["ms"] * 1e6))
                 continue
             if st["untimed"]:
-                _, t_end = self.inject(st)
-                if not self.wait_quiet(since=t_end, cap=t_end + self.timeout):
+                t, t_end = self.inject(st)
+                self.mark(st, t)
+                if not st["settle"]:
+                    self.pump_until(t_end)
+                    self.sent()
+                elif not self.wait_quiet(since=t_end, cap=t_end + self.timeout):
                     self.warn(f"the screen didn't settle after an untimed {st['kind']}")
                 continue
             warm = timed < a.warmup
@@ -999,15 +1192,19 @@ class Rig:
             self.timed_step(st, i)
 
     def timed_step(self, st, i):
-        quiet = self.wait_quiet(cap=now() + self.timeout)
-        if not quiet:
-            self.warn(f"timed {st['kind']} sent on a screen that didn't settle in --timeout-ms")
-        if self.jitter:
-            self.pump_until(now() + int(self.rng.uniform(0, self.jitter)))
+        quiet = None
+        if st["quiet"]:
+            quiet = self.wait_quiet(cap=now() + self.timeout)
+            if not quiet:
+                self.warn(f"timed {st['kind']} sent on a screen that didn't settle in --timeout-ms")
+            if self.jitter:
+                self.pump_until(now() + int(self.rng.uniform(0, self.jitter)))
         self.hit, self.changed_after, self.changed_before = None, 0, 0
         sa = {"i": i, "sc": self.args.scenario, "kind": st["kind"]}
         t_in = self.inject(st)[0]
         self.t_in, self.armed = t_in, True
+        self.mark(st, t_in)
+        marks, self.marks = self.marks, {}
         since = t_in - self.frame_times[-1] if self.frame_times else None
         if i is not None:
             self.stamp(t_in, "rig.input", sa)
@@ -1028,6 +1225,10 @@ class Rig:
                "since_frame": r2(since / 1e6) if since is not None else None}
         if st["kind"] == "key":
             rec["key"] = st["key"]
+        if st["kind"] == "focus":
+            rec["focus"] = st["con"]
+        if marks:
+            rec["since_mark"] = {k: r2((t_in - t) / 1e6) for k, t in marks.items()}
         if i is not None:
             if hit is not None:
                 self.stamp(hit, "rig.pixels", {**sa, "frames": self.changed_after})
@@ -1119,6 +1320,8 @@ def main():
     p.add_argument("--output", help="the output to watch (default: the first)")
     p.add_argument("--builtin-keymap", action="store_true", help="skip xkbcli's keymap")
     p.add_argument("--any-display", action="store_true", help="don't insist on a headless output")
+    p.add_argument("--ipc", help="sway's IPC socket, for focus steps (default: the perf sway's, "
+                   "from ~/.cache/hotty/sway-feel/ipc; never $SWAYSOCK)")
     args = p.parse_args()
     rig = None
     stopped = False
