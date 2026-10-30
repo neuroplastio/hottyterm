@@ -148,6 +148,9 @@ class Side:
 class Pair:
     def __init__(self, file: Path):
         self.file = file
+        # The repository the pair lives in (<repo>/compare/pairs/<name>.toml):
+        # its build reaches its own scripts, and its results resolve, there.
+        self.repo = file.resolve().parent.parent.parent
         self.name = file.stem
         if not NAME_RE.match(self.name):
             raise Fail(f"{file.name}: a pair's name is [a-z0-9-], at most 24 characters")
@@ -641,7 +644,7 @@ def build_side(p: Pair, s: Side) -> bool:
     s.work.mkdir(parents=True, exist_ok=True)
     env = scrubbed(os.environ)
     env.update(SIDE_DIR=str(s.dir), SIDE_WORK=str(s.work), SIDE=s.name, PAIR=p.name,
-               PAIR_FILE=str(p.file), COMPARE_REPO=str(REPO),
+               PAIR_FILE=str(p.file), PAIR_REPO=str(p.repo), COMPARE_REPO=str(REPO),
                NEUROPLASTIO=str(REPO.parent.parent))
     print(f"{p.name} {s.name}: building (log {s.log})", flush=True)
     t0 = time.monotonic()
@@ -1046,7 +1049,7 @@ def cmd_verdict(name: str, pick: str, note: str) -> int:
     if p.results:
         for r in p.results:
             path = Path(r).expanduser()
-            path = path if path.is_absolute() else REPO / path
+            path = path if path.is_absolute() else p.repo / path
             print(f"\n--- {path} ---")
             try:
                 print(path.read_text().rstrip())

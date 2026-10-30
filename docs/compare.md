@@ -33,8 +33,8 @@ itself:
 ```toml
 brief = "Does a key reach the screen sooner in A or in B?"  # neutral, one line
 track = "R-22"            # R-22, R-23 or example
-results = "docs/feel/e1.md"  # optional: shown after the verdict (repo-relative,
-                             # absolute or ~); a list is fine
+results = "docs/feel/e1.md"  # optional: shown after the verdict (relative to
+                             # the pair's repository, absolute or ~); a list is fine
 hottyterm = "$SIDE_DIR/bin/hottyterm"  # default: /usr/lib/hottyterm/bin/hottyterm
 # hottyterm_args = []     # extra flags, the same for both sides
 # home = "throwaway"      # the default: XDG config/state/data/cache are a
@@ -60,7 +60,9 @@ run = 'exec "$SIDE_WORK/scripts/perf/plx-run.sh" --bin "$SIDE_DIR/bin" -- fish'
 - **`build`** (optional) runs under `sh -e` in `pairs prepare`, with
   `SIDE_DIR` (empty it fills: the side's install prefix), `SIDE_WORK`
   (kept between builds: sources, caches), `SIDE` (`before` or `after`),
-  `PAIR`, `COMPARE_REPO` (this repository) and `NEUROPLASTIO` (the code
+  `PAIR`, `PAIR_FILE`, `PAIR_REPO` (the repository the pair file is in,
+  for its own scripts), `COMPARE_REPO` (hottyterm's checkout, which has
+  `pairs` and `scripts/compare-build.sh`) and `NEUROPLASTIO` (the code
   root). Inherited `PLX_*`, `GHOSTTY_*` and `TERM_PROGRAM*` are gone. The
   log is `~/.cache/compare/<pair>/<side>.build.log`. Build from commits or
   branches of other repositories without touching their checkouts:
