@@ -1,0 +1,996 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Fri, 30 Oct 2026 07:59:22 +0100
+Subject: [PATCH 45/45] hottyterm: hotty surfaces paint off the terminal's lock
+
+io-reader held renderer_state.mutex for the whole of each hotty-blitz
+paint: 35-50 ms when plx opens a palette, during which a key in another
+window of the process, or an echo beside a repainting surface, waited
+for the lock.
+
+A repaint now runs on a thread of its own (hotty-paint) with the lock let
+go, and the stream parses on meanwhile. A surface's first frame still
+paints on io-reader, in order, also with the lock let go. While a paint
+runs, every other caller of hotty-blitz waits on a condition that lets
+the lock go (Hotty.hostReady), and has the host before the painter's next
+paint. The painter's frames and effects are recorded, then applied under
+the lock, which it takes back on demand (lockDemand), ahead of the
+stream's next batch. The IO thread's tick doesn't wait for a paint (it
+writes the keys to the pty), and it sends the painter's replies, so the
+painter never blocks on the mailbox.
+
+The renderer waits for each paint, as it waited for the lock before, so
+one frame shows the cells and the surfaces drawn for them. Without that,
+a delta's own output presented a frame of its own ahead of its paint,
+and an echo after it waited a refresh. At the end of a synchronized
+update (mode 2026) the renderer waits past the paint under way, until
+one covers the update, so the cells after it never show beside a
+surface's pixels from before it (hotty SPEC 6.3). After 100 ms held it
+gives up and the next hold waits a frame, so batches that end faster
+than they paint can't stop the screen. An update begun since drops the
+hold: its own end holds again. Without a paint thread, paints keep the
+lock, as before.
+
+Upstream files touched: renderer/State.zig (the hold flag),
+renderer/generic.zig (updateFrame honours it), termio/stream_handler.zig
+(an update's end reaches hotty) and termio/Termio.zig (threadExit stops
+the paint thread; processOutputLocked looks the inspector up per byte,
+since the lock can go mid-parse and the inspector close meanwhile). No
+apprt code, so macOS gets the same.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/renderer/State.zig        |   6 +
+ src/renderer/generic.zig      |   3 +-
+ src/termio/Termio.zig         |   7 +-
+ src/termio/hotty.zig          | 608 +++++++++++++++++++++++++++++++---
+ src/termio/stream_handler.zig |   2 +-
+ 5 files changed, 574 insertions(+), 52 deletions(-)
+
+diff --git a/src/renderer/State.zig b/src/renderer/State.zig
+index 118422147..88990ef9d 100644
+--- a/src/renderer/State.zig
++++ b/src/renderer/State.zig
+@@ -33,6 +33,12 @@ preedit: ?Preedit = null,
+ /// need about the mouse.
+ mouse: Mouse = .{},
+ 
++/// hottyterm: hotty surfaces paint off the terminal's lock (termio/hotty.zig,
++/// `holdRenderer`). While a repaint is under way, the renderer shows what
++/// it showed, as it waited for the lock before; after a synchronized
++/// update, until the update's surfaces are in (SPEC §6.3).
++hotty_hold: bool = false,
++
+ /// The number of threads currently waiting to acquire `mutex` via
+ /// `lockDemand`. This is not protected by the mutex; it is read by
+ /// hot lock/unlock loops (the IO parse thread) in `yieldToDemand` to
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index f67629e7f..5fae8a0f2 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -1424,7 +1424,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 hotty.trace.waited(t_lock, "updateFrame");
+ 
+                 // If we're in a synchronized output state, we pause all rendering.
+-                if (state.terminal.modes.get(.synchronized_output)) {
++                // hottyterm: and while its end waits for hotty surfaces.
++                if (state.terminal.modes.get(.synchronized_output) or state.hotty_hold) {
+                     log.debug("synchronized output started, skipping render", .{});
+                     return;
+                 }
+diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
+index 3a7c1f62a..17f31be4f 100644
+--- a/src/termio/Termio.zig
++++ b/src/termio/Termio.zig
+@@ -432,6 +432,7 @@ pub fn threadEnter(
+ 
+ pub fn threadExit(self: *Termio, data: *ThreadData) void {
+     self.backend.threadExit(data);
++    self.terminal_stream.handler.hotty.threadExit(); // hottyterm: the paint thread stops
+ }
+ 
+ /// Send a message to the mailbox. Depending on the mailbox type in use
+@@ -746,9 +747,11 @@ fn processOutputLocked(self: *Termio, buf: []const u8) void {
+     // process a byte at a time alternating between the inspector handler
+     // and the termio handler. This is very slow compared to our optimizations
+     // below but at least users only pay for it if they're using the inspector.
+-    if (self.renderer_state.inspector) |insp| {
++    if (self.renderer_state.inspector != null) {
+         for (buf, 0..) |byte, i| {
+-            insp.recordPtyRead(
++            // hottyterm: looked up for every byte, as hotty lets the lock
++            // go mid-parse, and the inspector can close meanwhile.
++            if (self.renderer_state.inspector) |insp| insp.recordPtyRead(
+                 self.alloc,
+                 &self.terminal,
+                 buf[i .. i + 1],
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 6ee43d95b..78b009b27 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -553,6 +553,36 @@ pub const Hotty = struct {
+     paste_held: [64]HeldKey = undefined,
+     paste_held_len: usize = 0,
+ 
++    /// hotty-blitz paints with the terminal's lock let go (gov R-22, S1),
++    /// so that the app's thread, which every window shares, and the
++    /// renderer never wait for a paint: the stream does for a placement's
++    /// first frame (`renderUnlocked`), and the paint thread for every
++    /// repaint (`paintLoop`), while the stream goes on parsing. While
++    /// `painting` holds, the painter has the host: anyone else about to
++    /// call it waits on `host_cond`, which lets the lock go (`hostReady`).
++    /// Both are guarded by the terminal's lock.
++    painting: bool = false,
++    host_cond: std.Io.Condition = .init,
++    /// The paint thread, from the host's start, and what it is asked:
++    /// repaint what is dirty, or stop.
++    paint_thread: ?std.Thread = null,
++    paint_wanted: bool = false,
++    paint_quit: bool = false,
++    /// Threads waiting in `hostReady`: they have the host before the paint
++    /// thread paints again.
++    host_waiters: u32 = 0,
++    /// A synchronized update ended and its surfaces' repaint isn't in yet
++    /// (`batchEnded`): the renderer stays held past the paint under way,
++    /// until the one that covers the update. The host must not show a
++    /// state from inside the batch (SPEC §6.3), nor the cells after it
++    /// beside the pixels of before it.
++    hold_wanted: bool = false,
++    /// When the renderer's hold began. Batches that end faster than their
++    /// surfaces paint would hold it for good: past `hold_max_ms` it shows
++    /// what it has, as a host that gives up waiting for a batch's end may.
++    hold_since: i96 = 0,
++    hold_off_until: i96 = 0,
++
+     const HeldKey = struct {
+         event: input.KeyEvent,
+         text: [32]u8,
+@@ -574,6 +604,7 @@ pub const Hotty = struct {
+     };
+ 
+     pub fn deinit(self: *Hotty) void {
++        self.threadExit();
+         if (self.timer) |*t| t.deinit();
+         self.timer = null;
+         // The host first: once it is freed, no fetching thread calls `wake`.
+@@ -617,6 +648,31 @@ pub const Hotty = struct {
+         return .{ .ctx = self, .reply = onReply, .place = onPlace, .remove = onRemove, .hide = onHide, .clipboard = onClipboard, .paste = onPaste, .edit = onEdit, .menu = onMenu };
+     }
+ 
++    fn streamHandler(self: *Hotty) *StreamHandler {
++        return @fieldParentPtr("hotty", self);
++    }
++
++    /// The host, for a call into it, with the terminal's lock held: first
++    /// waits, the lock let go meanwhile, while a paint has it (`painting`).
++    /// Every call into the host but the painter's goes through here.
++    pub fn hostReady(self: *Hotty) ?*Host {
++        if (self.painting) {
++            const t0 = trace.now();
++            const io = global.io();
++            const mutex = self.streamHandler().renderer_state.mutex;
++            self.host_waiters += 1;
++            while (self.painting) self.host_cond.waitUncancelable(io, mutex);
++            self.host_waiters -= 1;
++            if (self.host_waiters == 0) self.host_cond.broadcast(io);
++            trace.span("term.host.wait", t0);
++            // The lock went while this waited, as it goes for a full
++            // mailbox's send (`osc`): the renderer may have drawn
++            // meanwhile, and whatever is parsed after needs another draw.
++            self.streamHandler().queueRender() catch {};
++        }
++        return self.host;
++    }
++
+     /// `a=edit` (SPEC §10.6): what the program takes on the screen it is
+     /// on, in place of what it took there before.
+     fn onEdit(ctx: ?*anyopaque, names: [*]const u8, len: usize) callconv(.c) void {
+@@ -653,7 +709,7 @@ pub const Hotty = struct {
+         if (now == self.screen) return;
+         if (self.screen == .alternate) self.taken[1] = 0;
+         self.screen = now;
+-        if (self.host) |h| hotty_host_set_screen(h, now == .alternate);
++        if (self.hostReady()) |h| hotty_host_set_screen(h, now == .alternate);
+     }
+ 
+     /// Whether the program took the edit command `name` on its screen.
+@@ -741,7 +797,7 @@ pub const Hotty = struct {
+     }
+ 
+     fn ensureHost(self: *Hotty, t: *terminal.Terminal) ?*Host {
+-        if (self.host) |h| return h;
++        if (self.hostReady()) |h| return h;
+         const cfg = self.config(t);
+         self.host = hotty_host_new(&cfg);
+         if (self.host) |h| {
+@@ -756,6 +812,11 @@ pub const Hotty = struct {
+             // The screen it is told first (SPEC §10.7).
+             self.screen = t.screens.active_key;
+             hotty_host_set_screen(h, self.screen == .alternate);
++            self.paint_thread = std.Thread.spawn(.{}, paintLoop, .{self}) catch |err| p: {
++                log.warn("hotty: no paint thread, the stream paints: {}", .{err});
++                break :p null;
++            };
++            if (self.paint_thread) |th| th.setName(global.io(), "hotty-paint") catch {};
+         } else log.warn("hotty-blitz failed to start", .{});
+         return self.host;
+     }
+@@ -765,7 +826,7 @@ pub const Hotty = struct {
+     /// that asked hears what changed (`caps`, SPEC §9).
+     pub fn configure(self: *Hotty, settings: Settings) void {
+         self.settings = settings;
+-        if (self.host) |h| {
++        if (self.hostReady()) |h| {
+             hotty_host_set_network(h, settings.net.ptr);
+             self.setKeys(h);
+             self.sendReplies();
+@@ -807,7 +868,8 @@ pub const Hotty = struct {
+         // second would draw the same frame again, and GTK would give it
+         // a refresh of its own. Only a send can let go of the lock early
+         // (the mailbox was full), so a draw may run in between: then the
+-        // rest of the parse needs another.
++        // rest of the parse needs another. (A wait for a paint lets it go
++        // too: `hostReady` queues that one.)
+         if (self.replies.items.len > 0) {
+             defer self.replies.clearRetainingCapacity();
+             // What the handler's (private) messageWriter does.
+@@ -818,12 +880,17 @@ pub const Hotty = struct {
+     }
+ 
+     /// Full reset (RIS): every surface goes (SPEC §5.4). The terminal has
+-    /// already cleared the image storage.
++    /// already cleared the image storage, but a paint that ended while this
++    /// waited for the host may have placed again: those images go too.
+     pub fn reset(self: *Hotty) void {
+-        const h = self.host orelse return;
++        const h = self.hostReady() orelse return;
+         hotty_host_reset(h, null);
+-        var it = self.placed.keyIterator();
+-        while (it.next()) |k| self.alloc.free(k.*);
++        const t = self.streamHandler().terminal;
++        var it = self.placed.iterator();
++        while (it.next()) |e| {
++            self.deleteImage(t, e.value_ptr.*);
++            self.alloc.free(e.key_ptr.*);
++        }
+         self.placed.clearRetainingCapacity();
+         self.hover_len = 0;
+         self.capture_len = 0;
+@@ -864,9 +931,9 @@ pub const Hotty = struct {
+             p.shown = self.show(t, p.*);
+             if (p.shown) continue;
+             pending = true;
+-            if (self.host) |h| hotty_host_redeliver(h, p.surface.ptr);
++            if (self.hostReady()) |h| hotty_host_redeliver(h, p.surface.ptr);
+         }
+-        if (pending) _ = self.render(t);
++        if (pending) _ = self.renderUnlocked(t);
+         self.clearPlaces();
+     }
+ 
+@@ -974,19 +1041,153 @@ pub const Hotty = struct {
+         t.carriageReturn();
+     }
+ 
+-    /// Renders what changed. Termio calls it once per batch of output, not
+-    /// once per command.
++    /// Repaints what changed. Termio calls it once per batch of output, not
++    /// once per command. The paint thread paints, and the stream goes on
++    /// parsing meanwhile (gov R-22, S1).
+     pub fn flush(self: *Hotty, t: *terminal.Terminal) void {
+-        const h = self.host orelse return;
++        if (self.host == null) return;
++        // The paint thread has the host: it looks again when it is done,
++        // and the end of a batch waits for that. An update begun since
++        // shows nothing until it ends, and its end holds again
++        // (`batchEnded`), so the last one's hold goes: a program that never
++        // ends this one doesn't keep it (Ghostty's own timeout shows the
++        // cells).
++        if (self.painting and self.paint_thread != null) {
++            if (!t.modes.get(.synchronized_output)) self.wantPaint(t) else self.unhold();
++            return;
++        }
++        const h = self.hostReady() orelse return;
+         self.prune(t);
+         self.syncScreen(t);
+         defer self.schedule(t);
+-        if (t.modes.get(.synchronized_output)) return;
+-        if (!hotty_host_has_dirty(h)) return;
+-        _ = self.render(t);
++        if (t.modes.get(.synchronized_output)) return self.unhold();
++        // Nothing left to paint, and no paint under way: the update's
++        // surfaces are in.
++        if (!hotty_host_has_dirty(h)) return self.unhold();
++        self.wantPaint(t);
+         self.sendReplies();
+     }
+ 
++    /// The stream handler, as a synchronized update ends (DEC mode 2026
++    /// reset): what it left to repaint holds the renderer until it is in.
++    /// Held from now, not from `flush`: a first frame later in the same
++    /// read paints with the lock let go.
++    pub fn batchEnded(self: *Hotty) void {
++        const h = self.host orelse return;
++        if (self.paint_thread == null) return;
++        if (self.painting or hotty_host_has_dirty(h)) self.holdRenderer(true);
++    }
++
++    /// Holds what the renderer shows until the paint thread's next paint is
++    /// in, as the terminal's lock held it while the stream painted: one
++    /// frame shows the cells and the surfaces drawn for them, not the cells
++    /// first and the surfaces a refresh later. `update`: past that paint
++    /// too, until one covers the update that ended (`hold_wanted`). After
++    /// `hold_max_ms` held, it shows what it has, and isn't held again for a
++    /// frame, so that it does.
++    fn holdRenderer(self: *Hotty, update: bool) void {
++        const state = self.streamHandler().renderer_state;
++        const now = std.Io.Timestamp.now(global.io(), .awake).nanoseconds;
++        if (now < self.hold_off_until) return;
++        if (!state.hotty_hold) {
++            self.hold_since = now;
++        } else if (now - self.hold_since >= hold_max_ms * std.time.ns_per_ms) {
++            self.unhold();
++            self.hold_off_until = now + hold_off_ms * std.time.ns_per_ms;
++            return;
++        }
++        if (update) self.hold_wanted = true;
++        state.hotty_hold = true;
++    }
++
++    fn unhold(self: *Hotty) void {
++        self.hold_wanted = false;
++        const sh = self.streamHandler();
++        if (!sh.renderer_state.hotty_hold) return;
++        sh.renderer_state.hotty_hold = false;
++        sh.queueRender() catch {};
++    }
++
++    /// The longest the renderer is held (`holdRenderer`).
++    const hold_max_ms = 100;
++    /// After a hold gives up, how long until the next may start.
++    const hold_off_ms = 20;
++
++    /// Asks the paint thread to repaint what is dirty, the renderer held
++    /// until it is in. Without a paint thread, paints here. The caller
++    /// holds the lock and has the host.
++    fn wantPaint(self: *Hotty, t: *terminal.Terminal) void {
++        const sh = self.streamHandler();
++        // Without a paint thread, the lock stays held, so nothing shows the
++        // cells beside the pixels before them.
++        if (self.paint_thread == null) {
++            if (self.render(t)) sh.queueRender() catch {};
++            return;
++        }
++        self.holdRenderer(false);
++        self.paint_wanted = true;
++        self.host_cond.broadcast(global.io());
++    }
++
++    /// The paint thread: repaints what is dirty when asked (`wantPaint`),
++    /// with the lock let go while hotty-blitz paints (`renderUnlocked`),
++    /// then shows it and tells the program, as `tick` does.
++    fn paintLoop(self: *Hotty) void {
++        const sh = self.streamHandler();
++        const io = global.io();
++        const mutex = sh.renderer_state.mutex;
++        mutex.lockUncancelable(io);
++        defer mutex.unlock(io);
++        while (true) {
++            while (!self.paint_quit and (!self.paint_wanted or self.painting or self.host_waiters > 0))
++                self.host_cond.waitUncancelable(io, mutex);
++            if (self.paint_quit) return;
++            self.paint_wanted = false;
++            // This paint covers every update ended so far.
++            self.hold_wanted = false;
++            const t = sh.terminal;
++            var drew = false;
++            if (self.host) |h| paint: {
++                // A batch begun since waits for its own end.
++                if (t.modes.get(.synchronized_output)) break :paint;
++                if (hotty_host_has_dirty(h)) {
++                    drew = self.renderUnlocked(t);
++                    break :paint;
++                }
++                // What a resize told the program (`caps`), with nothing to draw.
++                const fx = self.effects();
++                hotty_host_events(h, &fx);
++            }
++            // The surfaces are in: the renderer shows them, unless an
++            // update ended meanwhile, whose paint is next.
++            if (!self.hold_wanted) self.unhold();
++            if (drew) sh.queueRender() catch {};
++            // The IO thread sends the replies (`tick`): a full mailbox
++            // would block this thread, and the loop may have stopped.
++            if (self.replies.items.len > 0) {
++                if (self.wakeup) |*w| w.notify() catch {};
++            }
++            self.schedule(t);
++        }
++    }
++
++    /// Termio.threadExit, and deinit: the paint thread finishes its paint
++    /// and stops.
++    pub fn threadExit(self: *Hotty) void {
++        const th = self.paint_thread orelse return;
++        const io = global.io();
++        const mutex = self.streamHandler().renderer_state.mutex;
++        mutex.lockUncancelable(io);
++        self.paint_quit = true;
++        self.host_cond.broadcast(io);
++        mutex.unlock(io);
++        th.join();
++        mutex.lockUncancelable(io);
++        defer mutex.unlock(io);
++        self.paint_thread = null;
++        self.streamHandler().renderer_state.hotty_hold = false;
++    }
++
+     /// Sends what is collected for the program (a `fit` a render found)
+     /// from the IO thread, as `osc` does. Termio wakes the mailbox after a
+     /// batch of output or a message; `onTimer` wakes it itself.
+@@ -1047,7 +1248,7 @@ pub const Hotty = struct {
+     /// edits the loop's timer heap at once, and every backend takes a new
+     /// timer only on the loop's next turn.
+     fn schedule(self: *Hotty, t: *terminal.Terminal) void {
+-        const h = self.host orelse return;
++        const h = self.hostReady() orelse return;
+         const loop = self.loop orelse return;
+         const timer = self.timer orelse return;
+         var ms = hotty_host_next_frame(h);
+@@ -1078,23 +1279,30 @@ pub const Hotty = struct {
+         return .disarm;
+     }
+ 
+-    /// From the loop, not the stream: render what is due, show it, tell
+-    /// the program, and set the timer again. While the program holds its
+-    /// output (mode 2026), the end of its batch renders instead.
++    /// From the loop, not the stream: have what is due painted (the paint
++    /// thread shows it), tell the program, and set the timer again. While
++    /// the program holds its output (mode 2026), the end of its batch
++    /// renders instead.
+     fn tick(self: *Hotty) void {
+         const handler: *StreamHandler = @fieldParentPtr("hotty", self);
+         handler.renderer_state.mutex.lockUncancelable(global.io());
+         defer handler.renderer_state.mutex.unlock(global.io());
+         const t = handler.terminal;
+-        if (self.host) |h| {
+-            if (!t.modes.get(.synchronized_output) and hotty_host_has_dirty(h) and self.render(t))
+-                handler.queueRender() catch {};
+-        }
+         if (self.replies.items.len > 0) {
+             self.sendReplies();
+             handler.termio_messaged = false;
+             handler.termio_mailbox.notify();
+         }
++        // A paint under way: the paint thread looks again once it is done
++        // (and sets the timer), so the loop, which writes the keys to the
++        // pty, doesn't wait for it.
++        if (self.painting and self.paint_thread != null) {
++            self.paint_wanted = true;
++            return;
++        }
++        if (self.hostReady()) |h| {
++            if (!t.modes.get(.synchronized_output) and hotty_host_has_dirty(h)) self.wantPaint(t);
++        }
+         self.schedule(t);
+     }
+ 
+@@ -1129,7 +1337,7 @@ pub const Hotty = struct {
+ 
+     /// Deletes a surface's document, as the program's `a=del:s=` would.
+     fn deleteSurface(self: *Hotty, name: []const u8) void {
+-        const h = self.host orelse return;
++        const h = self.hostReady() orelse return;
+         var buf: [128]u8 = undefined;
+         const body = std.fmt.bufPrint(&buf, "a=del:s={s}", .{name}) catch return;
+         const fx = self.effects();
+@@ -1139,13 +1347,14 @@ pub const Hotty = struct {
+     }
+ 
+     /// The cell size (font size, zoom) changed: every surface re-renders at
+-    /// the new size, crisp, and replaces its pixels in place.
++    /// the new size, crisp, and replaces its pixels in place, on the paint
++    /// thread, the renderer held until they are in.
+     pub fn resized(self: *Hotty, t: *terminal.Terminal) void {
+-        const h = self.host orelse return;
++        const h = self.hostReady() orelse return;
+         const cfg = self.config(t);
+         hotty_host_configure(h, &cfg);
+         self.rewindow(t);
+-        _ = self.render(t);
++        self.wantPaint(t);
+         // `caps`, with the new `cellcss`, and `fit` (SPEC §4, §5.2) go out
+         // now: a resize runs from the IO thread's coalescing timer, not
+         // from output, which wakes the mailbox after it.
+@@ -1165,7 +1374,7 @@ pub const Hotty = struct {
+     /// Renders the dirty surfaces into their images. True if a frame went
+     /// out, for the renderer to draw.
+     fn render(self: *Hotty, t: *terminal.Terminal) bool {
+-        const h = self.host orelse return false;
++        const h = self.hostReady() orelse return false;
+         const t0 = trace.now();
+         defer trace.span("term.render", t0);
+         var ctx: RenderCtx = .{ .self = self, .t = t };
+@@ -1178,9 +1387,315 @@ pub const Hotty = struct {
+         return ctx.drew;
+     }
+ 
++    /// `render`, with the terminal's lock let go while hotty-blitz paints
++    /// (gov R-22, S1): the frames and the effects are collected (`Paint`)
++    /// and carried out once the lock is taken again. The caller holds the
++    /// lock and has the host (`hostReady`), and has both back after.
++    /// Meanwhile another thread may change the terminal, but it waits for
++    /// the host, so no frame of the host's lands between this paint's.
++    fn renderUnlocked(self: *Hotty, t: *terminal.Terminal) bool {
++        const h = self.hostReady() orelse return false;
++        // Without a paint thread nothing holds the renderer (`batchEnded`).
++        if (self.paint_thread == null) return self.render(t);
++        const t0 = trace.now();
++        defer trace.span("term.render", t0);
++        const io = global.io();
++        const mutex = self.streamHandler().renderer_state.mutex;
++        var paint: Paint = .{ .alloc = self.alloc };
++        defer paint.deinit();
++        const menu = self.menu_place != null;
++        // The renderer waits for this paint, as it waited for the lock.
++        self.holdRenderer(false);
++        self.painting = true;
++        mutex.unlock(io);
++        const fx = paint.effects();
++        hotty_host_render(h, &paint, Paint.onFrame);
++        hotty_host_events(h, &fx);
++        if (menu) {
++            hotty_host_redeliver(h, menu_name);
++            hotty_host_render(h, &paint, Paint.onFrame);
++        }
++        self.relock();
++        // The lock held again, the host is this thread's until it lets go.
++        self.painting = false;
++        defer self.host_cond.broadcast(io);
++        var ctx: RenderCtx = .{ .self = self, .t = t };
++        paint.replay(self);
++        self.dropMenu(t, &ctx);
++        // A frame with too little in it to carry out (a part of a surface
++        // whose image is gone or another size), or a menu an effect showed
++        // just now: drawn again, as `render` draws, with the lock held.
++        var again = !menu and self.menu_place != null;
++        for (paint.frames.items) |*f| {
++            if (self.applyFrame(t, f, &ctx)) continue;
++            hotty_host_redeliver(h, f.name.ptr);
++            again = true;
++        }
++        if (again and self.render(t)) ctx.drew = true;
++        if (!self.hold_wanted) self.unhold();
++        return ctx.drew;
++    }
++
++    /// Takes the terminal's lock back after a paint, ahead of the stream's
++    /// next batch (`lockDemand`, as the renderer's frame does): until then
++    /// every other caller of the host waits. The stream, parked in
++    /// `yieldToDemand`, goes on once this thread has the lock.
++    fn relock(self: *Hotty) void {
++        const io = global.io();
++        const state = self.streamHandler().renderer_state;
++        state.lockDemand(io);
++        _ = state.handoff_gen.fetchAdd(1, .monotonic);
++        io.futexWake(u32, &state.handoff_gen.raw, 1);
++    }
++
++    /// What a paint off the lock collects for `renderUnlocked` to carry
++    /// out: the frames, copied out of hotty-blitz, and the effects the
++    /// host asked for, in order.
++    const Paint = struct {
++        alloc: Allocator,
++        frames: std.ArrayListUnmanaged(Frame) = .empty,
++        effects_: std.ArrayListUnmanaged(Effect) = .empty,
++
++        const Frame = struct {
++            name: [:0]u8,
++            w: u32,
++            h: u32,
++            /// Straight alpha: the whole frame when `full`, else each of
++            /// `rects` in turn, tightly packed.
++            data: []u8,
++            rects: []Rect,
++            full: bool,
++        };
++
++        const Effect = union(enum) {
++            reply: []u8,
++            place: struct { surface: [:0]u8, cols: u16, rows: u16, x: u16, y: u16, w: u16, h: u16, z: i32, created: u32, move_cursor: bool },
++            remove: [:0]u8,
++            hide: [:0]u8,
++            clipboard: []u8,
++            paste,
++            edit: []u8,
++            menu: struct { surface: [:0]u8, cols: u16, rows: u16 },
++        };
++
++        fn deinit(self: *Paint) void {
++            for (self.frames.items) |f| {
++                self.alloc.free(f.name);
++                self.alloc.free(f.data);
++                self.alloc.free(f.rects);
++            }
++            self.frames.deinit(self.alloc);
++            for (self.effects_.items) |e| freeEffect(self.alloc, e);
++            self.effects_.deinit(self.alloc);
++        }
++
++        fn freeEffect(alloc: Allocator, e: Effect) void {
++            switch (e) {
++                .reply, .clipboard, .edit => |b| alloc.free(b),
++                .remove, .hide => |n| alloc.free(n),
++                .place => |p| alloc.free(p.surface),
++                .menu => |m| alloc.free(m.surface),
++                .paste => {},
++            }
++        }
++
++        fn effects(self: *Paint) Effects {
++            return .{ .ctx = self, .reply = Paint.onReply, .place = Paint.onPlace, .remove = Paint.onRemove, .hide = Paint.onHide, .clipboard = Paint.onClipboard, .paste = Paint.onPaste, .edit = Paint.onEdit, .menu = Paint.onMenu };
++        }
++
++        /// Carries out the effects collected, as the host would have
++        /// with the lock held.
++        fn replay(self: *Paint, hotty: *Hotty) void {
++            for (self.effects_.items) |e| switch (e) {
++                .reply => |b| Hotty.onReply(hotty, b.ptr, b.len),
++                .place => |p| Hotty.onPlace(hotty, p.surface.ptr, p.cols, p.rows, p.x, p.y, p.w, p.h, p.z, p.created, p.move_cursor),
++                .remove => |n| Hotty.onRemove(hotty, n.ptr),
++                .hide => |n| Hotty.onHide(hotty, n.ptr),
++                .clipboard => |b| Hotty.onClipboard(hotty, b.ptr, b.len),
++                .paste => Hotty.onPaste(hotty),
++                .edit => |b| Hotty.onEdit(hotty, b.ptr, b.len),
++                .menu => |m| Hotty.onMenu(hotty, m.surface.ptr, m.cols, m.rows),
++            };
++        }
++
++        fn add(self: *Paint, e: Effect) void {
++            self.effects_.append(self.alloc, e) catch {
++                log.warn("hotty: an effect dropped, out of memory", .{});
++                freeEffect(self.alloc, e);
++            };
++        }
++
++        fn dupeZ(self: *Paint, s: [*:0]const u8) ?[:0]u8 {
++            return self.alloc.dupeSentinel(u8, std.mem.span(s), 0) catch null;
++        }
++
++        fn onReply(ctx: ?*anyopaque, data: [*]const u8, len: usize) callconv(.c) void {
++            const self: *Paint = @ptrCast(@alignCast(ctx.?));
++            self.add(.{ .reply = self.alloc.dupe(u8, data[0..len]) catch return });
++        }
++
++        fn onPlace(ctx: ?*anyopaque, surface: [*:0]const u8, cols: u16, rows: u16, x: u16, y: u16, w: u16, h: u16, z: i32, created: u32, move_cursor: bool) callconv(.c) void {
++            const self: *Paint = @ptrCast(@alignCast(ctx.?));
++            const name = self.dupeZ(surface) orelse return;
++            self.add(.{ .place = .{ .surface = name, .cols = cols, .rows = rows, .x = x, .y = y, .w = w, .h = h, .z = z, .created = created, .move_cursor = move_cursor } });
++        }
++
++        fn onRemove(ctx: ?*anyopaque, surface: [*:0]const u8) callconv(.c) void {
++            const self: *Paint = @ptrCast(@alignCast(ctx.?));
++            self.add(.{ .remove = self.dupeZ(surface) orelse return });
++        }
++
++        fn onHide(ctx: ?*anyopaque, surface: [*:0]const u8) callconv(.c) void {
++            const self: *Paint = @ptrCast(@alignCast(ctx.?));
++            self.add(.{ .hide = self.dupeZ(surface) orelse return });
++        }
++
++        fn onClipboard(ctx: ?*anyopaque, text: [*]const u8, len: usize) callconv(.c) void {
++            const self: *Paint = @ptrCast(@alignCast(ctx.?));
++            self.add(.{ .clipboard = self.alloc.dupe(u8, text[0..len]) catch return });
++        }
++
++        fn onPaste(ctx: ?*anyopaque) callconv(.c) void {
++            const self: *Paint = @ptrCast(@alignCast(ctx.?));
++            self.add(.paste);
++        }
++
++        fn onEdit(ctx: ?*anyopaque, names: [*]const u8, len: usize) callconv(.c) void {
++            const self: *Paint = @ptrCast(@alignCast(ctx.?));
++            self.add(.{ .edit = self.alloc.dupe(u8, names[0..len]) catch return });
++        }
++
++        fn onMenu(ctx: ?*anyopaque, surface: [*:0]const u8, cols: u16, rows: u16) callconv(.c) void {
++            const self: *Paint = @ptrCast(@alignCast(ctx.?));
++            self.add(.{ .menu = .{ .surface = self.dupeZ(surface) orelse return, .cols = cols, .rows = rows } });
++        }
++
++        /// A frame, copied: the whole of it in straight alpha when it is
++        /// all new, else only its damaged rectangles, as `edit` would
++        /// write them.
++        fn onFrame(
++            ctx_ptr: ?*anyopaque,
++            surface: [*:0]const u8,
++            w: u32,
++            h: u32,
++            rgba: [*]const u8,
++            stride: usize,
++            rects: [*]const Rect,
++            nrects: usize,
++            full: bool,
++        ) callconv(.c) void {
++            const self: *Paint = @ptrCast(@alignCast(ctx_ptr.?));
++            self.collect(std.mem.span(surface), w, h, rgba[0 .. stride * h], stride, rects[0..nrects], full) catch
++                log.warn("hotty: surface {s} not updated, out of memory", .{surface});
++        }
++
++        fn collect(self: *Paint, surface: []const u8, w: u32, h: u32, frame: []const u8, stride: usize, rects: []const Rect, full: bool) !void {
++            const name = try self.alloc.dupeSentinel(u8, surface, 0);
++            errdefer self.alloc.free(name);
++            // A rectangle out of the frame makes it whole.
++            var whole = full;
++            var n: usize = 0;
++            for (rects) |r| {
++                if (@as(u64, r.x) + r.w > w or @as(u64, r.y) + r.h > h) whole = true;
++                n += @as(usize, r.w) * r.h * 4;
++            }
++            var data: []u8 = &.{};
++            var rs: []Rect = &.{};
++            errdefer {
++                self.alloc.free(data);
++                self.alloc.free(rs);
++            }
++            if (whole) {
++                data = try straight(self.alloc, frame, stride, .{ .x = 0, .y = 0, .w = w, .h = h });
++            } else {
++                data = try self.alloc.alloc(u8, n);
++                rs = try self.alloc.dupe(Rect, rects);
++                var off: usize = 0;
++                for (rects) |r| {
++                    straightInto(data[off..], @as(usize, r.w) * 4, frame, stride, r);
++                    off += @as(usize, r.w) * r.h * 4;
++                }
++            }
++            try self.frames.append(self.alloc, .{ .name = name, .w = w, .h = h, .data = data, .rects = rs, .full = whole });
++        }
++    };
++
++    /// Carries out a frame `renderUnlocked` collected, as `onFrame` does.
++    /// False if it has too little in it: then it must be drawn again.
++    fn applyFrame(self: *Hotty, t: *terminal.Terminal, f: *Paint.Frame, ctx: *RenderCtx) bool {
++        ctx.drew = true;
++        const name: []const u8 = f.name;
++
++        // The menu shown anew: at the bottom right.
++        if (self.menu_place) |p| if (std.mem.eql(u8, p.surface, name)) {
++            if (!f.full) return false;
++            self.menu_place = null;
++            defer self.alloc.free(p.surface);
++            self.placeMenu(t, p, f.w, f.h, f.data) catch |err| log.warn("hotty menu failed: {}", .{err});
++            return true;
++        };
++
++        // A new placement: transmit and display at the cursor.
++        for (self.places.items) |p| {
++            if (p.shown or !std.mem.eql(u8, p.surface, name)) continue;
++            if (!f.full) return false;
++            self.place(t, name, p, f.w, f.h, f.data) catch |err| log.warn("hotty place failed: {}", .{err});
++            return true;
++        }
++
++        const placed = self.placed.get(name) orelse return true;
++        const screen = t.screens.get(placed.screen) orelse return true;
++        const storage = &screen.kitty_images;
++        const img = storage.images.getPtr(placed.image_id) orelse return true;
++
++        if (!f.full) {
++            if (img.width != f.w or img.height != f.h or placed.screen != t.screens.active_key) return false;
++            return self.editStraight(storage, img, f);
++        }
++        replaceImage(self.alloc, storage, img, f.w, f.h, f.data) catch |err| {
++            log.warn("hotty: surface {s} not updated: {}", .{ name, err });
++            return true;
++        };
++        // The image has the pixels now.
++        f.data = &.{};
++        return true;
++    }
++
++    /// `edit`, from rectangles already in straight alpha and packed
++    /// (`Paint.Frame`). False if the image cannot take edits in place.
++    fn editStraight(self: *Hotty, storage: *kitty.graphics.ImageStorage, img: *kitty.graphics.Image, f: *const Paint.Frame) bool {
++        if (img.format != .rgba or img.compression != .none) return false;
++        if (img.animation) |anim| if (anim.frames.items.len > 0) return false;
++        const pixels = img.data.bytes() orelse return false;
++        const img_stride = @as(usize, img.width) * 4;
++        if (pixels.len != img_stride * img.height) return false;
++        // The image's pixels are owned by its storage (as `edit` reasons).
++        const dst = @constCast(pixels);
++        var off: usize = 0;
++        for (f.rects) |r| {
++            if (r.w == 0 or r.h == 0) continue;
++            const row_len = @as(usize, r.w) * 4;
++            var y: usize = 0;
++            while (y < r.h) : (y += 1) {
++                @memcpy(dst[(@as(usize, r.y) + y) * img_stride + @as(usize, r.x) * 4 ..][0..row_len], f.data[off..][0..row_len]);
++                off += row_len;
++            }
++            storage.markImageRegionChanged(global.io(), self.alloc, img, .{ .x = r.x, .y = r.y, .width = r.w, .height = r.h });
++        }
++        return true;
++    }
++
+     /// The which-key menu (SPEC §10.5, §10.6): hidden, its image goes;
+     /// shown anew, it is drawn again, and its frame places it.
+     fn applyMenu(self: *Hotty, t: *terminal.Terminal, h: *Host, ctx: *RenderCtx) void {
++        self.dropMenu(t, ctx);
++        if (self.menu_place == null) return;
++        hotty_host_redeliver(h, menu_name);
++        hotty_host_render(h, ctx, onFrame);
++    }
++
++    /// The menu hidden: its image goes.
++    fn dropMenu(self: *Hotty, t: *terminal.Terminal, ctx: *RenderCtx) void {
+         var i: usize = 0;
+         while (i < self.removes.items.len) {
+             const name = self.removes.items[i];
+@@ -1197,9 +1712,6 @@ pub const Hotty = struct {
+             self.alloc.free(name);
+             _ = self.removes.swapRemove(i);
+         }
+-        if (self.menu_place == null) return;
+-        hotty_host_redeliver(h, menu_name);
+-        hotty_host_render(h, ctx, onFrame);
+     }
+ 
+     /// Places the menu at the bottom right of the screen, over the cells,
+@@ -1480,7 +1992,7 @@ pub const Hotty = struct {
+     /// the active screen's kitty placements.
+     fn hit(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64) ?Target {
+         if (self.cell_w == 0 or self.cell_h == 0) return null;
+-        const h = self.host orelse return null;
++        const h = self.hostReady() orelse return null;
+         // From the top down, the first window under the pointer that takes
+         // it there: where a surface's elements have `pointer-events: none`
+         // the pointer passes through to what is below, a window or the
+@@ -1552,7 +2064,7 @@ pub const Hotty = struct {
+     fn pointer(self: *Hotty, t: *terminal.Terminal, kind: PointerKind, px: f64, py: f64, mods: u32, count: u32) bool {
+         self.shape = null;
+         self.setLink(null);
+-        const h = self.host orelse return false;
++        const h = self.hostReady() orelse return false;
+         if (self.placed.count() == 0) {
+             self.capture_len = 0;
+             return false;
+@@ -1635,7 +2147,7 @@ pub const Hotty = struct {
+     /// goes on reporting its moves and its release.
+     fn leaveWindow(self: *Hotty, t: *terminal.Terminal, mods: u32) void {
+         if (self.capture_len > 0 or self.hover_len == 0) return;
+-        const h = self.host orelse return;
++        const h = self.hostReady() orelse return;
+         const fx = self.effects();
+         var buf: [73]u8 = undefined;
+         const old = std.mem.printSentinel(&buf, "{s}", .{self.hover[0..self.hover_len]}, 0) catch "";
+@@ -1649,7 +2161,7 @@ pub const Hotty = struct {
+     /// A key for the surface holding the keyboard as the user pressed it,
+     /// by its name (SPEC §10.4). True if it used it.
+     fn keyPressed(self: *Hotty, t: *terminal.Terminal, p: *const Press) bool {
+-        const h = self.host orelse return false;
++        const h = self.hostReady() orelse return false;
+         const fx = self.effects();
+         const consumed = hotty_host_key_pressed(h, namePtr(p.physical), p.physical.len, namePtr(p.character), p.character.len, &fx);
+         if (self.render(t)) self.drew = true;
+@@ -1662,7 +2174,7 @@ pub const Hotty = struct {
+     /// would read for them (SPEC §10.4). True if it used any; the others
+     /// then reach the program as replies, in order.
+     fn keyBytes(self: *Hotty, t: *terminal.Terminal, bytes: []const u8) bool {
+-        const h = self.host orelse return false;
++        const h = self.hostReady() orelse return false;
+         if (bytes.len == 0) return false;
+         const fx = self.effects();
+         const consumed = hotty_host_key_bytes(h, bytes.ptr, bytes.len, &fx);
+@@ -1679,7 +2191,7 @@ pub const Hotty = struct {
+     /// or while the program holds the pointer, the gesture is the
+     /// terminal's, even where it goes on over a surface.
+     fn wheel(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64, dx: f64, dy: f64, mods: u32) bool {
+-        const h = self.host orelse return false;
++        const h = self.hostReady() orelse return false;
+         const fx = self.effects();
+         const target: ?Target = if (self.program_hold) null else self.hit(t, px, py);
+         var name_buf: [73]u8 = undefined;
+@@ -1705,7 +2217,7 @@ pub const Hotty = struct {
+     /// the pointer, is the terminal's. A touch hovers nothing.
+     fn touch(self: *Hotty, t: *terminal.Terminal, phase: TouchPhase, px: f64, py: f64, mods: u32, reports: bool) Touch {
+         self.mouse_len = 0;
+-        const h = self.host orelse return .cells;
++        const h = self.hostReady() orelse return .cells;
+         if (phase == .down) {
+             self.touch_len = 0;
+             self.touch_cells = false;
+@@ -1802,7 +2314,7 @@ pub const Hotty = struct {
+     }
+ 
+     fn hasKeyboard(self: *Hotty) bool {
+-        const h = self.host orelse return false;
++        const h = self.hostReady() orelse return false;
+         return hotty_host_focused(h) != null;
+     }
+ };
+@@ -1905,7 +2417,7 @@ fn copyOnSelect(s: *Surface) void {
+         .clipboard => &.{.standard},
+         .both => &.{ .standard, .selection },
+     };
+-    const h = s.io.terminal_stream.handler.hotty.host orelse return;
++    const h = s.io.terminal_stream.handler.hotty.hostReady() orelse return;
+     const text = hotty_host_selected_text(h) orelse return;
+     setClipboards(s, clipboards, std.mem.span(text));
+ }
+@@ -1920,7 +2432,7 @@ pub fn copySelection(s: *Surface) bool {
+         hs.copy_denied = false;
+         return false;
+     }
+-    const h = hs.host orelse return false;
++    const h = hs.hostReady() orelse return false;
+     const text = hotty_host_selected_text(h) orelse return false;
+     setClipboards(s, &.{.standard}, std.mem.span(text));
+     return true;
+@@ -1957,7 +2469,7 @@ pub fn pasteInto(s: *Surface, data: []const u8) bool {
+         lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const hs = &s.io.terminal_stream.handler.hotty;
+-        const h = hs.host orelse break :took false;
++        const h = hs.hostReady() orelse break :took false;
+         const fx = hs.effects();
+         const took = hotty_host_paste(h, data.ptr, data.len, &fx);
+         if (hs.render(&s.io.terminal)) hs.drew = true;
+@@ -2000,7 +2512,7 @@ fn cellsSelect(s: *Surface) bool {
+ fn surfaceSelects(s: *Surface) bool {
+     lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+-    const h = s.io.terminal_stream.handler.hotty.host orelse return false;
++    const h = s.io.terminal_stream.handler.hotty.hostReady() orelse return false;
+     return hotty_host_selected_text(h) != null;
+ }
+ 
+@@ -2020,7 +2532,7 @@ fn selectionCopy(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+     lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+     const hs = &s.io.terminal_stream.handler.hotty;
+-    const h = hs.host orelse return false;
++    const h = hs.hostReady() orelse return false;
+     var text: ?[*:0]const u8 = null;
+     if (hotty_host_copy_key(h, namePtr(p.physical), p.physical.len, namePtr(p.character), p.character.len, &text) != 1) return false;
+     setClipboards(s, &.{.standard}, std.mem.span(text orelse return false));
+@@ -2477,7 +2989,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+     const command = command: {
+         lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+-        const h = hs.host orelse return false;
++        const h = hs.hostReady() orelse return false;
+         const c = hotty_host_edit_command(h, namePtr(p.physical), p.physical.len, namePtr(p.character), p.character.len) orelse return false;
+         if (!hs.takes(&s.io.terminal, std.mem.span(c))) return false;
+         hs.held_keys.insert(event.key);
+@@ -2608,7 +3120,7 @@ fn cellsKey(s: *Surface, event: input.KeyEvent) void {
+     defer s.renderer_state.mutex.unlock(global.io());
+     const hs = &s.io.terminal_stream.handler.hotty;
+     if (!hs.menu_shown or hs.hasKeyboard()) return;
+-    const h = hs.host orelse return;
++    const h = hs.hostReady() orelse return;
+     hotty_host_cells_key(h, namePtr(press.physical), press.physical.len, namePtr(press.character), press.character.len);
+     if (hotty_host_has_dirty(h) and hs.render(&s.io.terminal)) hs.drew = true;
+ }
+@@ -2632,7 +3144,7 @@ fn takesCommand(s: *Surface, p: *const Press) bool {
+     lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+     const hs = &s.io.terminal_stream.handler.hotty;
+-    const h = hs.host orelse return false;
++    const h = hs.hostReady() orelse return false;
+     const c = hotty_host_edit_command(h, namePtr(p.physical), p.physical.len, namePtr(p.character), p.character.len) orelse return false;
+     return hs.takes(&s.io.terminal, std.mem.span(c));
+ }
+diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
+index 10c0b492f..072058640 100644
+--- a/src/termio/stream_handler.zig
++++ b/src/termio/stream_handler.zig
+@@ -752,7 +752,7 @@ pub const StreamHandler = struct {
+             // We need to start a timer to prevent the emulator being hung
+             // forever.
+             .synchronized_output => {
+-                if (enabled) self.messageWriter(.{ .start_synchronized_output = {} });
++                if (enabled) self.messageWriter(.{ .start_synchronized_output = {} }) else self.hotty.batchEnded(); // hottyterm
+             },
+ 
+             .linefeed => {
