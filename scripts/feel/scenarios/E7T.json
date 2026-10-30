@@ -1,0 +1,15 @@
+{
+  "name": "E7T",
+  "brief": "plx's palette typed into fast, as ':a': the leader, ':', and 'a' as ':' comes up, hold_ms (30) after its press, timed from the letter's key. The letter's effect, the palette's list filtered, can come after the palette's first frame, so its time is blackbox's last_ms, the last change before the screen settles (scripts/feel/cycles.py's last); the first change after the letter (ms, rig.pixels) is the palette's first frame, or the letter's",
+  "plx": true,
+  "setup": "plx/main/scripts/perf/e7.sh",
+  "argv": ["sh", "-c", "cat"],
+  "params": {"hold_ms": 30},
+  "cycle": [
+    {"key": "b", "mods": ["ctrl"], "untimed": true, "note": "plx's leader"},
+    {"key": "colon", "hold_ms": "$hold_ms", "untimed": true, "settle": false, "mark": "open", "note": "palette.open, not waited on"},
+    {"key": "a", "quiet": false, "note": "the filter's first letter, timed"},
+    {"key": "Escape", "untimed": true, "note": "palette.close"}
+  ],
+  "roi_frac": [0, 0, 1, 1]
+}

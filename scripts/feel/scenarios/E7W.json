@@ -1,0 +1,22 @@
+{
+  "name": "E7W",
+  "brief": "a key typed into a second window of the terminal's process while plx opens its palette in the first: window A runs plx as E7 does, window B, below it, a shell's echo (feelprog e1, its cursor hidden); each cycle opens A's palette (the leader, then ':', held hold_ms and released, not waited on), gap_ms later moves the keyboard to B and, delay_ms after that, types a key there, timed on B's window; then the keyboard goes back to A and Escape closes the palette. The control is --param gap_ms=300: the same key, the same delay after B's focus, once the opening is over",
+  "plx": true,
+  "setup": "plx/main/scripts/perf/e7.sh",
+  "argv": ["sh", "-c", "cat"],
+  "window_b": {"argv": ["feelprog", "e1"], "hide_cursor": true, "height_pct": 25},
+  "params": {"hold_ms": 30, "gap_ms": 0, "delay_ms": 15},
+  "lead": [
+    {"focus": "A", "untimed": true, "window": "A", "note": "A has the keyboard"}
+  ],
+  "cycle": [
+    {"key": "b", "mods": ["ctrl"], "untimed": true, "window": "A", "note": "plx's leader"},
+    {"key": "colon", "hold_ms": "$hold_ms", "untimed": true, "settle": false, "mark": "open", "note": "palette.open in A, not waited on"},
+    {"sleep_ms": "$gap_ms", "note": "the gap: 0, or the control's"},
+    {"focus": "B", "untimed": true, "settle": false, "mark": "focus", "note": "the keyboard to B"},
+    {"sleep_ms": "$delay_ms", "note": "the delay"},
+    {"key": "x", "quiet": false, "window": "B", "note": "echoed in B, timed there"},
+    {"focus": "A", "untimed": true, "window": "A", "note": "the keyboard back to A"},
+    {"key": "Escape", "untimed": true, "window": "A", "note": "palette.close"}
+  ]
+}
