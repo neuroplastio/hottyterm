@@ -26,18 +26,56 @@ Hosts (override a binary with HOTTYTERM_BIN, GHOSTTY_BIN, CHROMIUM_BIN):
 - chromium: xterm-addon-hotty's demo page and serve.py.
 With --plx, the program runs inside a throwaway plx (plx's
 scripts/perf/plx-run.sh, PLX_RUN).
+
+Scenario files
+--------------
+--scenario-file takes a path, or the name of one of the rig's own in
+scripts/feel/scenarios/ (E7W for scenarios/E7W.json). A file is one JSON
+object:
+- name, brief; argv, the program; n, the timed inputs (else --n);
+- plx: true runs it in a throwaway plx, after setup, a script plx-run.sh
+  runs once the session answers. A setup path that isn't absolute is from
+  the directory of the neuroplastio checkouts (plx/main/scripts/perf/e7.sh);
+- roi_frac, the timed steps' ROI by default (blackbox.py --roi);
+- steps, blackbox.py's steps (its docstring): the untimed ones before the
+  first timed one run once, the rest again and again until n inputs are
+  timed. Or lead, run once, and cycle, repeated, when a cycle starts with
+  untimed steps;
+- params, {"delay_ms": 15}: a step's value "$delay_ms" is the param's, and
+  --param delay_ms=300 sets it for a run (the run's directory says so);
+- window_b, a second window of the host's process: {"argv": [...],
+  "hide_cursor": true, "height_pct": 25}. Ghostty's -e is the first
+  window's command (initial-command); window B runs Ghostty's command,
+  which every later window runs, set to a script that runs argv (argv[0]
+  "feelprog" is scripts/feel/prog's). Once the first window is up, sway
+  splits it vertically, a blackbox.py of its own types new_window's key
+  (ctrl+shift+n) into it, and sway gives the new window height_pct of the
+  height, below. hide_cursor hides B's cursor first (DECTCEM), so the
+  keyboard's focus doesn't change B's pixels: Ghostty draws an unfocused
+  window's cursor as a hollow block. windows.json has both windows. Steps
+  name them: "focus": "A" or "B" moves the keyboard there (blackbox.py's
+  focus by con_id), and "window": "A" or "B" puts the step's ROI in that
+  window: its roi from the window's top left, clipped to it, its roi_frac
+  in fractions of it, or with neither, the whole window.
 """
 import argparse
 import json
 import os
 import random
+import re
+import shlex
 import shutil
 import signal
 import subprocess
 import sys
 import time
 
+sys.dont_write_bytecode = True  # no __pycache__ in scripts/feel
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import blackbox  # noqa: E402  (its SwayIPC, for window_b)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
+SCENARIOS = os.path.join(HERE, "scenarios")
 REPO = os.path.dirname(os.path.dirname(HERE))
 CODE = os.path.dirname(os.path.dirname(REPO))  # …/neuroplastio
 CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "hotty")
@@ -107,15 +145,18 @@ def plx_wrap(argv, setup=None):
     return [run, *(["--setup", setup] if setup else []), "--", *argv]
 
 
-def launch(host, argv, env, run_dir, port):
-    """Starts a host running argv; returns the processes to stop after."""
+def launch(host, argv, env, run_dir, port, flags=()):
+    """Starts a host running argv; returns the processes to stop after.
+    flags: more of a Ghostty host's options, before -e."""
     log = open(os.path.join(run_dir, f"{host}.log"), "w")
     if host == "hottyterm":
         env = dict(env, LD_LIBRARY_PATH=HOTTYTERM_LIB)
     if host in ("hottyterm", "ghostty"):
         cmd = [HOSTS[host], "--gtk-single-instance=false", "--window-decoration=false",
-               "--cursor-style-blink=false", "--confirm-close-surface=false", "-e", *argv]
+               "--cursor-style-blink=false", "--confirm-close-surface=false", *flags, "-e", *argv]
         return [subprocess.Popen(cmd, env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)]
+    if flags:
+        sys.exit(f"run.py: {host} takes no Ghostty options (window_b needs a Ghostty host)")
     # chromium: the addon's demo page over serve.py's pty.
     serve = subprocess.Popen([sys.executable, os.path.join(ADDON, "serve.py"), "--port", str(port), "--", *argv],
                              env=env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -149,10 +190,13 @@ def stop(procs):
 
 def file_steps(spec, n):
     """A scenario file's steps: its untimed lead, then its timed steps
-    repeated until n timed inputs have run."""
+    repeated until n timed inputs have run. With lead and cycle, those."""
     lead, cycle = [], []
-    for st in spec["steps"]:
-        (cycle if cycle or not st.get("untimed") else lead).append(st)
+    if "cycle" in spec:
+        lead, cycle = list(spec.get("lead", [])), spec["cycle"]
+    else:
+        for st in spec["steps"]:
+            (cycle if cycle or not st.get("untimed") else lead).append(st)
     out, timed = list(lead), 0
     while cycle and timed < n:
         for st in cycle:
@@ -160,6 +204,169 @@ def file_steps(spec, n):
             timed += 0 if st.get("untimed") or "sleep_ms" in st else 1
             if timed >= n:
                 break
+    return out
+
+
+def scenario_path(f):
+    """--scenario-file's file: a path, or a name in scripts/feel/scenarios/."""
+    if os.path.exists(f):
+        return f
+    own = os.path.join(SCENARIOS, f + ".json")
+    if re.fullmatch(r"[A-Za-z0-9_-]+", f) and os.path.exists(own):
+        return own
+    sys.exit(f"run.py: no scenario file {f} (nor {own})")
+
+
+def check_spec(spec, path):
+    """The parts of a scenario file a run can't do without, and the new ones' shapes."""
+    def bad(why):
+        sys.exit(f"run.py: {path}: {why}")
+    for k in ("name", "argv"):
+        if k not in spec:
+            bad(f"no {k}")
+    if ("steps" in spec) == ("cycle" in spec):
+        bad("steps, or lead and cycle")
+    if "lead" in spec and "cycle" not in spec:
+        bad("lead goes with cycle")
+    params = spec.get("params", {})
+    if not isinstance(params, dict) or not all(re.fullmatch(r"[a-z0-9_]+", k) for k in params):
+        bad("params is an object of [a-z0-9_] names")
+    wb = spec.get("window_b")
+    if wb is not None:
+        if not isinstance(wb, dict) or set(wb) - {"argv", "hide_cursor", "height_pct"}:
+            bad("window_b is {argv, hide_cursor, height_pct}")
+        if not (isinstance(wb.get("argv"), list) and wb["argv"] and all(isinstance(a, str) for a in wb["argv"])):
+            bad("window_b's argv is a list of strings")
+        if not isinstance(wb.get("hide_cursor", False), bool):
+            bad("window_b's hide_cursor is true or false")
+        pct = wb.get("height_pct")
+        if pct is not None and (isinstance(pct, bool) or not isinstance(pct, int) or not 10 <= pct <= 90):
+            bad("window_b's height_pct is an int, 10 to 90")
+    for st in spec.get("lead", []) + spec.get("cycle", spec.get("steps", [])):
+        names = ([st["window"]] if "window" in st else []) + (
+            [st["focus"]] if isinstance(st.get("focus"), str) else [])
+        if names and wb is None:
+            bad(f"{st}: a window's name needs window_b")
+        if any(x not in ("A", "B") for x in names):
+            bad(f"{st}: the windows are A and B")
+    return spec
+
+
+def with_params(spec, given):
+    """The spec with its params' values in its steps: a value "$name" is the
+    param's, from --param when it is given there."""
+    params = dict(spec.get("params", {}))
+    params.update({k: v for k, v in given.items() if k in params})
+
+    def sub(st):
+        out = {}
+        for k, v in st.items():
+            if isinstance(v, str) and v.startswith("$"):
+                if v[1:] not in params:
+                    sys.exit(f"run.py: {spec['name']}: {v} isn't one of its params")
+                v = params[v[1:]]
+            out[k] = v
+        return out
+    spec = dict(spec)
+    for k in ("steps", "lead", "cycle"):
+        if k in spec:
+            spec[k] = [sub(st) for st in spec[k]]
+    spec["params"] = params
+    return spec
+
+
+def window_b_flags(spec, run_dir):
+    """Ghostty's options for window B: its command, a script that runs
+    window_b's argv, and new_window on ctrl+shift+n (Ghostty's default,
+    named here so that no default can move it)."""
+    wb = spec["window_b"]
+    argv = [PROG if i == 0 and a == "feelprog" else a for i, a in enumerate(wb["argv"])]
+    path = os.path.join(run_dir, "window-b.sh")
+    if any(c.isspace() for c in path):
+        sys.exit(f"run.py: window_b needs a run directory without spaces (a direct: command is split on them): {path}")
+    lines = ["#!/bin/sh", "# run.py: window B's program, run by Ghostty's command, as every window after the first."]
+    if wb.get("hide_cursor"):
+        lines.append("printf '\\033[?25l'  # hide_cursor: the focus doesn't change B's pixels")
+    lines.append("exec " + " ".join(shlex.quote(a) for a in argv))
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    os.chmod(path, 0o755)
+    return [f"--command=direct:{path}", "--keybind=ctrl+shift+n=new_window"]
+
+
+def host_windows(ipc, pid, n, timeout=10.0):
+    """The host's first n windows in sway's tree, once it has that many."""
+    deadline = time.time() + timeout
+    while True:
+        ws = [w for w in ipc.windows() if w["pid"] == pid]
+        if len(ws) >= n:
+            return ws
+        if time.time() > deadline:
+            sys.exit(f"run.py: the host (pid {pid}) has {len(ws)} window(s) in sway, not {n}")
+        time.sleep(0.1)
+
+
+def open_window_b(spec, pid, env, run_dir, args):
+    """Opens window B in the host's process (see Scenario files); returns
+    {"A": window, "B": window} as blackbox.SwayIPC.windows gives them."""
+    try:
+        ipc = blackbox.SwayIPC()
+    except blackbox.Fatal as e:
+        sys.exit(f"run.py: {e}")
+    with open(os.path.join(SWAY, "pid")) as f:
+        sway = int(f.read().strip())
+    if ipc.pid != sway:
+        sys.exit(f"run.py: the IPC at {ipc.path} is pid {ipc.pid}'s, not the perf sway's ({sway})")
+    a = host_windows(ipc, pid, 1)[0]
+    try:
+        ipc.command(f"[con_id={a['id']}] split vertical")
+        step = {"key": "n", "mods": ["ctrl", "shift"], "untimed": True, "note": "new_window"}
+        no_trace = {k: v for k, v in env.items() if k != "HOTTY_TRACE"}
+        with open(os.path.join(run_dir, "window-b.jsonl"), "w") as out:
+            subprocess.run([sys.executable, os.path.join(HERE, "blackbox.py"), "--json", "--scenario", "window-b",
+                            "--settle-ms", str(args.settle), "--timeout-ms", str(args.timeout), "-"],
+                           input=json.dumps(step) + "\n", text=True, env=no_trace, stdout=out,
+                           stderr=subprocess.STDOUT, timeout=60)
+        b = next(w for w in host_windows(ipc, pid, 2) if w["id"] != a["id"])
+        pct = spec["window_b"].get("height_pct")
+        if pct:
+            ipc.command(f"[con_id={b['id']}] resize set height {pct} ppt")
+        time.sleep(1.5)  # B's program up, A's redrawn at its new size
+        now = {w["id"]: w for w in ipc.windows() if w["pid"] == pid}
+    except blackbox.Fatal as e:
+        sys.exit(f"run.py: {e}")
+    if a["id"] not in now or b["id"] not in now:
+        sys.exit(f"run.py: a window of the host is gone: {sorted(now)}")
+    wins = {"A": now[a["id"]], "B": now[b["id"]]}
+    with open(os.path.join(run_dir, "windows.json"), "w") as f:
+        json.dump({"pid": pid, **wins}, f, indent=1)
+    return wins
+
+
+def window_steps(steps, wins):
+    """Window names made blackbox.py's: a focus by name becomes its con_id,
+    and a step's window puts its ROI in that window."""
+    out = []
+    for st in steps:
+        st = dict(st)
+        if isinstance(st.get("focus"), str):
+            st["focus"] = wins[st["focus"]]["id"]
+        w = st.pop("window", None)
+        if w is not None:
+            x, y, ww, wh = wins[w]["rect"]
+            if "roi" in st:
+                rx, ry, rw, rh = st["roi"]
+                x0, y0 = x + max(0, rx), y + max(0, ry)
+                x1, y1 = min(x + ww, x + rx + rw), min(y + wh, y + ry + rh)
+                if x1 <= x0 or y1 <= y0:
+                    sys.exit(f"run.py: {st}: its roi is outside window {w} ({ww}x{wh})")
+                st["roi"] = [x0, y0, x1 - x0, y1 - y0]
+            elif "roi_frac" in st:
+                fx, fy, fw, fh = st.pop("roi_frac")
+                st["roi"] = [x + fx * ww, y + fy * wh, fw * ww, fh * wh]
+            else:
+                st["roi"] = [x, y, ww, wh]
+        out.append(st)
     return out
 
 
@@ -268,21 +475,30 @@ def roi(sc, scale, layout, host, plx=False):
 
 
 def run_one(args, host, sc, scale, size, rnd, port, spec=None):
+    given = {k: v for k, v in args.params.items() if k in (spec or {}).get("params", {})}
     name = (f"{host}-{sc}-s{scale}-{size}-r{rnd}" + ("-plx" if args.plx or (spec or {}).get("plx") else "")
-            + ("-on-demand" if args.on_demand else ""))
+            + ("-on-demand" if args.on_demand else "") + "".join(f"-{k}{v}" for k, v in sorted(given.items())))
     run_dir = os.path.join(args.out, name)
     os.makedirs(run_dir, exist_ok=True)
     layout = os.path.join(run_dir, "layout.json")
+    if spec:
+        spec = with_params(spec, given)
     argv = spec["argv"] if spec else program_argv(sc, size, layout)
     if args.plx or (spec or {}).get("plx"):
-        argv = plx_wrap(argv, (spec or {}).get("setup"))
+        setup = (spec or {}).get("setup")
+        if setup and not os.path.isabs(setup):
+            setup = os.path.join(CODE, setup)
+        argv = plx_wrap(argv, setup)
     env = clean_env(run_dir, dict(e.split("=", 1) for e in args.env))
     meta = {"host": host, "sc": sc, "scale": scale, "size": size, "round": rnd, "plx": args.plx,
             "on_demand": args.on_demand, "env": args.env,
             "bin": HOSTS[host], "load_before": load(), "argv": argv}
+    if spec and spec["params"]:
+        meta["params"] = spec["params"]
+    two = bool(spec and spec.get("window_b"))
     subprocess.run([os.path.join(HERE, "sway.sh"), "scale", str(scale)], check=True,
                    stdout=subprocess.DEVNULL)
-    procs = launch(host, argv, env, run_dir, port)
+    procs = launch(host, argv, env, run_dir, port, window_b_flags(spec, run_dir) if two else ())
     try:
         time.sleep(args.startup)
         in_plx = args.plx or (spec or {}).get("plx")
@@ -293,9 +509,14 @@ def run_one(args, host, sc, scale, size, rnd, port, spec=None):
             if not pane(run_dir):
                 print(f"{name}: no plx-pane.json from plx-run.sh: the program's coordinates are the window's",
                       file=sys.stderr, flush=True)
+        todo = steps(sc, scale, args.n, layout, host, spec)
+        if two:
+            wins = open_window_b(spec, procs[0].pid, env, run_dir, args)
+            meta["windows"] = {k: {"id": w["id"], "rect": w["rect"]} for k, w in wins.items()}
+            todo = window_steps(todo, wins)
         st = os.path.join(run_dir, "steps.jsonl")
         with open(st, "w") as f:
-            for s in steps(sc, scale, args.n, layout, host, spec):
+            for s in todo:
                 f.write(json.dumps(s) + "\n")
         bb = [sys.executable, os.path.join(HERE, "blackbox.py"), "--scenario", sc,
               "--settle-ms", str(args.settle), "--timeout-ms", str(args.timeout), "--json",
@@ -347,7 +568,10 @@ def main():
     p.add_argument("--on-demand", action="store_true",
                    help="blackbox --on-demand: the output draws when a client commits, not at its refresh")
     p.add_argument("--scenario-file", action="append", default=[],
-                   help="a scenario as JSON: name, argv, steps, roi_frac, plx, setup, n")
+                   help="a scenario as JSON, or the name of one in scripts/feel/scenarios/ "
+                   "(see Scenario files at the top)")
+    p.add_argument("--param", action="append", default=[], metavar="K=V",
+                   help="a scenario file's param for this run (a number, or else a string)")
     p.add_argument("--out", default=os.path.join(REPO, "out", "feel", time.strftime("%Y%m%d-%H%M%S")))
     args = p.parse_args()
     hosts = args.hosts.split(",")
@@ -359,7 +583,26 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     runs = []
     port = 18765
-    specs = [json.load(open(f)) for f in args.scenario_file]
+    specs = []
+    for f in args.scenario_file:
+        path = scenario_path(f)
+        with open(path) as fh:
+            specs.append(check_spec(json.load(fh), path))
+    args.params = {}
+    for kv in args.param:
+        k, eq, v = kv.partition("=")
+        if not eq or not k:
+            sys.exit(f"run.py: --param {kv!r}: not K=V")
+        try:
+            v = json.loads(v)
+            if not isinstance(v, (int, float)) or isinstance(v, bool):
+                v = kv.partition("=")[2]
+        except ValueError:
+            pass
+        args.params[k] = v
+    unknown = [k for k in args.params if not any(k in s.get("params", {}) for s in specs)]
+    if unknown:
+        sys.exit(f"run.py: --param {', '.join(unknown)}: no scenario file has it")
     if specs:
         args.scenarios = ""
     for rnd in range(args.rounds):
