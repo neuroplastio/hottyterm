@@ -4,6 +4,7 @@
 #   scripts/probe-macos.sh /Applications/hottyterm.app <out dir> [remap]
 #   scripts/probe-macos.sh /Applications/hottyterm.app <out dir> regions [baseline.app]
 #   scripts/probe-macos.sh /Applications/hottyterm.app <out dir> latency [baseline.app]
+#   scripts/probe-macos.sh /Applications/hottyterm.app <out dir> latency plx <bundle>
 #
 # `latency` times input through hottyterm's stage stamps (gov R-22,
 # docs/trace.md), there being no screen copies here: in each of
@@ -19,6 +20,16 @@
 # CoreGraphics the first key, keys go through System Events from then on
 # (cgevent.py --via osascript), and e3, which has no pointer then, is left
 # out.
+#
+# `latency plx <bundle>` runs plx's scenarios in a throwaway plx instead, for
+# plx's own probe workflow: <bundle> is plx's feel bundle unpacked (bin/plx
+# and bin/plx-script with their stamps, scripts/perf/plx-run.sh, its setup
+# scripts and feel/E7.json and E7K.json). Each run's command is plx-run.sh
+# with the scenario's argv and setup from the bundle, it waits for
+# plx-run.sh's plx-pane.json rather than a layout, and cgevent.py plays the
+# scenario file (its keys; the screen is the trace's term.contents). The
+# app alone, no baseline; each file's n unless LATENCY_N is set. The
+# report then has plx's shares beside hottyterm's.
 #
 # `regions` probes partial frames instead (kitty frame edits drawn into the
 # image's texture, renderer `texture_region_updates`): a program colours one
@@ -159,22 +170,54 @@ fi
 
 if [ "$MODE" = latency ]; then
 BASE="${4:-}"
+PLX=""
+if [ "$BASE" = plx ]; then
+  BASE=""
+  PLX="${5:-}"
+  [ -x "${PLX:-/nonexistent}/scripts/perf/plx-run.sh" ] || { echo "latency plx: no plx bundle at ${PLX:-(none given)}"; exit 0; }
+  PLX="$(cd "$PLX" && pwd)"
+fi
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 N="${LATENCY_N:-60}"
 ROUNDS="${LATENCY_ROUNDS:-3}"
-echo "== latency: $ROUNDS round(s) of e1 e2 e3, $N inputs each"
-go build -C "$REPO/scripts/feel/prog" -o "$OUT/feelprog" . || { echo "feelprog does not build"; exit 0; }
+if [ -n "$PLX" ]; then
+  SCS="E7 E7K"
+  echo "== latency: $ROUNDS round(s) of E7 E7K in plx, $( [ -n "${LATENCY_N:-}" ] && echo "$N timed keys" || echo "each file's n") each"
+else
+  SCS="e1 e2 e3"
+  echo "== latency: $ROUNDS round(s) of e1 e2 e3, $N inputs each"
+  go build -C "$REPO/scripts/feel/prog" -o "$OUT/feelprog" . || { echo "feelprog does not build"; exit 0; }
+fi
 python3 -m venv "$OUT/venv" >/dev/null && "$OUT/venv/bin/pip" -q install pyobjc-framework-Quartz >/dev/null
 system_profiler SPDisplaysDataType 2>/dev/null | grep -iE 'resolution|refresh|retina' | sed 's/^ */display: /'
 mkdir -p "$HOME/.config/ghostty"
-# One run: the app runs feelprog's scenario with HOTTY_TRACE, cgevent.py
-# types or moves the pointer, and the trace stays in the run's dir.
+# One run: the app runs feelprog's scenario (or plx-run.sh with a plx
+# scenario's program) with HOTTY_TRACE, cgevent.py types or moves the
+# pointer, and the trace stays in the run's dir.
 VIA=cgevent
-latency() { # <app> <side> <e1|e2|e3> <round>
+latency() { # <app> <side> <e1|e2|e3|E7|E7K> <round>
   app="$1"; side="$2"; sc="$3"; r="$4"
   dir="$OUT/latency/$side-$sc-r$r"; mkdir -p "$dir"
+  if [ -n "$PLX" ]; then
+    spec="$PLX/scripts/perf/feel/$sc.json"
+    ready="$dir/plx-pane.json"
+    # The scenario's argv, in plx-run.sh with the bundle's build and the
+    # bundle's copy of the scenario's setup.
+    cmd="$(python3 -I - "$spec" "$PLX" <<'PY'
+import json, os, shlex, sys
+spec, plx = json.load(open(sys.argv[1])), sys.argv[2]
+run = [os.path.join(plx, "scripts/perf/plx-run.sh"), "--bin", os.path.join(plx, "bin")]
+if spec.get("setup"):
+    run += ["--setup", os.path.join(plx, "scripts/perf", os.path.basename(spec["setup"]))]
+print(shlex.join(run + ["--", *spec["argv"]]))
+PY
+)" || { echo "latency plx: no scenario $spec"; return 1; }
+  else
+    ready="$dir/layout.json"
+    cmd="$OUT/feelprog $sc --layout $dir/layout.json"
+  fi
   cat > "$HOME/.config/ghostty/config" <<CFG
-command = $OUT/feelprog $sc --layout $dir/layout.json
+command = $cmd
 font-size = 16
 window-width = 80
 window-height = 24
@@ -185,12 +228,14 @@ cursor-style-blink = false
 confirm-close-surface = false
 quit-after-last-window-closed = true
 CFG
-  printf '{"host": "%s", "sc": "%s", "round": %d}\n' "$side" "$(echo "$sc" | tr a-z A-Z)" "$r" > "$dir/meta.json"
+  printf '{"host": "%s", "sc": "%s", "round": %d%s}\n' "$side" "$(echo "$sc" | tr a-z A-Z)" "$r" \
+    "$( [ -n "$PLX" ] && echo ', "plx": true')" > "$dir/meta.json"
   echo "-- $side $sc r$r"
   open -n -a "$app" --env "HOTTY_TRACE=$dir"
-  for _ in $(seq 1 30); do [ -s "$dir/layout.json" ] && break; sleep 1; done
+  # plx starts its session and runs the setup first.
+  for _ in $(seq 1 60); do [ -s "$ready" ] && break; sleep 1; done
   pid=$(pgrep -n -f "$app/Contents/MacOS/")
-  if [ ! -s "$dir/layout.json" ] || [ -z "$pid" ]; then
+  if [ ! -s "$ready" ] || [ -z "$pid" ]; then
     echo "the program never started"; [ -n "$pid" ] && kill "$pid"; return 1
   fi
   sleep 2
@@ -203,13 +248,20 @@ CFG
   grep -qs '"n":"term.contents"' "$dir"/hottyterm-*.jsonl \
     || echo "no term.contents yet: the build has no macOS stamps, and the report no end for its inputs"
   echo "front: $(lsappinfo info -only name "$(lsappinfo front)" 2>/dev/null)"
-  "$OUT/venv/bin/python" -I "$REPO/scripts/feel/cgevent.py" "$dir" "$sc" --pid "$pid" \
-    --layout "$dir/layout.json" --n "$N" --seed "$r" --via "$VIA" ${LATENCY_DRY:+--dry}
+  if [ -n "$PLX" ]; then
+    "$OUT/venv/bin/python" -I "$REPO/scripts/feel/cgevent.py" "$dir" "$spec" --pid "$pid" \
+      ${LATENCY_N:+--n "$N"} --seed "$r" --via "$VIA" ${LATENCY_DRY:+--dry}
+  else
+    "$OUT/venv/bin/python" -I "$REPO/scripts/feel/cgevent.py" "$dir" "$sc" --pid "$pid" \
+      --layout "$dir/layout.json" --n "$N" --seed "$r" --via "$VIA" ${LATENCY_DRY:+--dry}
+  fi
   rc=$?
   sleep 1
   kill "$pid" 2>/dev/null
   for _ in $(seq 1 10); do kill -0 "$pid" 2>/dev/null || break; sleep 0.5; done
   kill -9 "$pid" 2>/dev/null
+  # plx-run.sh stops its session within 1.5 s of the terminal's hangup.
+  [ -n "$PLX" ] && sleep 2
   # A refused run's trace is set aside, out of the report.
   [ $rc -eq 3 ] && mkdir -p "$OUT/refused" && mv "$dir" "$OUT/refused/"
   return $rc
@@ -223,7 +275,7 @@ while [ "$k" -le "$ROUNDS" ]; do
   for who in $sides; do
     case " $unstamped " in *" $who "*) continue ;; esac
     which="$APP"; [ "$who" = base ] && which="$BASE"
-    for what in e1 e2 e3; do
+    for what in $SCS; do
       if [ "$what" = e3 ] && [ "$VIA" = osascript ]; then echo "-- $who e3 r$k: left out, no pointer"; continue; fi
       latency "$which" "$who" "$what" "$k"
       rc=$?
