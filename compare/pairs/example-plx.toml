@@ -2,7 +2,7 @@
 # side's own throwaway PLX_DIR, so each starts its own plxd. It shows the
 # shape of a plx pair (plx-perf, hotty-ui): `run` takes over the terminal,
 # and whatever it leaves behind (the plxd) goes when the side ends or on
-# `compare close`. The config comes from a copy of ~/.config/plx (seed),
+# `pairs close`. The config comes from a copy of ~/.config/plx (seed),
 # so nothing the viewer writes reaches the maintainer's.
 example = true
 track = "example"

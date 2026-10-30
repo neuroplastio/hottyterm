@@ -14,7 +14,7 @@
 # so the difference is only in what <ref> holds.
 set -eu
 REF="${1:?usage: compare-build.sh <ref>}"
-: "${SIDE_DIR:?run from compare prepare}" "${SIDE_WORK:?run from compare prepare}"
+: "${SIDE_DIR:?run from pairs prepare}" "${SIDE_WORK:?run from pairs prepare}"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 CODE="$(dirname "$(dirname "$HERE")")"
 W="$SIDE_WORK"

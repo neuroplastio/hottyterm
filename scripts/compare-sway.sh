@@ -7,7 +7,7 @@
 #                                      SWAYSOCK, COMPARE_SWAYMSG, and test
 #                                      dirs for COMPARE_CACHE/VERDICTS, with
 #                                      COMPARE_NO_DISPATCH=1
-#   scripts/compare.py --wm sway <pair>
+#   pairs --wm sway <pair>   (scripts/compare.py)
 #   scripts/compare-sway.sh shot F.png a screenshot of it (grim)
 #   scripts/compare-sway.sh stop
 #

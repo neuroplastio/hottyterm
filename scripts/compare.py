@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""compare: blind before/after pairs, side by side (gov R-22, R-23).
+"""pairs: blind before/after pairs, side by side (gov R-22, R-23).
 
-    compare                              list the pairs and their briefs
-    compare prepare [pair...] [--missing] build the sides into ~/.cache/compare
-    compare <pair> [--dry-run]           open a pair: an empty workspace,
+    pairs                                list the pairs and their briefs
+    pairs prepare [pair...] [--missing]  build the sides into ~/.cache/compare
+    pairs <pair> [--dry-run]             open a pair: an empty workspace,
                                          windows A and B, left and right
-    compare close [pair...] [--dry-run]  kill what a pair started (all open)
-    compare verdict <pair> A|B|same "<note>"
+    pairs close [pair...] [--dry-run]    kill what a pair started (all open)
+    pairs verdict <pair> A|B|same "<note>"
                                          record the verdict, then the key
 
 Pairs are TOML files in compare/pairs/; docs/compare.md says how to add
@@ -14,7 +14,7 @@ one. Stdlib only (Python 3.11+ for tomllib).
 
 Blind: the sides are shuffled into A and B per opening ("a round"). The
 key is written to ~/.cache/compare/<pair>/key and shown only by
-`compare verdict`. What the window manager shows (titles, the window
+`pairs verdict`. What the window manager shows (titles, the window
 process's argv and env) names the slot, A or B, never the side.
 
 Isolation: each side gets its own throwaway PLX_DIR under /run/user/<uid>,
@@ -89,7 +89,7 @@ class Fail(Exception):
 
 
 def warn(msg: str) -> None:
-    print(f"compare: {msg}", file=sys.stderr)
+    print(f"pairs: {msg}", file=sys.stderr)
 
 
 def now() -> str:
@@ -221,7 +221,7 @@ def load_pairs() -> dict[str, Pair]:
 def get_pair(name: str) -> Pair:
     p = load_pairs().get(name)
     if p is None:
-        raise Fail(f"no pair {name!r}; `compare` lists them")
+        raise Fail(f"no pair {name!r}; `pairs` lists them")
     return p
 
 
@@ -328,7 +328,7 @@ class Window:
 
 
 class WM:
-    """A window manager compare drives. Every command goes through run()."""
+    """The window manager that pairs drives. Every command goes through run()."""
     name = "?"
     READ_ONLY: set = set()
 
@@ -364,7 +364,7 @@ class Hyprland(WM):
         super().__init__(dry_run)
         self.target = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE", "")
         if not self.target:
-            raise Fail("HYPRLAND_INSTANCE_SIGNATURE is not set: run compare in the Hyprland session")
+            raise Fail("HYPRLAND_INSTANCE_SIGNATURE is not set: run pairs in the Hyprland session")
         if not shutil.which("hyprctl"):
             raise Fail("hyprctl is not on PATH")
 
@@ -402,7 +402,7 @@ class Hyprland(WM):
         if focused.get("transform", 0) % 2 == 1:
             w, h = h, w
         if h > w:
-            why += f" (portrait {w}x{h}: the windows may stack; compare toggles the split)"
+            why += f" (portrait {w}x{h}: the windows may stack; pairs toggles the split)"
         return str(ws), why
 
     def focus(self, ws: str) -> None:
@@ -537,7 +537,7 @@ def clients_check(wm: WM, ws: str, slots: dict, title: str) -> tuple[bool, str]:
     others = [w for w in all_w if w.workspace == ws and w.pid not in {x.pid for x in mine.values()}]
     for w in others:
         lines.append(f"  {'?':4}  {w.pid:>7}  {w.title[:5]:5}  {w.workspace:9}  "
-                     f"{f'{w.x},{w.y}':>11}  {f'{w.w}x{w.h}':>11}  not compare's")
+                     f"{f'{w.x},{w.y}':>11}  {f'{w.w}x{w.h}':>11}  not from pairs")
     problems = []
     a, b = mine.get("A"), mine.get("B")
     for slot, w in (("A", a), ("B", b)):
@@ -588,7 +588,7 @@ def cmd_list() -> int:
     width = max(len(n) for n in pairs)
     real = [p for p in pairs.values() if not p.example]
     examples = [p for p in pairs.values() if p.example]
-    for group, title in ((real, "pairs"), (examples, "examples (to try compare; nothing to judge)")):
+    for group, title in ((real, "pairs"), (examples, "examples (to try the tool; nothing to judge)")):
         if not group:
             continue
         print(f"{title}:")
@@ -606,7 +606,7 @@ def cmd_list() -> int:
             print(f"  {p.name:<{width}}  {track}{p.brief}{tail}")
             for l in p.lint():
                 print(f"  {'':<{width}}  warning: {l}")
-    print("\ncompare <pair> opens one; compare prepare builds them; docs/compare.md adds one.")
+    print("\npairs <pair> opens one; pairs prepare builds them; docs/compare.md adds one.")
     return 0
 
 
@@ -616,7 +616,7 @@ def cmd_prepare(names: list[str], missing: bool) -> int:
     failed = 0
     for p in pairs:
         if p.session_file.exists():
-            warn(f"{p.name} is open; `compare close {p.name}` first")
+            warn(f"{p.name} is open; `pairs close {p.name}` first")
             failed += 1
             continue
         for l in p.lint():
@@ -655,7 +655,7 @@ def build_side(p: Pair, s: Side) -> bool:
     if ok and not os.access(hot, os.X_OK):
         ok = False
         with open(s.log, "a") as log:
-            log.write(f"\ncompare: the build left no hottyterm at {hot}\n")
+            log.write(f"\npairs: the build left no hottyterm at {hot}\n")
     s.stamp.write_text(json.dumps({"ok": ok, "build": s.build, "time": now(),
                                    "seconds": round(time.monotonic() - t0, 1)}))
     if ok:
@@ -708,12 +708,12 @@ def cmd_open(name: str, wm_name: str, dry_run: bool) -> int:
     for s in p.sides.values():
         ok, why = s.built()
         if not ok:
-            raise Fail(f"{p.name} {s.name}: {why}; run `compare prepare {p.name}` first")
+            raise Fail(f"{p.name} {s.name}: {why}; run `pairs prepare {p.name}` first")
         hot = s.hottyterm_in(s.dir)
         if not os.access(hot, os.X_OK):
             raise Fail(f"{p.name} {s.name}: no hottyterm at {hot}")
     if open_session_or_none(p) and not dry_run:
-        raise Fail(f"{p.name} is already open; `compare close {p.name}` first")
+        raise Fail(f"{p.name} is already open; `pairs close {p.name}` first")
     longest = len(str(RUNTIME / f"pxd-cmp-{p.name}-A-xxxx")) + len(PLX_SOCKET_TAIL)
     if longest > 107:
         raise Fail(f"PLX_DIR paths would be {longest} bytes deep: shorten the pair's name")
@@ -783,7 +783,7 @@ def cmd_open(name: str, wm_name: str, dry_run: bool) -> int:
             log = Path(slots[slot]["log"])
             tail = log.read_text()[-2000:] if log.exists() else "(no log: _launch never ran)"
             warn(f"window {slot} did not map within {MAP_TIMEOUT:.0f} s. {log}:\n{tail}")
-            warn(f"`compare close {p.name}` cleans up")
+            warn(f"`pairs close {p.name}` cleans up")
             return 1
     time.sleep(0.3)
     ok, table = clients_check(wm, ws, slots, f"{wm.name}")
@@ -804,14 +804,14 @@ def cmd_open(name: str, wm_name: str, dry_run: bool) -> int:
             ok, table = clients_check(wm, ws, slots, f"{wm.name}, after fixing the layout")
     print(table)
     print(f"\nBrief: {p.brief}\n")
-    print(f"Use both, then: compare verdict {p.name} A|B|same \"<note>\"")
-    print(f"Close the windows with: compare close {p.name}")
+    print(f"Use both, then: pairs verdict {p.name} A|B|same \"<note>\"")
+    print(f"Close the windows with: pairs close {p.name}")
     return 0 if ok else 1
 
 
 def print_dry_run(p, wm, ver, ws, why, pre, launch_cmd) -> int:
     q = wm.cmdline
-    print(f"compare {p.name} --dry-run  [{ver}, instance {wm.target[:16]}...]")
+    print(f"pairs {p.name} --dry-run  [{ver}, instance {wm.target[:16]}...]")
     print("\nRead-only queries, run now:")
     if wm.name == "hyprland":
         for args in (("version",), ("-j", "monitors"), ("-j", "workspaces"), ("-j", "clients")):
@@ -902,7 +902,7 @@ def cmd_launch(session_path: str, slot: str) -> int:
     want = s["target"]
     have = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE" if s["wm"] == "hyprland" else "SWAYSOCK", "")
     if have != want:
-        print(f"refusing: this exec runs under {have!r}, not the {s['wm']} compare targeted "
+        print(f"refusing: this exec runs under {have!r}, not the {s['wm']} that pairs targeted "
               f"({want!r})", flush=True)
         return 1
     env = scrubbed(os.environ)
@@ -928,7 +928,7 @@ def cmd_side(session_path: str, slot: str) -> int:
     if plx != {"PLX_DIR": sl["plx_dir"]}:
         problems.append(f"PLX_* is {sorted(plx)}, not this slot's PLX_DIR alone")
     if problems:
-        print(f"compare: refusing to start side {slot}: " + "; ".join(problems))
+        print(f"pairs: refusing to start side {slot}: " + "; ".join(problems))
         input("Press Enter to close.")
         return 1
     env = dict(os.environ)
@@ -955,7 +955,7 @@ def cmd_side(session_path: str, slot: str) -> int:
     # The side cleans up after itself: a plxd it left behind goes too.
     kill_procs(find_procs(slots), slots, wait=2)
     if rc != 0:
-        print(f"\ncompare: side {slot} exited with status {rc}.")
+        print(f"\npairs: side {slot} exited with status {rc}.")
         try:
             input("Press Enter to close.")
         except EOFError:
@@ -1014,7 +1014,7 @@ def cmd_verdict(name: str, pick: str, note: str) -> int:
     judged = {v.get("round") for v in read_jsonl(VERDICTS_JSONL) if v.get("pair") == p.name}
     if key["round"] in judged:
         raise Fail(f"round {key['round']} of {p.name} is judged and its key shown; "
-                   f"`compare {p.name}` opens a new round")
+                   f"`pairs {p.name}` opens a new round")
     t = now()
     # 1. The blind record, for gov: no key in it.
     VERDICTS.mkdir(parents=True, exist_ok=True)
@@ -1023,7 +1023,7 @@ def cmd_verdict(name: str, pick: str, note: str) -> int:
     with open(gov, "a") as f:
         if new:
             f.write(f"# {p.name}\n\n{p.brief}\n\n"
-                    "Blind verdicts from `compare verdict`. The key for each round is in\n"
+                    "Blind verdicts from `pairs verdict`. The key for each round is in\n"
                     f"`{tilde(p.dir / 'keys.jsonl')}`.\n\n")
         f.write(f"- {t} · round `{key['round']}` · verdict **{pick}**\n")
         for line in (note.strip() or "(no note)").splitlines():
@@ -1081,7 +1081,7 @@ def main(argv: list[str]) -> int:
         if len(argv) != 3:
             return 2
         return (cmd_launch if argv[0] == "_launch" else cmd_side)(argv[1], argv[2])
-    ap = argparse.ArgumentParser(prog="compare", description=__doc__.split("\n\nPairs are TOML")[0],
+    ap = argparse.ArgumentParser(prog="pairs", description=__doc__.split("\n\nPairs are TOML")[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter,
                                  epilog="Pairs: " + ", ".join(map(str, PAIRS)))
     ap.add_argument("--wm", choices=("hyprland", "sway"), default="hyprland",
@@ -1102,10 +1102,10 @@ def main(argv: list[str]) -> int:
             return cmd_close(w[1:], a.dry_run)
         if w[0] == "verdict":
             if len(w) not in (3, 4):
-                raise Fail('usage: compare verdict <pair> A|B|same "<note>"')
+                raise Fail('usage: pairs verdict <pair> A|B|same "<note>"')
             return cmd_verdict(w[1], w[2], w[3] if len(w) == 4 else "")
         if len(w) != 1:
-            raise Fail("usage: compare <pair>; `compare -h` for the rest")
+            raise Fail("usage: pairs <pair>; `pairs -h` for the rest")
         return cmd_open(w[0], a.wm, a.dry_run)
     except Fail as e:
         warn(str(e))

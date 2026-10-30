@@ -1,25 +1,30 @@
-# compare: pairs to judge side by side
+# pairs: before and after, judged side by side
 
-`scripts/compare.py` opens the before and the after of one difference in
-two hottyterm windows, tiled left and right on an empty Hyprland
-workspace, in a random order titled A and B. The maintainer uses both,
-then gives a verdict; only then does `compare` show which side was
-which, and the rig's numbers (gov R-22, "The end: pairs to judge side by
-side").
+`pairs` (`scripts/compare.py`) opens the before and the after of one
+difference in two hottyterm windows, tiled left and right on an empty
+Hyprland workspace, in a random order titled A and B. The maintainer
+uses both, then gives a verdict; only then does `pairs` show which side
+was which, and the rig's numbers (gov R-22, "The end: pairs to judge
+side by side").
 
 ```
-compare                                  # the pairs and their briefs
-compare prepare [pair...] [--missing]    # build the sides ahead of time
-compare <pair> [--dry-run]               # open it
-compare close [pair...]                  # kill what it started
-compare verdict <pair> A|B|same "<note>" # record, then reveal the key
+pairs                                    # the pairs and their briefs
+pairs prepare [pair...] [--missing]      # build the sides ahead of time
+pairs <pair> [--dry-run]                 # open it
+pairs close [pair...]                    # kill what it started
+pairs verdict <pair> A|B|same "<note>"   # record, then reveal the key
 ```
+
+It is installed once, from this checkout, as a link on `PATH` named
+`pairs` (`compare` is ImageMagick's):
+`ln -s "$PWD/scripts/compare.py" ~/.local/bin/pairs`. The file, the
+`COMPARE_*` variables and `~/.cache/compare` keep the older name.
 
 ## Adding a pair
 
 A pair is one file, `compare/pairs/<name>.toml`, in the repository whose
 code it builds: hottyterm's own, or another neuroplastio checkout's
-`main/compare/pairs/` (plx's, hotty-ui's), which `compare` reads too, so
+`main/compare/pairs/` (plx's, hotty-ui's), which `pairs` reads too, so
 nobody copies another track's pairs. The name is `[a-z0-9-]`, at most 24
 characters (it goes into a socket path), and unique across them all. Each
 side is one command that takes over its terminal and cleans up after
@@ -52,7 +57,7 @@ build = '''...the same, at 5d6e7f8...'''
 run = 'exec "$SIDE_WORK/scripts/perf/plx-run.sh" --bin "$SIDE_DIR/bin" -- fish'
 ```
 
-- **`build`** (optional) runs under `sh -e` in `compare prepare`, with
+- **`build`** (optional) runs under `sh -e` in `pairs prepare`, with
   `SIDE_DIR` (empty it fills: the side's install prefix), `SIDE_WORK`
   (kept between builds: sources, caches), `SIDE` (`before` or `after`),
   `PAIR`, `COMPARE_REPO` (this repository) and `NEUROPLASTIO` (the code
@@ -83,13 +88,13 @@ run = 'exec "$SIDE_WORK/scripts/perf/plx-run.sh" --bin "$SIDE_DIR/bin" -- fish'
 
 ## Keeping it blind
 
-At each opening, `compare` mirrors `before/` and `after/` into
+At each opening, `pairs` mirrors `before/` and `after/` into
 `~/.cache/compare/<pair>/open/A` and `/B` by hardlinks, so the windows'
 exe, argv and env name only the slot. That holds only for what is inside
 `$SIDE_DIR`:
 
 - Point both sides' `hottyterm` at `$SIDE_DIR/...`, or both at the same
-  installed path. `compare` warns when the paths or `hottyterm_args`
+  installed path. `pairs` warns when the paths or `hottyterm_args`
   differ.
 - Put the difference in what `build` makes, not in `run`: a process's
   argv is visible to `ps`. Config that differs goes in a file under
@@ -101,10 +106,10 @@ exe, argv and env name only the slot. That holds only for what is inside
 
 Never open a pair on the live Hyprland while building one. Instead:
 
-- `compare <pair> --dry-run` runs only `hyprctl version` and
+- `pairs <pair> --dry-run` runs only `hyprctl version` and
   `hyprctl -j monitors|workspaces|clients`, and prints every dispatch it
   would send, in order, with the workspace it picked.
-- `compare --wm sway <pair>` runs the whole flow in a private headless
+- `pairs --wm sway <pair>` runs the whole flow in a private headless
   sway: `scripts/compare-sway.sh start`, then
   `eval "$(scripts/compare-sway.sh env)"` (it sets `SWAYSOCK`,
   `COMPARE_SWAYMSG` and test dirs), `scripts/compare-sway.sh shot F.png`
@@ -128,7 +133,7 @@ Never open a pair on the live Hyprland while building one. Instead:
 - `~/.cache/compare/verdicts.jsonl`: each verdict with its key, for the
   builders.
 
-`compare close` kills only processes whose environ holds one of the
+`pairs close` kills only processes whose environ holds one of the
 pair's marks (`COMPARE_RUN=<token>` or `PLX_DIR=<its dir>`), never by
 name, then removes the `PLX_DIR`s and `open/`. One verdict per round: to
 judge again, open the pair again, which reshuffles it.
