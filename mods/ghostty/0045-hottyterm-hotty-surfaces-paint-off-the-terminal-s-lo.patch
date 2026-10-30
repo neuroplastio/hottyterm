@@ -65,10 +65,10 @@ index 118422147..88990ef9d 100644
  /// `lockDemand`. This is not protected by the mutex; it is read by
  /// hot lock/unlock loops (the IO parse thread) in `yieldToDemand` to
 diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
-index f67629e7f..5fae8a0f2 100644
+index 2b4099471..7c2cb8871 100644
 --- a/src/renderer/generic.zig
 +++ b/src/renderer/generic.zig
-@@ -1424,7 +1424,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+@@ -1425,7 +1425,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
                  hotty.trace.waited(t_lock, "updateFrame");
  
                  // If we're in a synchronized output state, we pause all rendering.
