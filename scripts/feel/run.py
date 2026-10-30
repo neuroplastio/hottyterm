@@ -323,6 +323,11 @@ def run_one(args, host, sc, scale, size, rnd, port, spec=None):
 
 
 def main():
+    # A run killed from outside (a timeout, a closed terminal) still stops
+    # what it started: the hosts run in sessions of their own, out of reach
+    # of a signal to this group, and only `finally` stops them.
+    for sig in (signal.SIGTERM, signal.SIGHUP):
+        signal.signal(sig, lambda n, _: sys.exit(128 + n))
     p = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     p.add_argument("--hosts", default="hottyterm,ghostty,chromium")
     p.add_argument("--scenarios", default="E1,E2,E3,E6",
