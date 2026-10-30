@@ -24,11 +24,11 @@ It is installed once, from this checkout, as a link on `PATH` named
 
 A pair is one file, `compare/pairs/<name>.toml`, in the repository whose
 code it builds: hottyterm's own, or another neuroplastio checkout's
-`main/compare/pairs/` (plx's, hotty-ui's), which `pairs` reads too, so
-nobody copies another track's pairs. The name is `[a-z0-9-]`, at most 24
-characters (it goes into a socket path), and unique across them all. Each
-side is one command that takes over its terminal and cleans up after
-itself:
+`main/compare/pairs/` (plx's, or a framework track's), which `pairs` reads
+too, so nobody copies another track's pairs. The name is `[a-z0-9-]`, at
+most 24 characters (it goes into a socket path), and unique across them
+all. Each side is one command that takes over its terminal and cleans up
+after itself:
 
 ```toml
 brief = "Does a key reach the screen sooner in A or in B?"  # neutral, one line
@@ -119,8 +119,8 @@ Never open a pair on the live Hyprland while building one. Instead:
   and under `/run/user/<uid>`, with `bus` and `systemd` linked from the
   user's, or `uwsm app` could not reach the user manager.
 - Keep tests out of the real state: `COMPARE_CACHE` (default
-  `~/.cache/compare`), `COMPARE_VERDICTS` (default gov's
-  `research/0022/verdicts/`), `COMPARE_PAIRS` (directories,
+  `~/.cache/compare`), `COMPARE_VERDICTS` (default
+  `~/.cache/compare/verdicts/`), `COMPARE_PAIRS` (directories,
   `:` between them; default: every checkout's `compare/pairs/`). `COMPARE_NO_DISPATCH=1` makes any Hyprland
   dispatch fail.
 
@@ -129,9 +129,11 @@ Never open a pair on the live Hyprland while building one. Instead:
 - `~/.cache/compare/<pair>/`: `before/`, `after/` and `work/`; `key` (the
   current round) and `keys.jsonl` (every round); `session.json` and
   `open/` while it is open.
-- gov's `research/0022/verdicts/<pair>.md`: one entry per verdict, with
-  its round, the time, A, B or same, and the note, never the key. gov
-  commits it and unblinds it from `keys.jsonl`.
+- `$COMPARE_VERDICTS/<pair>.md` (default `~/.cache/compare/verdicts/`): one
+  entry per verdict, with its round, the time, A, B or same, and the note,
+  never the key. Point `COMPARE_VERDICTS` at the research record's
+  directory: whoever keeps the record commits it and unblinds it from
+  `keys.jsonl`.
 - `~/.cache/compare/verdicts.jsonl`: each verdict with its key, for the
   builders.
 

@@ -16,8 +16,8 @@
 # -o matters: without it, flock leaves the lock's fd open in the command, a
 # sway started under the lock inherits it, and the lock stays held for as long
 # as that sway lives. (This script also closes fds 3-9 for sway, but the
-# terminals a run starts inherit the fd too.) hotty-perf and plx-perf share
-# this script and this lock.
+# terminals a run starts inherit the fd too.) Every rig that runs here,
+# hottyterm's and plx's, shares this script and this lock.
 #
 # State is in ~/.cache/hotty/sway-feel/: display (its WAYLAND_DISPLAY), pid,
 # ipc (its IPC socket, sway-ipc.<uid>.<pid>.sock), config, sway.log. It is not

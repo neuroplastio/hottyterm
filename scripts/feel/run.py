@@ -46,7 +46,7 @@ PROG = os.path.join(HERE, "prog", "feelprog")
 ADDON = os.environ.get("ADDON_DIR", os.path.join(CODE, "xterm-addon-hotty", "main"))
 OUT_W, OUT_H = 2400, 1500  # the perf sway's output, device pixels
 
-BUILDS = os.path.expanduser("~/.cache/hotty-perf/builds")
+BUILDS = os.path.expanduser("~/.cache/hottyterm-perf/builds")
 HOSTS = {
     "hottyterm": os.environ.get("HOTTYTERM_BIN", os.path.join(BUILDS, "hottyterm-stamps", "bin", "hottyterm")),
     "ghostty": os.environ.get("GHOSTTY_BIN", os.path.join(BUILDS, "ghostty-stock", "bin", "ghostty")),

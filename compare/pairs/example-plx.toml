@@ -1,9 +1,9 @@
 # An example, not a pair to judge: both sides run the installed plx in the
 # side's own throwaway PLX_DIR, so each starts its own plxd. It shows the
-# shape of a plx pair (plx-perf, hotty-ui): `run` takes over the terminal,
-# and whatever it leaves behind (the plxd) goes when the side ends or on
-# `pairs close`. The config comes from a copy of ~/.config/plx (seed),
-# so nothing the viewer writes reaches the maintainer's.
+# shape of a plx pair (plx's own, or a framework track's): `run` takes over
+# the terminal, and whatever it leaves behind (the plxd) goes when the side
+# ends or on `pairs close`. The config comes from a copy of ~/.config/plx
+# (seed), so nothing the viewer writes reaches the maintainer's.
 example = true
 track = "example"
 brief = "Example only, both sides are the same plx: does switching panes feel the same in A and B?"

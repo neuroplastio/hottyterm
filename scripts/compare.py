@@ -61,13 +61,14 @@ def pair_dirs() -> list[Path]:
 PAIRS = pair_dirs()
 # Built sides, keys, sessions, logs.
 CACHE = Path(os.environ.get("COMPARE_CACHE") or "~/.cache/compare").expanduser()
-# The verdicts that count: one Markdown file per pair, blind (no key).
-# gov commits and unblinds them.
-VERDICTS = Path(os.environ.get("COMPARE_VERDICTS")
-                or "~/code/neuroplastio/gov/main/research/0022/verdicts").expanduser()
+# The verdicts that count: one Markdown file per pair, blind (no key), in
+# COMPARE_VERDICTS, the directory of the research record that whoever keeps
+# it commits and unblinds; without it, the cache's verdicts/.
+VERDICTS = Path(os.environ.get("COMPARE_VERDICTS") or CACHE / "verdicts").expanduser()
 # Every verdict with its key, for the builders.
 VERDICTS_JSONL = CACHE / "verdicts.jsonl"
-# The maintainer's binds launch apps with this (binds.lua, launchPrefix).
+# A session under uwsm launches its apps through `uwsm app`, and so do the
+# pair's windows: they join the session as any app does.
 LAUNCH_PREFIX = "uwsm app -- "
 # Throwaway PLX_DIRs live here: a unix socket path must fit in 107 bytes.
 RUNTIME = Path(f"/run/user/{os.getuid()}")
@@ -1019,11 +1020,11 @@ def cmd_verdict(name: str, pick: str, note: str) -> int:
         raise Fail(f"round {key['round']} of {p.name} is judged and its key shown; "
                    f"`pairs {p.name}` opens a new round")
     t = now()
-    # 1. The blind record, for gov: no key in it.
+    # 1. The blind record: no key in it.
     VERDICTS.mkdir(parents=True, exist_ok=True)
-    gov = VERDICTS / f"{p.name}.md"
-    new = not gov.exists()
-    with open(gov, "a") as f:
+    record = VERDICTS / f"{p.name}.md"
+    new = not record.exists()
+    with open(record, "a") as f:
         if new:
             f.write(f"# {p.name}\n\n{p.brief}\n\n"
                     "Blind verdicts from `pairs verdict`. The key for each round is in\n"
@@ -1038,7 +1039,7 @@ def cmd_verdict(name: str, pick: str, note: str) -> int:
         f.write(json.dumps({"pair": p.name, "track": p.track, "round": key["round"], "time": t,
                             "verdict": pick, "picked": picked, "note": note,
                             "A": key["A"], "B": key["B"]}) + "\n")
-    print(f"Recorded: {p.name}, round {key['round']}: {pick}.  ({gov})\n")
+    print(f"Recorded: {p.name}, round {key['round']}: {pick}.  ({record})\n")
     # 3. The key.
     for slot in SLOTS:
         side = p.sides[key[slot]]
