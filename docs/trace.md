@@ -90,7 +90,10 @@ Each line after the header is one event, a JSON object:
 | `term.present` | instant | macOS: the GPU finished a frame, and its IOSurface goes to the main thread |
 | `term.contents` | instant | macOS: the main thread sets the layer's `contents` to it (`a.sync`: a draw on the main thread itself, during a resize; `a.discard`: the frame was the wrong size and is dropped) |
 
-The frame's presentation is the rig's `rig.pixels` on Linux. On macOS, where
+The frame's presentation is the rig's `rig.pixels` on Linux. In the feel
+sway, `term.presented` comes 1.3–2.6 ms (median 1.7) after `rig.pixels` for
+the same frame: sway reports the presentation after the commit the rig's
+screen copy stamps, so `rig.pixels` is the time to read. On macOS, where
 the rig has no screen copies (scripts/probe-macos.sh, `latency`), the last
 the terminal sees of a frame is `term.contents`: Core Animation commits it
 with the main thread's run loop and the window server shows it at a later
