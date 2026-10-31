@@ -1,0 +1,398 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Sat, 31 Oct 2026 13:00:08 +0100
+Subject: [PATCH 48/48] hottyterm: a backdrop bleeds to the window's edges
+ (V6-06)
+
+A backdrop that reaches an edge of the grid goes on to the window's edge,
+over the padding and the pixels left over when the window isn't a whole
+number of cells. Without it, a program that cards its panes on a
+backdrop the size of the screen still shows the terminal's background in
+a strip along the bottom and the right: at 1.6 in a 2874x1845 window,
+55 rows of 33 pixels and 191 columns of 15 leave 30 pixels below the
+grid and 9 to its right, whatever the backdrop draws.
+
+The strips are the backdrop's outermost pixels: past each edge it
+reaches, a quad sampling the middle of its last row or column, and in a
+corner its corner pixel, so they are those pixels' colour exactly. Only
+hotty backdrops bleed: a surface's image (hotty's image ids) below
+kitty's line for images under the backgrounds. A program's own kitty
+image there draws as before. A cell that paints its background still
+covers the padding beside it with window-padding-color = extend, since
+the cells' backgrounds draw after.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/renderer/generic.zig |  14 +++
+ src/renderer/image.zig   | 254 +++++++++++++++++++++++++++++++++------
+ src/termio/hotty.zig     |  25 ++++
+ 3 files changed, 256 insertions(+), 37 deletions(-)
+
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index 7c2cb8871..83bf2e801 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -1958,6 +1958,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+ 
+                 // Then we draw any kitty images that need
+                 // to be behind text AND cell backgrounds.
++                // hottyterm: a hotty backdrop among them bleeds to the
++                // window's edges (image.State.Bleed), which are here in
++                // pixels from the grid's top left, as the projection puts
++                // the grid's top left at the padding's.
++                self.images.bleed = .{
++                    .cell_width = @floatFromInt(self.grid_metrics.cell_width),
++                    .cell_height = @floatFromInt(self.grid_metrics.cell_height),
++                    .grid_width = @floatFromInt(@as(u32, self.cells.size.columns) * self.grid_metrics.cell_width),
++                    .grid_height = @floatFromInt(@as(u32, self.cells.size.rows) * self.grid_metrics.cell_height),
++                    .left = -@as(f32, @floatFromInt(self.size.padding.left)),
++                    .top = -@as(f32, @floatFromInt(self.size.padding.top)),
++                    .right = @as(f32, @floatFromInt(self.size.screen.width)) - @as(f32, @floatFromInt(self.size.padding.left)),
++                    .bottom = @as(f32, @floatFromInt(self.size.screen.height)) - @as(f32, @floatFromInt(self.size.padding.top)),
++                };
+                 self.images.draw(
+                     &self.api,
+                     self.shaders.pipelines.image,
+diff --git a/src/renderer/image.zig b/src/renderer/image.zig
+index 08e0ee285..23fd56aec 100644
+--- a/src/renderer/image.zig
++++ b/src/renderer/image.zig
+@@ -9,6 +9,7 @@ const Renderer = @import("../renderer.zig").Renderer;
+ const GraphicsAPI = Renderer.API;
+ const Texture = GraphicsAPI.Texture;
+ const Overlay = @import("Overlay.zig");
++const hotty = @import("../termio/hotty.zig");
+ 
+ const log = std.log.scoped(.renderer_image);
+ 
+@@ -47,6 +48,27 @@ pub const State = struct {
+     /// Overlays
+     overlay_placements: std.ArrayListUnmanaged(Placement),
+ 
++    /// hottyterm: where a backdrop bleeds to, set before each draw.
++    bleed: Bleed = .{},
++
++    /// hottyterm: a hotty backdrop (hotty 0.6's V6-06, a draft) that
++    /// reaches an edge of the grid goes on to the window's edge, over the
++    /// padding and the pixels left over when the window isn't a whole
++    /// number of cells, so that no strip of the window shows the
++    /// terminal's background where no cell paints it. The window's edges
++    /// here are in pixels from the grid's top left, as the image shader
++    /// places images.
++    pub const Bleed = struct {
++        cell_width: f32 = 0,
++        cell_height: f32 = 0,
++        grid_width: f32 = 0,
++        grid_height: f32 = 0,
++        left: f32 = 0,
++        top: f32 = 0,
++        right: f32 = 0,
++        bottom: f32 = 0,
++    };
++
+     pub const empty: State = .{
+         .images = .empty,
+         .kitty_placements = .empty,
+@@ -148,49 +170,120 @@ pub const State = struct {
+                 },
+             };
+ 
+-            // Create our vertex buffer, which is always exactly one item.
+-            // future(mitchellh): we can group rendering multiple instances of a single image
+-            var buf = GraphicsAPI.Buffer(GraphicsAPI.shaders.Image).initFill(
+-                api.imageBufferOptions(),
+-                &.{.{
+-                    .grid_pos = .{
+-                        @as(f32, @floatFromInt(p.x)),
+-                        @as(f32, @floatFromInt(p.y)),
+-                    },
++            drawQuad(api, pipeline, pass, texture, .{
++                .grid_pos = .{
++                    @as(f32, @floatFromInt(p.x)),
++                    @as(f32, @floatFromInt(p.y)),
++                },
+ 
+-                    .cell_offset = .{
+-                        @as(f32, @floatFromInt(p.cell_offset_x)),
+-                        @as(f32, @floatFromInt(p.cell_offset_y)),
+-                    },
++                .cell_offset = .{
++                    @as(f32, @floatFromInt(p.cell_offset_x)),
++                    @as(f32, @floatFromInt(p.cell_offset_y)),
++                },
+ 
+-                    .source_rect = .{
+-                        @as(f32, @floatFromInt(p.source_x)),
+-                        @as(f32, @floatFromInt(p.source_y)),
+-                        @as(f32, @floatFromInt(p.source_width)),
+-                        @as(f32, @floatFromInt(p.source_height)),
+-                    },
++                .source_rect = .{
++                    @as(f32, @floatFromInt(p.source_x)),
++                    @as(f32, @floatFromInt(p.source_y)),
++                    @as(f32, @floatFromInt(p.source_width)),
++                    @as(f32, @floatFromInt(p.source_height)),
++                },
+ 
+-                    .dest_size = .{
+-                        @as(f32, @floatFromInt(p.width)),
+-                        @as(f32, @floatFromInt(p.height)),
+-                    },
+-                }},
+-            ) catch |err| {
+-                log.warn("error creating image vertex buffer err={}", .{err});
+-                continue;
+-            };
+-            defer buf.deinit();
+-
+-            pass.step(.{
+-                .pipeline = pipeline,
+-                .buffers = &.{buf.buffer},
+-                .textures = &.{texture},
+-                .draw = .{
+-                    .type = .triangle_strip,
+-                    .vertex_count = 4,
++                .dest_size = .{
++                    @as(f32, @floatFromInt(p.width)),
++                    @as(f32, @floatFromInt(p.height)),
+                 },
+             });
++
++            // hottyterm: a backdrop goes on past the grid (Bleed).
++            if (placement_type == .kitty_below_bg and p.backdrop) {
++                for (bleedQuads(self.bleed, p)) |q| {
++                    if (q) |quad| drawQuad(api, pipeline, pass, texture, quad);
++                }
++            }
++        }
++    }
++
++    /// Draws one image quad.
++    fn drawQuad(
++        api: *GraphicsAPI,
++        pipeline: GraphicsAPI.Pipeline,
++        pass: *GraphicsAPI.RenderPass,
++        texture: Texture,
++        quad: GraphicsAPI.shaders.Image,
++    ) void {
++        // Create our vertex buffer, which is always exactly one item.
++        // future(mitchellh): we can group rendering multiple instances of a single image
++        var buf = GraphicsAPI.Buffer(GraphicsAPI.shaders.Image).initFill(
++            api.imageBufferOptions(),
++            &.{quad},
++        ) catch |err| {
++            log.warn("error creating image vertex buffer err={}", .{err});
++            return;
++        };
++        defer buf.deinit();
++
++        pass.step(.{
++            .pipeline = pipeline,
++            .buffers = &.{buf.buffer},
++            .textures = &.{texture},
++            .draw = .{
++                .type = .triangle_strip,
++                .vertex_count = 4,
++            },
++        });
++    }
++
++    /// hottyterm: the quads a backdrop bleeds in (Bleed): past each edge of
++    /// the grid it reaches, to the window's edge, a strip of its outermost
++    /// pixels, and in a corner its corner pixel. Each samples the middle of
++    /// those pixels, so the strip is their colour exactly. Null for a part
++    /// with nothing to draw.
++    fn bleedQuads(b: Bleed, p: Placement) [8]?GraphicsAPI.shaders.Image {
++        var out: [8]?GraphicsAPI.shaders.Image = @splat(null);
++        if (b.cell_width <= 0 or b.cell_height <= 0) return out;
++        const x0 = @as(f32, @floatFromInt(p.x)) * b.cell_width + @as(f32, @floatFromInt(p.cell_offset_x));
++        const y0 = @as(f32, @floatFromInt(p.y)) * b.cell_height + @as(f32, @floatFromInt(p.cell_offset_y));
++        const x1 = x0 + @as(f32, @floatFromInt(p.width));
++        const y1 = y0 + @as(f32, @floatFromInt(p.height));
++        // The parts across and down: before the placement, the placement,
++        // and after it, each as far as the window where it reaches the
++        // grid's edge (half a pixel is rounding), else empty.
++        const xs = [3][2]f32{
++            .{ if (x0 <= 0.5) @min(b.left, x0) else x0, x0 },
++            .{ x0, x1 },
++            .{ x1, if (x1 >= b.grid_width - 0.5) @max(b.right, x1) else x1 },
++        };
++        const ys = [3][2]f32{
++            .{ if (y0 <= 0.5) @min(b.top, y0) else y0, y0 },
++            .{ y0, y1 },
++            .{ y1, if (y1 >= b.grid_height - 0.5) @max(b.bottom, y1) else y1 },
++        };
++        // The source across and down for each: the first pixels' middle,
++        // all of it, the last pixels' middle.
++        const sx: f32 = @floatFromInt(p.source_x);
++        const sy: f32 = @floatFromInt(p.source_y);
++        const sw: f32 = @floatFromInt(p.source_width);
++        const sh: f32 = @floatFromInt(p.source_height);
++        const us = [3][2]f32{ .{ sx + 0.5, 0 }, .{ sx, sw }, .{ sx + sw - 0.5, 0 } };
++        const vs = [3][2]f32{ .{ sy + 0.5, 0 }, .{ sy, sh }, .{ sy + sh - 0.5, 0 } };
++        var n: usize = 0;
++        for (0..3) |j| {
++            for (0..3) |i| {
++                if (i == 1 and j == 1) continue; // the placement itself
++                const k = n;
++                n += 1;
++                const w = xs[i][1] - xs[i][0];
++                const h = ys[j][1] - ys[j][0];
++                if (w <= 0 or h <= 0) continue;
++                out[k] = .{
++                    .grid_pos = .{ 0, 0 },
++                    .cell_offset = .{ xs[i][0], ys[j][0] },
++                    .source_rect = .{ us[i][0], vs[j][0], us[i][1], vs[j][1] },
++                    .dest_size = .{ w, h },
++                };
++            }
+         }
++        return out;
+     }
+ 
+     /// Update our overlay state. Null value deletes any existing overlay.
+@@ -347,6 +440,7 @@ pub const State = struct {
+                 .source_y = p.source_y,
+                 .source_width = p.source_width,
+                 .source_height = p.source_height,
++                .backdrop = hotty.Hotty.isBackdrop(image.id, p.z),
+             }) catch |err| {
+                 log.warn("error preparing kitty placement err={}", .{err});
+             };
+@@ -573,6 +667,9 @@ pub const Placement = struct {
+     source_y: u32,
+     source_width: u32,
+     source_height: u32,
++
++    /// hottyterm: a hotty backdrop's, which bleeds (State.Bleed).
++    backdrop: bool = false,
+ };
+ 
+ /// Image identifier used to store and lookup images.
+@@ -1611,3 +1708,86 @@ test "kitty renderer prepares only the rectangles a frame edit changed" {
+     entry.image.update.free(alloc);
+     _ = state.images.remove(id);
+ }
++
++test "hottyterm: a backdrop bleeds past the grid's edges it reaches" {
++    const testing = std.testing;
++    // 191x55 cells of 15x33 in a window 2874x1845 with no padding: 9
++    // pixels left over at the right and 30 at the bottom.
++    const b: State.Bleed = .{
++        .cell_width = 15,
++        .cell_height = 33,
++        .grid_width = 191 * 15,
++        .grid_height = 55 * 33,
++        .left = 0,
++        .top = 0,
++        .right = 2874,
++        .bottom = 1845,
++    };
++    const full: Placement = .{
++        .image_id = .{ .kitty = 1 },
++        .layer = .below_background,
++        .x = 0,
++        .y = 0,
++        .z = 0,
++        .width = 191 * 15,
++        .height = 55 * 33,
++        .cell_offset_x = 0,
++        .cell_offset_y = 0,
++        .source_x = 0,
++        .source_y = 0,
++        .source_width = 191 * 15,
++        .source_height = 55 * 33,
++        .backdrop = true,
++    };
++    const qs = State.bleedQuads(b, full);
++    var drawn: usize = 0;
++    for (qs) |q| drawn += @intFromBool(q != null);
++    // The right strip, the bottom strip and their corner.
++    try testing.expectEqual(@as(usize, 3), drawn);
++    // Parts in order: the three above, left and right, the three below.
++    // The right strip: the last column's middle, all the way down.
++    const right = qs[4].?;
++    try testing.expectEqual([2]f32{ 2865, 0 }, right.cell_offset);
++    try testing.expectEqual([2]f32{ 9, 1815 }, right.dest_size);
++    try testing.expectEqual([4]f32{ 2864.5, 0, 0, 1815 }, right.source_rect);
++    // The bottom strip: the last row's middle, all the way across.
++    const bottom = qs[6].?;
++    try testing.expectEqual([2]f32{ 0, 1815 }, bottom.cell_offset);
++    try testing.expectEqual([2]f32{ 2865, 30 }, bottom.dest_size);
++    try testing.expectEqual([4]f32{ 0, 1814.5, 2865, 0 }, bottom.source_rect);
++    // Their corner: the corner pixel's middle.
++    const corner = qs[7].?;
++    try testing.expectEqual([2]f32{ 2865, 1815 }, corner.cell_offset);
++    try testing.expectEqual([2]f32{ 9, 30 }, corner.dest_size);
++    try testing.expectEqual([4]f32{ 2864.5, 1814.5, 0, 0 }, corner.source_rect);
++
++    // With 10 pixels of padding all round, 190x55 cells: every side and
++    // corner.
++    var padded = b;
++    padded.grid_width = 190 * 15;
++    padded.left = -10;
++    padded.top = -10;
++    padded.right = 2874 - 10;
++    padded.bottom = 1845 - 10;
++    var fits = full;
++    fits.width = 190 * 15;
++    fits.source_width = 190 * 15;
++    drawn = 0;
++    for (State.bleedQuads(padded, fits)) |q| drawn += @intFromBool(q != null);
++    try testing.expectEqual(@as(usize, 8), drawn);
++    const top_left = State.bleedQuads(padded, fits)[0].?;
++    try testing.expectEqual([2]f32{ -10, -10 }, top_left.cell_offset);
++    try testing.expectEqual([2]f32{ 10, 10 }, top_left.dest_size);
++    try testing.expectEqual([4]f32{ 0.5, 0.5, 0, 0 }, top_left.source_rect);
++    const bottom_right = State.bleedQuads(padded, fits)[7].?;
++    try testing.expectEqual([2]f32{ 2850, 1815 }, bottom_right.cell_offset);
++    try testing.expectEqual([2]f32{ 14, 20 }, bottom_right.dest_size);
++
++    // A backdrop that reaches no edge doesn't bleed.
++    var inner = full;
++    inner.x = 2;
++    inner.y = 1;
++    inner.width = 10 * 15;
++    inner.height = 4 * 33;
++    for (State.bleedQuads(padded, inner)) |q| try testing.expect(q == null);
++}
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 89a121761..195f66441 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -1049,6 +1049,14 @@ pub const Hotty = struct {
+         return (band << 20) | @as(i32, @intCast(created & 0xFFFFF));
+     }
+ 
++    /// Whether a kitty placement is a backdrop's: a surface's image, at a
++    /// z under kitty's line for images below the cells' backgrounds
++    /// (stackZ). The renderer bleeds it into the window's padding.
++    pub fn isBackdrop(image_id: u32, z: i32) bool {
++        return image_id >= id_base and image_id - id_base < id_span and
++            z < std.math.minInt(i32) / 2;
++    }
++
+     /// The cursor goes to the start of the line below a placement `rows`
+     /// tall, scrolling as needed (the polyfill does the same).
+     fn moveCursor(t: *terminal.Terminal, rows: u16) void {
+@@ -3450,3 +3458,20 @@ test "Hotty.stackZ backdrops" {
+     try t.expect(Hotty.stackZ(-1, 5, true) < Hotty.stackZ(0, 0, true));
+     try t.expect(Hotty.stackZ(0, 4, true) < Hotty.stackZ(0, 5, true));
+ }
++
++test "Hotty.isBackdrop" {
++    const t = std.testing;
++    // A surface's backdrop placement, at every z and creation.
++    for ([_]i32{ -1000, 0, 1000 }) |z| {
++        for ([_]u32{ 0, 0x7FFFF }) |c| {
++            try t.expect(Hotty.isBackdrop(id_base, Hotty.stackZ(z, c, true)));
++            try t.expect(Hotty.isBackdrop(id_base + id_span - 1, Hotty.stackZ(z, c, true)));
++            // Not a surface's placement above the cells.
++            try t.expect(!Hotty.isBackdrop(id_base, Hotty.stackZ(z, c, false)));
++        }
++    }
++    // Not a program's own kitty image under the backgrounds.
++    try t.expect(!Hotty.isBackdrop(7, std.math.minInt(i32)));
++    try t.expect(!Hotty.isBackdrop(id_base - 1, std.math.minInt(i32)));
++    try t.expect(!Hotty.isBackdrop(id_base + id_span, std.math.minInt(i32)));
++}

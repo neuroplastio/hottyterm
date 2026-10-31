@@ -1,0 +1,197 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Sat, 31 Oct 2026 12:14:35 +0100
+Subject: [PATCH 47/48] hottyterm: a backdrop placement is drawn under the
+ cells (V6-06)
+
+hotty 0.6's V6-06: a placement with b=1 is a backdrop. hotty-blitz reads
+the key, lists the feature `backdrop` once the terminal says it draws
+them (hotty_host_set_backdrops), and passes each placement's backdrop to
+the place callback. hottyterm draws one where kitty graphics draws an
+image whose z is below INT32_MIN/2: after the window's background and
+before the cells' (Ghostty's kitty_below_bg layer). A cell with the
+default background is transparent over it, and any other background, the
+text and the cursor cover it. Backdrops stack among themselves by z and
+creation, under every other placement, and take no pointer: the hit test
+leaves them out, so a press reaches the cells.
+
+All of it is in src/termio/hotty.zig; no upstream file changes. It needs
+hotty-blitz with V6-06 (its place callback carries the backdrop).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig | 55 ++++++++++++++++++++++++++++++++++++--------
+ 1 file changed, 45 insertions(+), 10 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 4723b9c44..89a121761 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -195,8 +195,9 @@ pub const Config = extern struct {
+ pub const Effects = extern struct {
+     ctx: ?*anyopaque,
+     reply: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void,
+-    /// (surface, cols, rows, window x, y, w, h, z, created, move_cursor)
+-    place: ?*const fn (?*anyopaque, [*:0]const u8, u16, u16, u16, u16, u16, u16, i32, u32, bool) callconv(.c) void,
++    /// (surface, cols, rows, window x, y, w, h, z, created, move_cursor,
++    /// backdrop)
++    place: ?*const fn (?*anyopaque, [*:0]const u8, u16, u16, u16, u16, u16, u16, i32, u32, bool, bool) callconv(.c) void,
+     remove: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) void,
+     hide: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) void,
+     /// A text field's cut, for the clipboard (SPEC §10.2).
+@@ -250,6 +251,7 @@ extern fn hotty_host_hyperlink(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
+ extern fn hotty_host_takes_pointer(h: *Host, surface: [*:0]const u8, x: f32, y: f32) bool;
+ extern fn hotty_host_set_passthrough(h: *Host, on: bool) void;
+ extern fn hotty_host_set_counts(h: *Host, on: bool) void;
++extern fn hotty_host_set_backdrops(h: *Host, on: bool) void;
+ extern fn hotty_host_selected_text(h: *Host) ?[*:0]const u8;
+ extern fn hotty_host_clear_selection(h: *Host) void;
+ extern fn hotty_host_paste(h: *Host, text: [*]const u8, len: usize, fx: *const Effects) bool;
+@@ -416,6 +418,8 @@ const Placed = struct {
+     created: u32,
+     /// Hidden (SPEC §5.4): no placement, and the image kept to show again.
+     hidden: bool = false,
++    /// A backdrop (hotty 0.6's V6-06): drawn under the cells.
++    backdrop: bool = false,
+     /// The screen whose image storage holds it.
+     screen: terminal.ScreenSet.Key,
+ };
+@@ -599,6 +603,8 @@ pub const Hotty = struct {
+         z: i32,
+         created: u32,
+         move_cursor: bool,
++        /// Drawn under the cells (`b=1`, `backdrop`).
++        backdrop: bool = false,
+         /// Shown at once from the image the terminal has: no frame needed.
+         shown: bool = false,
+     };
+@@ -735,7 +741,7 @@ pub const Hotty = struct {
+             log.warn("hotty: reply dropped, out of memory", .{});
+     }
+ 
+-    fn onPlace(ctx: ?*anyopaque, surface: [*:0]const u8, cols: u16, rows: u16, x: u16, y: u16, w: u16, h: u16, z: i32, created: u32, move_cursor: bool) callconv(.c) void {
++    fn onPlace(ctx: ?*anyopaque, surface: [*:0]const u8, cols: u16, rows: u16, x: u16, y: u16, w: u16, h: u16, z: i32, created: u32, move_cursor: bool, backdrop: bool) callconv(.c) void {
+         const self: *Hotty = @ptrCast(@alignCast(ctx.?));
+         const name = self.alloc.dupeSentinel(u8, std.mem.span(surface), 0) catch return;
+         self.places.append(self.alloc, .{
+@@ -746,6 +752,7 @@ pub const Hotty = struct {
+             .z = z,
+             .created = created,
+             .move_cursor = move_cursor,
++            .backdrop = backdrop,
+         }) catch self.alloc.free(name);
+     }
+ 
+@@ -806,6 +813,9 @@ pub const Hotty = struct {
+             hotty_host_set_passthrough(h, true);
+             // Clicks carry the platform's count (SPEC §9): `clickCount`.
+             hotty_host_set_counts(h, true);
++            // Backdrops are drawn under the cells (hotty 0.6, V6-06): a
++            // kitty z below the backgrounds' line (`stackZ`).
++            hotty_host_set_backdrops(h, true);
+             hotty_host_set_network(h, self.settings.net.ptr);
+             if (self.wakeup != null) hotty_host_set_waker(h, wake, self);
+             self.setKeys(h);
+@@ -962,6 +972,7 @@ pub const Hotty = struct {
+         e.win = p.win;
+         e.z = p.z;
+         e.created = p.created;
++        e.backdrop = p.backdrop;
+         e.hidden = false;
+         if (p.move_cursor) moveCursor(t, p.win.h);
+         return true;
+@@ -1010,7 +1021,7 @@ pub const Hotty = struct {
+             .height = r.h,
+             .columns = p.win.w,
+             .rows = p.win.h,
+-            .z = stackZ(p.z, p.created),
++            .z = stackZ(p.z, p.created, p.backdrop),
+             .cursor_movement = .none,
+         };
+     }
+@@ -1028,8 +1039,13 @@ pub const Hotty = struct {
+     /// The kitty z of a placement (SPEC §5.2): its z, from -1000 to 1000,
+     /// then the order its surface was created in, all above the text (a
+     /// kitty z of 0 or more). Creation wraps after a million surfaces.
+-    fn stackZ(z: i32, created: u32) i32 {
++    /// A backdrop's is the same order under kitty's line for images below
++    /// the cells' backgrounds (INT32_MIN/2), where Ghostty draws them
++    /// before the cells and a cell with the default background lets them
++    /// show; its creation wraps after half a million.
++    fn stackZ(z: i32, created: u32, backdrop: bool) i32 {
+         const band: i32 = std.math.clamp(z, -1000, 1000) + 1000;
++        if (backdrop) return std.math.minInt(i32) + ((band << 19) | @as(i32, @intCast(created & 0x7FFFF)));
+         return (band << 20) | @as(i32, @intCast(created & 0xFFFFF));
+     }
+ 
+@@ -1469,7 +1485,7 @@ pub const Hotty = struct {
+ 
+         const Effect = union(enum) {
+             reply: []u8,
+-            place: struct { surface: [:0]u8, cols: u16, rows: u16, x: u16, y: u16, w: u16, h: u16, z: i32, created: u32, move_cursor: bool },
++            place: struct { surface: [:0]u8, cols: u16, rows: u16, x: u16, y: u16, w: u16, h: u16, z: i32, created: u32, move_cursor: bool, backdrop: bool },
+             remove: [:0]u8,
+             hide: [:0]u8,
+             clipboard: []u8,
+@@ -1508,7 +1524,7 @@ pub const Hotty = struct {
+         fn replay(self: *Paint, hotty: *Hotty) void {
+             for (self.effects_.items) |e| switch (e) {
+                 .reply => |b| Hotty.onReply(hotty, b.ptr, b.len),
+-                .place => |p| Hotty.onPlace(hotty, p.surface.ptr, p.cols, p.rows, p.x, p.y, p.w, p.h, p.z, p.created, p.move_cursor),
++                .place => |p| Hotty.onPlace(hotty, p.surface.ptr, p.cols, p.rows, p.x, p.y, p.w, p.h, p.z, p.created, p.move_cursor, p.backdrop),
+                 .remove => |n| Hotty.onRemove(hotty, n.ptr),
+                 .hide => |n| Hotty.onHide(hotty, n.ptr),
+                 .clipboard => |b| Hotty.onClipboard(hotty, b.ptr, b.len),
+@@ -1534,10 +1550,10 @@ pub const Hotty = struct {
+             self.add(.{ .reply = self.alloc.dupe(u8, data[0..len]) catch return });
+         }
+ 
+-        fn onPlace(ctx: ?*anyopaque, surface: [*:0]const u8, cols: u16, rows: u16, x: u16, y: u16, w: u16, h: u16, z: i32, created: u32, move_cursor: bool) callconv(.c) void {
++        fn onPlace(ctx: ?*anyopaque, surface: [*:0]const u8, cols: u16, rows: u16, x: u16, y: u16, w: u16, h: u16, z: i32, created: u32, move_cursor: bool, backdrop: bool) callconv(.c) void {
+             const self: *Paint = @ptrCast(@alignCast(ctx.?));
+             const name = self.dupeZ(surface) orelse return;
+-            self.add(.{ .place = .{ .surface = name, .cols = cols, .rows = rows, .x = x, .y = y, .w = w, .h = h, .z = z, .created = created, .move_cursor = move_cursor } });
++            self.add(.{ .place = .{ .surface = name, .cols = cols, .rows = rows, .x = x, .y = y, .w = w, .h = h, .z = z, .created = created, .move_cursor = move_cursor, .backdrop = backdrop } });
+         }
+ 
+         fn onRemove(ctx: ?*anyopaque, surface: [*:0]const u8) callconv(.c) void {
+@@ -1952,6 +1968,7 @@ pub const Hotty = struct {
+             .win = p.win,
+             .z = p.z,
+             .created = p.created,
++            .backdrop = p.backdrop,
+             .screen = t.screens.active_key,
+         });
+         if (p.move_cursor) moveCursor(t, p.win.h);
+@@ -2004,8 +2021,10 @@ pub const Hotty = struct {
+             var it = self.placed.iterator();
+             while (it.next()) |e| {
+                 const p = e.value_ptr.*;
++                // A backdrop takes no pointer: it reaches the cells.
++                if (p.backdrop) continue;
+                 const b = self.onScreen(t, p) orelse continue;
+-                const z = stackZ(p.z, p.created);
++                const z = stackZ(p.z, p.created, false);
+                 if (z >= below) continue;
+                 if (px >= b.x0 and px < b.x0 + b.w and py >= b.y0 and py < b.y0 + b.h and (top == null or z > top_z)) {
+                     // The placement shows the window; the surface's pixel is
+@@ -3415,3 +3434,19 @@ fn encodeKey(s: *Surface, event: input.KeyEvent, buf: []u8) []const u8 {
+     input.key_encode.encode(&w, event, s.encodeKeyOpts()) catch return "";
+     return w.buffered();
+ }
++
++test "Hotty.stackZ backdrops" {
++    const t = std.testing;
++    const below_bg = std.math.minInt(i32) / 2;
++    // A backdrop is under kitty's line for images below the backgrounds,
++    // at every z and creation; a placement without one is above the text.
++    for ([_]i32{ -1000, 0, 1000 }) |z| {
++        for ([_]u32{ 0, 1, 0x7FFFF, 0xFFFFF }) |c| {
++            try t.expect(Hotty.stackZ(z, c, true) < below_bg);
++            try t.expect(Hotty.stackZ(z, c, false) >= 0);
++        }
++    }
++    // Backdrops stack among themselves by z, then creation.
++    try t.expect(Hotty.stackZ(-1, 5, true) < Hotty.stackZ(0, 0, true));
++    try t.expect(Hotty.stackZ(0, 4, true) < Hotty.stackZ(0, 5, true));
++}
