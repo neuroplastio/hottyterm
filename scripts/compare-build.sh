@@ -8,7 +8,8 @@
 # ghostty-ref, with its mods/ghostty/ and the branding (scripts/brand.py);
 # hotty-blitz at its hotty-blitz-ref, or at <hotty-blitz ref> when one is
 # given (a pair whose difference is hotty-blitz's), with the Blitz, parley
-# and vello_cpu forks from its own mods/. Each comes from the local repository beside
+# and vello_cpu forks from its own mods/, and the Stylo fork where its mods/
+# has that set. Each comes from the local repository beside
 # this one (git clone --shared), never from the network, and nothing in
 # those repositories changes. Then scripts/build.sh, and the result goes
 # into $SIDE_DIR (bin/hottyterm). Both sides of a pair build the same way,
@@ -55,6 +56,10 @@ at "$HB/parley" "$W/parley" "$(base_of "$B/parley/mod.md")" hotty
 apply "$W/parley" "$B/parley"
 at "$HB/vello_cpu" "$W/vello_cpu" published hotty
 apply "$W/vello_cpu" "$B/vello_cpu"
+if [ -f "$B/stylo/mod.md" ]; then
+  at "$HB/stylo" "$W/stylo" "$(base_of "$B/stylo/mod.md")" hotty
+  apply "$W/stylo" "$B/stylo"
+fi
 
 # The two checkouts are new paths to mise: their mise.toml are this
 # repository's and hotty-blitz's own.
