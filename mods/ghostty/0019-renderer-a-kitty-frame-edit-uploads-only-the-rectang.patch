@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 16:52:33 +0200
-Subject: [PATCH 19/41] renderer: a kitty frame edit uploads only the rectangle
+Subject: [PATCH 19/46] renderer: a kitty frame edit uploads only the rectangle
  it changed
 
 A frame edit of the displayed frame (a=f with r) composes a rectangle
@@ -33,11 +33,11 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  src/renderer/Metal.zig                  |   5 +
  src/renderer/OpenGL.zig                 |   4 +
- src/renderer/image.zig                  | 193 +++++++++++++++++++++++-
+ src/renderer/image.zig                  | 197 +++++++++++++++++++++++-
  src/terminal/kitty/graphics_exec.zig    |  86 ++++++++++-
- src/terminal/kitty/graphics_image.zig   | 137 +++++++++++++++++
+ src/terminal/kitty/graphics_image.zig   | 137 ++++++++++++++++
  src/terminal/kitty/graphics_storage.zig |  15 ++
- 6 files changed, 437 insertions(+), 3 deletions(-)
+ 6 files changed, 441 insertions(+), 3 deletions(-)
 
 diff --git a/src/renderer/Metal.zig b/src/renderer/Metal.zig
 index 581b0ce37..5b3ad824e 100644
@@ -71,7 +71,7 @@ index 0abf318b9..7f69958fd 100644
  
  /// We require at least OpenGL 4.3
 diff --git a/src/renderer/image.zig b/src/renderer/image.zig
-index 4ffa63911..0904a18ca 100644
+index 4ffa63911..b15b75a77 100644
 --- a/src/renderer/image.zig
 +++ b/src/renderer/image.zig
 @@ -139,6 +139,9 @@ pub const State = struct {
@@ -298,7 +298,7 @@ index 4ffa63911..0904a18ca 100644
              else => null,
          };
      }
-@@ -1424,3 +1546,72 @@ test "kitty renderer uploads the current animation frame" {
+@@ -1424,3 +1546,76 @@ test "kitty renderer uploads the current animation frame" {
          entry.image.pending.dataSlice(),
      );
  }
@@ -316,6 +316,8 @@ index 4ffa63911..0904a18ca 100644
 +
 +    var state: State = .empty;
 +    defer state.deinit(alloc);
++    var render_state: terminal.RenderState = .empty;
++    defer render_state.deinit(alloc);
 +
 +    const storage = &t.screens.active.kitty_images;
 +    const white: [16]u8 = @splat(255);
@@ -334,7 +336,8 @@ index 4ffa63911..0904a18ca 100644
 +        .columns = 1,
 +        .rows = 1,
 +    });
-+    state.kittyUpdate(alloc, &t, .{ .width = 10, .height = 10 });
++    try render_state.update(alloc, &t);
++    state.kittyUpdate(alloc, &t, &render_state);
 +
 +    // Pretend the first generation is on the GPU. The texture is never
 +    // used here, only its size is read.
@@ -358,7 +361,8 @@ index 4ffa63911..0904a18ca 100644
 +        .height = 1,
 +    });
 +
-+    state.kittyUpdate(alloc, &t, .{ .width = 10, .height = 10 });
++    try render_state.update(alloc, &t);
++    state.kittyUpdate(alloc, &t, &render_state);
 +    const entry = state.images.getPtr(id).?;
 +    try testing.expectEqual(img.generation, entry.generation);
 +    const regions = entry.image.update.regions;

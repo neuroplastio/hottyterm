@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Mon, 26 Oct 2026 11:13:03 +0100
-Subject: [PATCH 38/41] hottyterm: Adwaita Mono is the default font
+Subject: [PATCH 38/46] hottyterm: Adwaita Mono is the default font
 
 The built-in font, used when font-family names none or none is found, is
 Adwaita Mono (GNOME adwaita-fonts 50.0, SIL OFL 1.1) instead of JetBrains

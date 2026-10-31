@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 19:54:30 +0200
-Subject: [PATCH 24/41] renderer: Metal writes a kitty frame edit's rectangles
+Subject: [PATCH 24/46] renderer: Metal writes a kitty frame edit's rectangles
  with a blit
 
 Region updates of kitty images (texture_region_updates) were OpenGL
@@ -128,7 +128,7 @@ index 7f69958fd..d8d3264da 100644
  
  /// We require at least OpenGL 4.3
 diff --git a/src/renderer/image.zig b/src/renderer/image.zig
-index 0904a18ca..012353546 100644
+index b15b75a77..08e0ee285 100644
 --- a/src/renderer/image.zig
 +++ b/src/renderer/image.zig
 @@ -886,16 +886,8 @@ pub const Image = union(enum) {
