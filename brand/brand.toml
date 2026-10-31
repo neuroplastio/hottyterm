@@ -182,8 +182,8 @@ to = 'i18n.N_("Put a little ghost in your terminal.")'
 
 [[replace]]
 file = "src/input/command.zig"
-from = '.title = i18n.N_("Ghostty"),'
-to = '.title = i18n.N_("Ghost"),'
+from = ['.title = i18n.N_("Ghostty"),', '.title = "Ghostty",']
+to = ['.title = i18n.N_("Ghost"),', '.title = "Ghost",']
 
 [[replace]]
 file = "src/cli/version.zig"
