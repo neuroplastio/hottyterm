@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Fri, 30 Oct 2026 02:28:48 +0100
-Subject: [PATCH 44/44] hottyterm: a HOTTY command draws once, with the output
+Subject: [PATCH 44/46] hottyterm: a HOTTY command draws once, with the output
  it came in
 
 Each HOTTY command queued a render of its own, although Termio had

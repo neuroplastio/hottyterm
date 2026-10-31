@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Fri, 30 Oct 2026 00:50:57 +0100
-Subject: [PATCH 42/44] gtk: paint a new frame now, not a refresh after the
+Subject: [PATCH 42/46] gtk: paint a new frame now, not a refresh after the
  last input
 
 GTK handles every input event in a frame clock cycle of its own

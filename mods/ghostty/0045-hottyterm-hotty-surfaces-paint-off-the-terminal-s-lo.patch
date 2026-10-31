@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Fri, 30 Oct 2026 07:59:22 +0100
-Subject: [PATCH 45/45] hottyterm: hotty surfaces paint off the terminal's lock
+Subject: [PATCH 45/46] hottyterm: hotty surfaces paint off the terminal's lock
 
 io-reader held renderer_state.mutex for the whole of each hotty-blitz
 paint: 35-50 ms when plx opens a palette, during which a key in another
