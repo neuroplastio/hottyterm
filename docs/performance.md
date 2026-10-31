@@ -6,7 +6,8 @@ measure it again. The work spans this fork and
 [hotty-blitz](https://github.com/neuroplastio/hotty-blitz), whose changes
 reach a release through [`hotty-blitz-ref`](../hotty-blitz-ref). The research
 behind it, which also weighed GPU rendering, is neuroplastio's research note
-R-5.
+R-5. How long an input takes to reach the screen is
+[feel.md](feel.md).
 
 ## The case measured
 

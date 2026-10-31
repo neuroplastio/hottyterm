@@ -20,6 +20,7 @@ Everything else is Ghostty.
 [Build](#build-and-run) ·
 [Branding](#branding) ·
 [Performance](docs/performance.md) ·
+[Feel](docs/feel.md) ·
 [hotty-blitz](https://github.com/neuroplastio/hotty-blitz)
 
 </div>
