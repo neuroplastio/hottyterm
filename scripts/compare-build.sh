@@ -34,6 +34,16 @@ apply() { # <dir> <patches dir>
   return 0
 }
 base_of() { sed -n 's/^base:[[:space:]]*\([^[:space:]#]*\).*/\1/p' "$1"; }
+# vello_cpu's base is a crates.io version, the commit hotty-blitz's
+# scripts/vello-fork.sh makes of that package: the fork's tag `published`,
+# or `published-<version>` for another version.
+published() { # <fork> <version>
+  for t in $(git -C "$1" for-each-ref --format='%(refname)' refs/tags/published 'refs/tags/published-*'); do
+    [ "$(git -C "$1" log -1 --format=%s "$t")" = "vello_cpu $2 as published on crates.io" ] && { echo "$t"; return 0; }
+  done
+  echo "compare-build: $1 has no vello_cpu $2: tag its commit published-$2" >&2
+  return 1
+}
 
 # hottyterm at <ref>
 rm -rf "$W/hottyterm"; mkdir -p "$W/hottyterm"
@@ -54,7 +64,8 @@ at "$HB/blitz" "$W/blitz" "$(base_of "$B/blitz/mod.md")" hotty
 apply "$W/blitz" "$B/blitz"
 at "$HB/parley" "$W/parley" "$(base_of "$B/parley/mod.md")" hotty
 apply "$W/parley" "$B/parley"
-at "$HB/vello_cpu" "$W/vello_cpu" published hotty
+VC="$(published "$HB/vello_cpu" "$(base_of "$B/vello_cpu/mod.md")")"
+at "$HB/vello_cpu" "$W/vello_cpu" "$VC" hotty
 apply "$W/vello_cpu" "$B/vello_cpu"
 if [ -f "$B/stylo/mod.md" ]; then
   at "$HB/stylo" "$W/stylo" "$(base_of "$B/stylo/mod.md")" hotty
