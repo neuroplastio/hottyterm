@@ -90,6 +90,15 @@ adds up too. The markdown rounds each row to 0.1 ms so that it adds up to
 its rounded total (largest remainder); the JSON has the exact values and
 each proc's own percentiles.
 
+Gauge: a run's speed at fixed work, which no median across rounds shows:
+for each of GAUGES (blitz.raster in ns per pixel, plx's viewer.encode in
+ns per byte), the median over the run's spans of at least that size. A
+run whose gauge is more than SLOW (1.5) times the fastest of the runs
+alike but for their round is flagged: its machine ran slower, so leave
+it out of a comparison or compare it with runs flagged alike (gov R-22:
+a macOS runner ran 2.5 to 3 times slower from a job's second round on,
+every process at once, and so the most rounds).
+
 Hosts without stamps (stock Ghostty, Chromium) have only the rig's lines:
 they get end to end alone.
 """
@@ -116,6 +125,10 @@ WAITS = {"term.lock": "lock wait"}
 IDLE = ("term.key.up",)
 HANDOFFS = ("viewer.write", "prog.write")  # rule 6, plx's first
 DIMS = ("host", "sc", "scenario", "scale", "size", "round", "plx")
+# Gauges: fixed work per unit, a run's median over spans this large or more.
+GAUGES = (("raster ns/px", "blitz", "blitz.raster", "px", 50_000),
+          ("encode ns/B", "plx", "viewer.encode", "bytes", 4096))
+SLOW = 1.5  # a gauge this many times the fastest of its rounds' flags the run
 INPUT, PRESENT, UNSTAMPED = "input", "present", "unstamped"
 # The waterfall's columns, left to right; other procs go before present.
 SHARES = (INPUT, "hottyterm", *WAITS.values(), "plx", "plxd", "plx-script", "prog", "blitz")
@@ -315,6 +328,36 @@ def label_text(labels):
     return " ".join(parts)
 
 
+def gauges(events):
+    """Each of GAUGES: the median ns per unit over the spans that large."""
+    out = {}
+    for name, proc, span, unit, least in GAUGES:
+        per = sorted(e["dur"] / e["a"][unit] for e in events
+                     if e["n"] == span and e["proc"] == proc and "dur" in e
+                     and e.get("a", {}).get(unit, 0) >= least)
+        if per:
+            out[name] = per[len(per) // 2]
+    return out
+
+
+def flag_gauges(runs):
+    """Each run's gauges against the fastest of the runs alike but for their
+    round: `gauge_off`, the ratio of each one past SLOW."""
+    alike = collections.defaultdict(list)
+    for r in runs:
+        if "error" not in r:
+            alike[tuple(sorted((k, str(v)) for k, v in r["labels"].items() if k != "round"))].append(r)
+    for group in alike.values():
+        for name, *_ in GAUGES:
+            vals = sorted(r["gauge"][name] for r in group if name in r["gauge"])
+            if len(vals) < 2:
+                continue
+            for r in group:
+                v = r["gauge"].get(name)
+                if v and vals[0] and v / vals[0] > SLOW:
+                    r.setdefault("gauge_off", {})[name] = v / vals[0]
+
+
 def summarise(path, given, end=None):
     labels = labels_of(path, given)
     out = {"dir": path, "labels": labels, "label": label_text(labels) or os.path.basename(path.rstrip("/"))}
@@ -331,6 +374,7 @@ def summarise(path, given, end=None):
         starts = [e for e in run.events if e["n"] in SMOKE_STARTS and e["pid"] == host]
         out["from"] = "host" if starts else "rig.input"
     recs = [analyse(st, win, host, stamped, end) for st, win in windows(run, starts)]
+    out["gauge"] = gauges(run.events)
     hits = [r for r in recs if "e2e" in r]
     e2e = sorted(r["e2e"] for r in hits)
     out.update({
@@ -428,6 +472,17 @@ def markdown(runs):
     md += ["## End to end", ""]
     md += table(["run", "inputs", "misses", "p50", "p95", "p99"],
                 [[r["label"], r["inputs"], r["misses"], *(ms1(r["e2e"][p]) for p in PCTS)] for r in ok], 1)
+    if any(r["gauge"] for r in ok):
+        md += ["", "## Gauge", "",
+               "Each run's median time per unit at fixed work. A run flagged took over "
+               f"{SLOW}× the fastest of the runs alike but for their round: its machine ran slower, "
+               "so leave it out of a comparison, or compare it with runs flagged alike.", ""]
+        rows = []
+        for r in ok:
+            off = r.get("gauge_off", {})
+            rows.append([r["label"], *(f"{r['gauge'][g]:.1f}" if g in r["gauge"] else "–" for g, *_ in GAUGES),
+                         ", ".join(f"{g} ×{v:.1f}" for g, v in off.items()) or "–"])
+        md += table(["run", *(g for g, *_ in GAUGES), "flag"], rows, 1)
     names = sorted({k for r in ok for k in r.get("shares", ())}, key=share_rank)
     md += ["", "## Waterfall", "",
            "Each pP row is the input at pP of end to end, split by process; mean is every input's "
@@ -496,6 +551,9 @@ def as_json(runs):
         if r.get("end"):
             j["end"] = r["end"]
         j["e2e_ms"] = pcts(r["e2e"])
+        j["gauge_ns"] = r["gauge"]
+        if "gauge_off" in r:
+            j["gauge_off"] = r["gauge_off"]
         j["stages"] = [{"name": s["name"], "proc": s["proc"], "n": s["n"], "at_ms": pcts(s["at"]),
                         "span_ms": pcts(s["dur"]) if s["dur"] else None} for s in r["stages"]]
         if "waterfall" in r:
@@ -526,6 +584,7 @@ def main(argv):
             ap.error(f"--label {kv!r}: not k=v")
         given[k] = v
     runs = [summarise(d, given, args.end) for d in args.dirs]
+    flag_gauges(runs)
     seen = collections.Counter(r["label"] for r in runs)
     for r in runs:
         if seen[r["label"]] > 1:
