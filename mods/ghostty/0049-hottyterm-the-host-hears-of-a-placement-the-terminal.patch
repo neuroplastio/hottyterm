@@ -1,0 +1,228 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Sun, 1 Nov 2026 02:04:56 +0100
+Subject: [PATCH 49/49] hottyterm: the host hears of a placement the terminal
+ removed (SPEC 5.4)
+
+A placement can go without the program removing it (SPEC 5.4): the line
+it was placed on leaves the scrollback, or an erase or an eviction takes
+its image. prune() forgot such a placement but left hotty-blitz with the
+surface placed: a surface that had the keyboard kept it off screen, and
+a backdrop stayed one, though hotty 0.6 makes b=1 the placement's.
+
+- prune() now asks what became of each placement (fate). Gone with its
+  image (an erase, an eviction): forgotten, as before. The placement
+  gone and the image kept, which is what a line leaving the scrollback
+  does to a kitty placement: hidden, as a=hide hides, so placing it
+  again sends no pixels. Before, this went unnoticed until the image
+  went too. Left behind on the alternate screen: deleted with a=del, as
+  before.
+- Each that was placed and stays a surface is unplaced in the host
+  (hotty_host_unplaced, hotty-blitz 0.6.0): the keyboard goes back to
+  the terminal, with a blur the program hears now, a drag ends, and it
+  is no backdrop until a placement makes it one.
+- deleteSurface() drops only what the host answered to its own a=del,
+  not replies collected before it.
+- A test, "Hotty.fate", covers each case.
+
+Only src/termio/hotty.zig changes: no line in an upstream file.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig | 155 +++++++++++++++++++++++++++++++++++++------
+ 1 file changed, 135 insertions(+), 20 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 195f66441..8b21b2d2d 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -237,6 +237,7 @@ extern fn hotty_host_redeliver(h: *Host, surface: [*:0]const u8) void;
+ extern fn hotty_host_render(h: *Host, ctx: ?*anyopaque, cb: FrameFn) void;
+ extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;
+ extern fn hotty_host_reset(h: *Host, fx: ?*const Effects) void;
++extern fn hotty_host_unplaced(h: *Host, surface: [*:0]const u8, fx: ?*const Effects) void;
+ extern fn hotty_host_pointer(h: *Host, surface: [*:0]const u8, kind: u32, x: f32, y: f32, mods: u32, count: u32, fx: *const Effects) void;
+ extern fn hotty_host_key_bytes(h: *Host, data: [*]const u8, len: usize, fx: *const Effects) bool;
+ extern fn hotty_host_key_pressed(h: *Host, physical: ?[*]const u8, physical_len: usize, other: ?[*]const u8, other_len: usize, fx: *const Effects) bool;
+@@ -1330,43 +1331,111 @@ pub const Hotty = struct {
+         self.schedule(t);
+     }
+ 
+-    /// Forgets placements whose image is gone: scrolled out of the
+-    /// scrollback, erased, or left behind on the alternate screen. The
+-    /// document stays, so the program can place it again (SPEC §5.4),
+-    /// except when the terminal left the alternate screen the surface was
+-    /// placed on: then the surface goes with it. An erase on the alternate
+-    /// screen (a full-screen program repainting) only takes the placement.
++    /// What became of a surface's placement since `prune` last looked.
++    const Fate = enum {
++        /// As it was: placed, or hidden with its image kept.
++        stays,
++        /// The placement went and the image stayed: the line it was on
++        /// left the scrollback, which takes a kitty placement, not its
++        /// image.
++        unplaced,
++        /// The image went, and its placement with it: erased (ED 2), or
++        /// evicted.
++        gone,
++        /// Placed on the alternate screen, which the terminal left.
++        left_alt,
++    };
++
++    fn fate(t: *terminal.Terminal, p: Placed) Fate {
++        if (p.screen == .alternate and t.screens.active_key != .alternate) return .left_alt;
++        const s = t.screens.get(p.screen) orelse return .gone;
++        const storage = &s.kitty_images;
++        if (!storage.images.contains(p.image_id)) return .gone;
++        if (p.hidden) return .stays;
++        const placement = storage.placements.get(.{
++            .image_id = p.image_id,
++            .placement_id = .{ .tag = .external, .id = 1 },
++        }) orelse return .unplaced;
++        return switch (placement.location) {
++            .pin => |pin| if (pin.garbage) .unplaced else .stays,
++            .virtual, .relative => .stays,
++        };
++    }
++
++    /// Follows what the terminal did to placements on its own (SPEC §5.4,
++    /// `fate`). One whose line left the scrollback is hidden, its image
++    /// kept, so placing it again sends no pixels. One whose image is gone
++    /// is forgotten; the document stays, so the program can place it
++    /// again. An erase on the alternate screen (a full-screen program
++    /// repainting) only takes the placement. When the terminal left the
++    /// alternate screen the surface was placed on, the surface goes with
++    /// it. Each that was placed and stays a surface is unplaced in the host
++    /// (`unplaced`).
+     fn prune(self: *Hotty, t: *terminal.Terminal) void {
+-        const Gone = struct { name: []const u8, left_alt: bool };
++        const Gone = struct { name: []const u8, fate: Fate };
+         var gone: [16]Gone = undefined;
+         var n: usize = 0;
+         var it = self.placed.iterator();
+         while (it.next()) |e| {
+-            const p = e.value_ptr.*;
+-            const left_alt = p.screen == .alternate and t.screens.active_key != .alternate;
+-            const alive = if (t.screens.get(p.screen)) |s| s.kitty_images.images.contains(p.image_id) else false;
+-            if (alive and !left_alt) continue;
+-            gone[n] = .{ .name = e.key_ptr.*, .left_alt = left_alt };
++            const f = fate(t, e.value_ptr.*);
++            if (f == .stays) continue;
++            gone[n] = .{ .name = e.key_ptr.*, .fate = f };
+             n += 1;
+             if (n == gone.len) break;
+         }
+-        for (gone[0..n]) |g| {
+-            const kv = self.placed.fetchRemove(g.name) orelse continue;
+-            defer self.alloc.free(kv.key);
+-            if (!g.left_alt) continue;
+-            self.deleteImage(t, kv.value);
+-            self.deleteSurface(kv.key);
+-        }
++        var told = false;
++        for (gone[0..n]) |g| switch (g.fate) {
++            .stays => unreachable,
++            .unplaced => {
++                const p = self.placed.getPtr(g.name) orelse continue;
++                self.deletePlacement(t, p.*);
++                p.hidden = true;
++                self.unplaced(g.name);
++                told = true;
++            },
++            .gone => {
++                const kv = self.placed.fetchRemove(g.name) orelse continue;
++                defer self.alloc.free(kv.key);
++                if (kv.value.hidden) continue;
++                self.unplaced(kv.key);
++                told = true;
++            },
++            .left_alt => {
++                const kv = self.placed.fetchRemove(g.name) orelse continue;
++                defer self.alloc.free(kv.key);
++                self.deleteImage(t, kv.value);
++                self.deleteSurface(kv.key);
++            },
++        };
++        // A blur goes to the program now, not with the next frame.
++        if (told) self.sendReplies();
++    }
++
++    /// The terminal removed the placement of surface `name` and keeps the
++    /// surface (SPEC §5.4): the host does what `a=hide` does but remove
++    /// it. The keyboard goes back to the terminal (`blur`), a drag ends,
++    /// and the surface is no backdrop until a placement makes it one
++    /// (hotty 0.6, §5.2).
++    fn unplaced(self: *Hotty, name: []const u8) void {
++        if (std.mem.eql(u8, name, menu_name)) return;
++        const h = self.hostReady() orelse return;
++        var buf: [73]u8 = undefined;
++        const z = std.mem.printSentinel(&buf, "{s}", .{name}, 0) catch return;
++        const fx = self.effects();
++        hotty_host_unplaced(h, z.ptr, &fx);
+     }
+ 
+     /// Deletes a surface's document, as the program's `a=del:s=` would.
++    /// What the host answers is not the program's, which sent no `a=del`;
++    /// what was already collected for it stays.
+     fn deleteSurface(self: *Hotty, name: []const u8) void {
+         const h = self.hostReady() orelse return;
+         var buf: [128]u8 = undefined;
+         const body = std.fmt.bufPrint(&buf, "a=del:s={s}", .{name}) catch return;
+         const fx = self.effects();
++        const keep = self.replies.items.len;
+         hotty_host_osc(h, body.ptr, body.len, &fx);
+-        self.replies.clearRetainingCapacity();
++        self.replies.shrinkRetainingCapacity(keep);
+         self.clearRemoves();
+     }
+ 
+@@ -3475,3 +3544,49 @@ test "Hotty.isBackdrop" {
+     try t.expect(!Hotty.isBackdrop(id_base - 1, std.math.minInt(i32)));
+     try t.expect(!Hotty.isBackdrop(id_base + id_span, std.math.minInt(i32)));
+ }
++
++test "Hotty.fate: a backdrop's placement the terminal removed" {
++    const t = std.testing;
++    const alloc = t.allocator;
++    const io = t.io;
++    var term = try terminal.Terminal.init(io, alloc, .{ .cols = 4, .rows = 3 });
++    defer term.deinit(alloc);
++    const s = term.screens.active;
++    const storage = &s.kitty_images;
++    try storage.addImage(io, alloc, s, .{ .id = id_base });
++    const pin = try s.pages.trackPin(s.pages.pin(.{ .active = .{} }).?);
++    try storage.addPlacement(io, alloc, s, id_base, 1, .{ .location = .{ .pin = pin } });
++    var p: Placed = .{
++        .image_id = id_base,
++        .cols = 4,
++        .rows = 1,
++        .win = .{ .x = 0, .y = 0, .w = 4, .h = 1 },
++        .z = 0,
++        .created = 0,
++        .backdrop = true,
++        .screen = .primary,
++    };
++    try t.expectEqual(Hotty.Fate.stays, Hotty.fate(&term, p));
++    // The line it was on left the scrollback: kitty takes the placement
++    // and keeps the image, so the host is told (SPEC §5.4) and the surface
++    // is no backdrop (§5.2).
++    pin.garbage = true;
++    try t.expectEqual(Hotty.Fate.unplaced, Hotty.fate(&term, p));
++    // Hidden then (`prune`), it has no placement left to lose.
++    p.hidden = true;
++    try t.expectEqual(Hotty.Fate.stays, Hotty.fate(&term, p));
++    // A placement deleted under it, the image kept, is unplaced too.
++    p.hidden = false;
++    storage.delete(io, alloc, &term, .{ .id = .{ .image_id = id_base, .delete = false } });
++    try t.expect(storage.images.contains(id_base));
++    try t.expectEqual(Hotty.Fate.unplaced, Hotty.fate(&term, p));
++    // The image gone (an erase, an eviction), hidden or not.
++    storage.delete(io, alloc, &term, .{ .id = .{ .image_id = id_base, .delete = true } });
++    try t.expectEqual(Hotty.Fate.gone, Hotty.fate(&term, p));
++    p.hidden = true;
++    try t.expectEqual(Hotty.Fate.gone, Hotty.fate(&term, p));
++    // Placed on the alternate screen, which the terminal left: the surface
++    // goes (`a=del`).
++    p.screen = .alternate;
++    try t.expectEqual(Hotty.Fate.left_alt, Hotty.fate(&term, p));
++}
