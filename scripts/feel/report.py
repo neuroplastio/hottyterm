@@ -24,7 +24,15 @@ Windows
   frame that answers it. That frame is the first draw (DRAWS) to start
   once the host's first response (RESPONSES: the output parsed, or the
   surfaces rendered after input the host handles) after its input stamp
-  is done. On Linux, --end term.snapshot on runs with their rig.pixels
+  is done. A parse whose commands hotty-blitz handles for a surface is
+  done once the surface's paint after it is delivered (blitz.deliver):
+  hottyterm paints off the terminal's lock (mods/ghostty 0045), and a
+  draw can start between the parse and the paint, with the cells alone.
+  On Linux GTK takes a later frame anyway; on macOS each draw sets the
+  layer's contents, and one input of plx-perf's 135 ended 16 ms early on
+  it (gov R-22). The end is the first change on screen, as rig.pixels is:
+  for a key a surface echoes, the echo's frame, not the program's answer
+  after it. On Linux, --end term.snapshot on runs with their rig.pixels
   taken out finds the same inputs' frames.
 - A trace without rig lines (a smoke run) gets windows from the host's own
   input stamps (SMOKE_STARTS: term.key, term.button, term.wheel), each to
@@ -218,6 +226,14 @@ def host_end(win, host, end):
     if resp is None:
         return None
     done = resp["t"] + resp.get("dur", 0)
+    if resp["n"] == "term.parse":
+        # A parse that changed a surface: done once that paint is delivered.
+        blitz = [e for e in win if e["pid"] == host and e["proc"] == "blitz"]
+        if any(e["n"] == "blitz.handle" and e.get("a", {}).get("s")
+               and resp["t"] <= e["t"] <= done for e in blitz):
+            paint = next((e for e in blitz if e["n"] == "blitz.deliver" and e["t"] >= resp["t"]), None)
+            if paint is not None:
+                done = max(done, paint["t"] + paint.get("dur", 0))
     draw = next((e for e in own if e["n"] in DRAWS and e["t"] >= done), None)
     if draw is None:
         return None
