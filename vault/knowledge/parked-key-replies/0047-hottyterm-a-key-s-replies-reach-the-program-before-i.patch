@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Sun, 1 Nov 2026 01:41:42 +0100
+Subject: [PATCH 47/47] hottyterm: a key's replies reach the program before its
+ echo is painted
+
+A key for the surface holding the keyboard went to hotty-blitz, then the
+surface painted its echo, inline under the terminal's lock, and only then
+did `deliver` queue the key's replies (the keys the surface didn't use and
+the events it heard) for the pty. A program that answers the key, such as
+plx's palette filtering its list, began only once the echo was painted.
+
+`keyPressed` and `keyBytes` now send the replies to the IO thread's
+mailbox, and wake it, before they paint. The order of the replies is
+kept; what the paint finds for the program (`fit`, `caret`) follows them
+in `deliver`, as before.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig | 18 ++++++++++++++++++
+ 1 file changed, 18 insertions(+)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 4723b9c44..69944a158 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -1200,6 +1200,22 @@ pub const Hotty = struct {
+         handler.termio_messaged = true;
+     }
+ 
++    /// A key's replies, sent before its echo is painted (gov R-22): a
++    /// program that answers the key, such as plx's palette, then works while
++    /// the surface paints instead of after it. They keep their order, and
++    /// what the paint finds for the program (`fit`, `caret`) follows them.
++    /// The callers hold the lock, which a full mailbox's send lets go
++    /// meanwhile, as `osc`'s does; none runs read-only.
++    fn sendKeyReplies(self: *Hotty) void {
++        if (self.replies.items.len == 0) return;
++        const handler = self.streamHandler();
++        // Out of memory: `deliver` tries again after the paint.
++        const msg = termio.Message.writeReq(self.alloc, self.replies.items) catch return;
++        self.replies.clearRetainingCapacity();
++        handler.termio_mailbox.send(msg, handler.renderer_state.mutex);
++        handler.termio_mailbox.notify();
++    }
++
+     /// Termio.threadEnter: the IO thread's loop, for the timer and the
+     /// wakeup.
+     pub fn threadEnter(self: *Hotty, loop: *xev.Loop) void {
+@@ -2164,6 +2180,7 @@ pub const Hotty = struct {
+         const h = self.hostReady() orelse return false;
+         const fx = self.effects();
+         const consumed = hotty_host_key_pressed(h, namePtr(p.physical), p.physical.len, namePtr(p.character), p.character.len, &fx);
++        self.sendKeyReplies();
+         if (self.render(t)) self.drew = true;
+         // A key that scrolled shows scrollbars, which fade.
+         self.schedule(t);
+@@ -2178,6 +2195,7 @@ pub const Hotty = struct {
+         if (bytes.len == 0) return false;
+         const fx = self.effects();
+         const consumed = hotty_host_key_bytes(h, bytes.ptr, bytes.len, &fx);
++        self.sendKeyReplies();
+         if (self.render(t)) self.drew = true;
+         // A key that scrolled shows scrollbars, which fade.
+         self.schedule(t);
