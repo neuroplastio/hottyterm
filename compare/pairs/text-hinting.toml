@@ -1,0 +1,37 @@
+# How hotty-blitz hints text at a fractional scale: two experiments, neither
+# on hotty-blitz's main. At 1.6x, IBM Plex Sans's own TrueType instructions
+# round its x-height down at the Compact sizes (11 rows at 14 px, where its
+# outlines are 11.56), so Compact text in a surface comes out shorter and
+# lighter than Chromium draws it. hotty-blitz tue/hint-none (2c03247) stops
+# hinting above a scale of 1 (mods/blitz 0050); tue/hint-light (6afe08d)
+# hints with skrifa's automatic hinter in its light mode, which rounds the
+# x-height to the nearest row (mods/glifo 0002). Both carry tue/emoji's
+# colour emoji fix and nothing else. Both sides are hottyterm built the same
+# way (scripts/compare-build.sh), at 8f8cc90, and show hotty-surf's demo
+# (f8997df) on its agents screen at the Compact density; f1 to f4 switch
+# screens. The maintainer's Ghostty config is copied in, so the font and
+# scale are the desktop's own.
+brief = "Read the text in both windows: which looks right, A or B?"
+track = "text"
+hottyterm = "$SIDE_DIR/bin/hottyterm"
+seed = ["config/ghostty"]
+
+[before]
+label = "hotty-blitz tue/hint-none 2c03247 (no hinting above 1x), in hottyterm 8f8cc90"
+build = '''
+"$COMPARE_REPO/scripts/compare-build.sh" 8f8cc90 2c03247
+rm -rf "$SIDE_WORK/surf" && mkdir -p "$SIDE_WORK/surf"
+git -C "$NEUROPLASTIO/hotty-surf/main" archive f8997df | tar -x -C "$SIDE_WORK/surf"
+cd "$SIDE_WORK/surf" && MISE_TRUSTED_CONFIG_PATHS="$SIDE_WORK/surf" mise x -- go build -o "$SIDE_DIR/bin/surfdemo" ./cmd/surfdemo
+'''
+run = 'exec "$SIDE_DIR/bin/surfdemo" -switch -screen agents -density compact'
+
+[after]
+label = "hotty-blitz tue/hint-light 6afe08d (the autohinter, light), in hottyterm 8f8cc90"
+build = '''
+"$COMPARE_REPO/scripts/compare-build.sh" 8f8cc90 6afe08d
+rm -rf "$SIDE_WORK/surf" && mkdir -p "$SIDE_WORK/surf"
+git -C "$NEUROPLASTIO/hotty-surf/main" archive f8997df | tar -x -C "$SIDE_WORK/surf"
+cd "$SIDE_WORK/surf" && MISE_TRUSTED_CONFIG_PATHS="$SIDE_WORK/surf" mise x -- go build -o "$SIDE_DIR/bin/surfdemo" ./cmd/surfdemo
+'''
+run = 'exec "$SIDE_DIR/bin/surfdemo" -switch -screen agents -density compact'
