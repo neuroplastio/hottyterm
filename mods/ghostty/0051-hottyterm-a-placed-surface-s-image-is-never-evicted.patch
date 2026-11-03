@@ -1,0 +1,157 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Tue, 3 Nov 2026 18:43:26 +0100
+Subject: [PATCH 51/51] hottyterm: a placed surface's image is never evicted
+
+Each hotty surface is a kitty image in its screen's image storage.
+Past image-storage-limit (320 MB a screen by default), the storage
+evicted the oldest images first, and those are the static surfaces: a
+focus ring, a dock, a tool at rest. prune then forgot the surface and
+told hotty-blitz it was unplaced (SPEC 5.4), but the program had not
+asked for that and nothing made it place the surface again, so the
+surface stayed blank until a restart. A workspace manager with many
+surfaces hit it after a while.
+
+A placed surface's image is now kept (Image.evictable = false, the
+previous patch): other kitty images go first, and a hotty image never
+does. It still counts toward the limit. Nothing else bounds what
+surfaces take: hotty-blitz takes a surface up to 1000 by 1000 cells and
+any number of them, and SPEC 13 names no surface limit it enforces. So
+past the limit, with only surfaces left, a new image or surface fails
+as one over the limit does. A hidden surface's image may go: it only
+saves sending pixels, and showing the surface again draws it anew.
+
+The other ways a surface's image goes without the program asking (an
+erase, a delete by another program, Cmd+K, RIS, the limit set to 0)
+still follow SPEC 5.4 as before (prune, unplaced, reset).
+
+Lines added to upstream files: none (hotty.zig only). Test: a placed
+surface's image stays while a program's images make room for each
+other, and goes once hidden (Hotty.keepImage).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig | 71 ++++++++++++++++++++++++++++++++++++++++++--
+ 1 file changed, 69 insertions(+), 2 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 8b21b2d2d..5646d207c 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -931,6 +931,7 @@ pub const Hotty = struct {
+             if (self.placed.getPtr(name)) |p| {
+                 self.deletePlacement(t, p.*);
+                 p.hidden = true;
++                keepImage(t, p.*);
+             }
+         }
+         self.clearHides();
+@@ -975,6 +976,7 @@ pub const Hotty = struct {
+         e.created = p.created;
+         e.backdrop = p.backdrop;
+         e.hidden = false;
++        keepImage(t, e.*);
+         if (p.move_cursor) moveCursor(t, p.win.h);
+         return true;
+     }
+@@ -1362,6 +1364,22 @@ pub const Hotty = struct {
+         };
+     }
+ 
++    /// A placed surface's image stays when the storage evicts to make room
++    /// for another image (`Image.evictable`): it is the program's interface
++    /// on screen, and nothing would tell the program to place it again, so
++    /// the surface would stay blank. The image still counts toward
++    /// `image-storage-limit`: nothing else bounds what surfaces take (a
++    /// surface may be 1000 by 1000 cells, and there may be any number), so
++    /// past the limit a new image or surface fails as one over the limit
++    /// does, and other kitty images are evicted first. A hidden surface's
++    /// image may go: it only saves pixels, and showing the surface again
++    /// without it draws it anew (`show`, `prune`).
++    fn keepImage(t: *terminal.Terminal, p: Placed) void {
++        const s = t.screens.get(p.screen) orelse return;
++        const img = s.kitty_images.images.getPtr(p.image_id) orelse return;
++        img.evictable = p.hidden;
++    }
++
+     /// Follows what the terminal did to placements on its own (SPEC §5.4,
+     /// `fate`). One whose line left the scrollback is hidden, its image
+     /// kept, so placing it again sends no pixels. One whose image is gone
+@@ -1390,6 +1408,7 @@ pub const Hotty = struct {
+                 const p = self.placed.getPtr(g.name) orelse continue;
+                 self.deletePlacement(t, p.*);
+                 p.hidden = true;
++                keepImage(t, p.*);
+                 self.unplaced(g.name);
+                 told = true;
+             },
+@@ -2038,7 +2057,7 @@ pub const Hotty = struct {
+         if (!self.exec(t, &cmd)) return error.PlaceFailed;
+         const owned = try self.alloc.dupe(u8, name);
+         errdefer self.alloc.free(owned);
+-        try self.placed.put(self.alloc, owned, .{
++        const entry: Placed = .{
+             .image_id = id,
+             .cols = p.cols,
+             .rows = p.rows,
+@@ -2047,7 +2066,9 @@ pub const Hotty = struct {
+             .created = p.created,
+             .backdrop = p.backdrop,
+             .screen = t.screens.active_key,
+-        });
++        };
++        try self.placed.put(self.alloc, owned, entry);
++        keepImage(t, entry);
+         if (p.move_cursor) moveCursor(t, p.win.h);
+     }
+ 
+@@ -3590,3 +3611,49 @@ test "Hotty.fate: a backdrop's placement the terminal removed" {
+     p.screen = .alternate;
+     try t.expectEqual(Hotty.Fate.left_alt, Hotty.fate(&term, p));
+ }
++
++test "Hotty.keepImage: eviction passes over a placed surface's image" {
++    const t = std.testing;
++    const alloc = t.allocator;
++    const io = t.io;
++    var term = try terminal.Terminal.init(io, alloc, .{ .cols = 4, .rows = 3 });
++    defer term.deinit(alloc);
++    const s = term.screens.active;
++    const storage = &s.kitty_images;
++    storage.total_limit = 3 * 64;
++    const px = struct {
++        fn new() ![]u8 {
++            const b = try std.testing.allocator.alloc(u8, 64);
++            @memset(b, 0xff);
++            return b;
++        }
++    };
++    // A static surface, placed first: the oldest image, so the first to
++    // go were it not kept.
++    try storage.addImage(io, alloc, s, .{ .id = id_base, .width = 4, .height = 4, .format = .rgba, .data = .{ .complete = try px.new() } });
++    var p: Placed = .{
++        .image_id = id_base,
++        .cols = 4,
++        .rows = 1,
++        .win = .{ .x = 0, .y = 0, .w = 4, .h = 1 },
++        .z = 0,
++        .created = 0,
++        .screen = .primary,
++    };
++    Hotty.keepImage(&term, p);
++    // A program's kitty images, past the limit: they make room for each
++    // other, and the surface stays.
++    for (1..5) |id| try storage.addImage(io, alloc, s, .{ .id = @intCast(id), .data = .{ .complete = try px.new() } });
++    try t.expect(storage.images.contains(id_base));
++    try t.expect(!storage.images.contains(1));
++    try t.expect(!storage.images.contains(2));
++    try t.expect(storage.images.contains(3));
++    try t.expect(storage.images.contains(4));
++    try t.expect(Hotty.fate(&term, p) != .gone);
++    // Hidden, its image is only a cache, and goes like any other.
++    p.hidden = true;
++    Hotty.keepImage(&term, p);
++    try storage.addImage(io, alloc, s, .{ .id = 5, .data = .{ .complete = try px.new() } });
++    try t.expect(!storage.images.contains(id_base));
++    try t.expectEqual(Hotty.Fate.gone, Hotty.fate(&term, p));
++}

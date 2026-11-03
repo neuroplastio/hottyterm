@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Sat, 31 Oct 2026 13:00:08 +0100
-Subject: [PATCH 48/49] hottyterm: a backdrop bleeds to the window's edges
+Subject: [PATCH 48/51] hottyterm: a backdrop bleeds to the window's edges
  (V6-06)
 
 A backdrop that reaches an edge of the grid goes on to the window's edge,

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Sun, 1 Nov 2026 02:04:56 +0100
-Subject: [PATCH 49/49] hottyterm: the host hears of a placement the terminal
+Subject: [PATCH 49/51] hottyterm: the host hears of a placement the terminal
  removed (SPEC 5.4)
 
 A placement can go without the program removing it (SPEC 5.4): the line
