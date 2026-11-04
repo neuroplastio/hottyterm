@@ -10,28 +10,18 @@
 #    hoc and needs no developer team, linking hotty-blitz's static library.
 #
 # Needs Xcode 26 (xcode-select), mise (Zig here, Rust in hotty-blitz), the
-# fork at ../ghostty (scripts/fork.sh) and hotty-blitz next to this
-# repository or at HOTTY_BLITZ_DIR.
+# fork at ../ghostty (scripts/fork.sh) and the local hotty-blitz repository
+# (../../hotty-blitz/main). As scripts/build.sh does, hotty-blitz is built at
+# the commit in hotty-blitz-ref, in a work dir made by scripts/lib-blitz.sh;
+# HOTTY_BLITZ_DIR=<path> builds a live checkout instead, with a loud banner
+# when it is not the pin. CI sets it to its own checkout, which is the pin.
 set -eu
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 FORK="${HOTTYTERM_GHOSTTY:-$(dirname "$HERE")/ghostty}"
 ZIG="$(cd "$HERE" && mise which zig)"
 
-blitz_dir() {
-  for d in "${HOTTY_BLITZ_DIR:-}" "$(dirname "$HERE")/../hotty-blitz/main" "$(dirname "$HERE")/hotty-blitz"; do
-    [ -n "$d" ] && [ -f "$d/crates/hotty-blitz/include/hotty_blitz.h" ] && { (cd "$d" && pwd); return; }
-  done
-  echo "no hotty-blitz checkout: set HOTTY_BLITZ_DIR" >&2; exit 1
-}
-BLITZ="$(blitz_dir)"
-
-# CI builds the commit in hotty-blitz-ref; a local build takes the checkout as
-# it is, and says so when that is anything else.
-pin="$(grep -v '^#' "$HERE/hotty-blitz-ref" | head -1)"
-at="$(git -C "$BLITZ" rev-parse HEAD 2>/dev/null || echo unknown)"
-if [ "$at" != "$pin" ] || [ -n "$(git -C "$BLITZ" status --porcelain 2>/dev/null)" ]; then
-  echo "note: building hotty-blitz as checked out in $BLITZ ($(echo "$at" | cut -c1-7), with its changes), not hotty-blitz-ref's $(echo "$pin" | cut -c1-7)" >&2
-fi
+. "$HERE/scripts/lib-blitz.sh"
+select_blitz
 LIB="$BLITZ/target/release"
 
 echo "== hotty-blitz"

@@ -1,4 +1,4 @@
-# Sourced by scripts/build.sh and scripts/compare-build.sh: hotty-blitz at a
+# Sourced by scripts/build.sh, scripts/build-macos.sh and scripts/compare-build.sh: hotty-blitz at a
 # commit, with the forks its Cargo.toml patches in, from the local repositories
 # beside this one (git clone --shared), never from the network. Nothing in
 # those repositories changes.
@@ -46,5 +46,51 @@ blitz_tree() { # <root> <commit> <work>
   if [ -f "$B/stylo/mod.md" ]; then
     at "$root/stylo" "$tw/stylo" "$(base_of "$B/stylo/mod.md")" hotty
     apply "$tw/stylo" "$B/stylo"
+  fi
+}
+
+# Sets BLITZ to the hotty-blitz tree to build: the work dir at hotty-blitz-ref
+# (made on first use), or HOTTY_BLITZ_DIR, a live checkout, with a banner when
+# it is not the pin. Needs HERE (this repository); CACHE defaults like
+# build.sh's. Shared by build.sh and build-macos.sh.
+select_blitz() {
+  CACHE="${CACHE:-${XDG_CACHE_HOME:-$HOME/.cache}/hotty}"
+  pin="$(grep -v '^#' "$HERE/hotty-blitz-ref" | head -1)"
+  if [ -n "${HOTTY_BLITZ_DIR:-}" ]; then
+    [ -f "$HOTTY_BLITZ_DIR/crates/hotty-blitz/include/hotty_blitz.h" ] || { echo "HOTTY_BLITZ_DIR=$HOTTY_BLITZ_DIR is no hotty-blitz checkout" >&2; exit 1; }
+    BLITZ="$(cd "$HOTTY_BLITZ_DIR" && pwd)"
+    at="$(git -C "$BLITZ" rev-parse HEAD 2>/dev/null || echo unknown)"
+    dirty="$(git -C "$BLITZ" status --porcelain 2>/dev/null)"
+    if [ "$at" != "$pin" ] || [ -n "$dirty" ]; then
+      {
+        echo "################################################################"
+        echo "# NOT THE PIN: hotty-blitz is built from HOTTY_BLITZ_DIR, a live checkout."
+        echo "#   checkout:        $BLITZ"
+        echo "#   at:              $(echo "$at" | cut -c1-7)$([ -n "$dirty" ] && echo ", DIRTY ($(echo "$dirty" | wc -l | tr -d ' ') changed paths)")"
+        echo "#   hotty-blitz-ref: $(echo "$pin" | cut -c1-7)"
+        echo "# This is not what CI ships; make check proves nothing about the pin."
+        echo "################################################################"
+      } >&2
+    fi
+  else
+    # The work dir: one per commit, under the cache that already holds
+    # blueprint-compiler, so it lives outside the repository and survives
+    # clean checkouts; the pin names it, so a moved pin cannot reuse another's.
+    HB="$(dirname "$(dirname "$HERE")")/hotty-blitz"
+    sha="$(git -C "$HB/main" rev-parse --verify -q "$pin^{commit}" 2>/dev/null)" || {
+      echo "hotty-blitz-ref names $pin, which the hotty-blitz repository at $HB/main does not have." >&2
+      echo "Fetch it there: git -C $HB/main fetch origin   (nothing here fetches for you)" >&2
+      echo "If the fetch fails (SSH), fix that first; or build a live checkout: HOTTY_BLITZ_DIR=<path>." >&2
+      exit 1
+    }
+    W="$CACHE/hottyterm-build/hotty-blitz-$(echo "$sha" | cut -c1-12)"
+    if [ ! -f "$W/.ready" ]; then
+      rm -rf "$W.tmp"; mkdir -p "$W.tmp"
+      blitz_tree "$HB" "$sha" "$W.tmp"
+      rm -rf "$W"; mv "$W.tmp" "$W"; echo "$sha" > "$W/.ready"
+    fi
+    BLITZ="$W/hotty-blitz"
+    # A path new to mise: hotty-blitz's own mise.toml.
+    export MISE_TRUSTED_CONFIG_PATHS="$BLITZ${MISE_TRUSTED_CONFIG_PATHS:+:$MISE_TRUSTED_CONFIG_PATHS}"
   fi
 }

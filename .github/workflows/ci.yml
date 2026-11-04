@@ -251,7 +251,11 @@ jobs:
       - name: Fork
         run: hottyterm/main/scripts/fork.sh
 
+      # HOTTY_BLITZ_DIR: build the checkout above, which is the pin; a runner
+      # has no local hotty-blitz repository to make a work dir from.
       - name: Build
+        env:
+          HOTTY_BLITZ_DIR: ${{ github.workspace }}/hotty-blitz/main
         run: hottyterm/main/scripts/build-macos.sh
 
       - name: Save caches

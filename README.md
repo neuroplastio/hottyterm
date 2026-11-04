@@ -409,7 +409,9 @@ it fails.
 `scripts/build-macos.sh` builds `out/hottyterm.app` for Apple silicon on a Mac
 with Xcode 26: GhosttyKit (the framework the app links) as upstream builds it,
 then the app in Xcode's `ReleaseLocal` configuration, signed ad hoc, with
-hotty-blitz's static library added to its link. macOS blocks the first launch
+hotty-blitz's static library added to its link. It builds hotty-blitz as
+`scripts/build.sh` does: at `hotty-blitz-ref` in the cached work dir, or a live
+checkout with `HOTTY_BLITZ_DIR=<path>` and the same banner. macOS blocks the first launch
 until it is allowed in System Settings, Privacy & Security. The branding covers
 the macOS app too: bundle id `io.github.neuroplastio.hottyterm`, name, icon
 (Icon Composer bundle and image sets), menus, AppleScript dictionary and Swift
