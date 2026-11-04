@@ -1,0 +1,35 @@
+# How hotty-blitz draws a control's hairline at a fractional scale: 0.6.5
+# against 0.6.6. At 1.6x, 0.6.5 drew the 1px inset ring round a button, field
+# or select 1.25 to 2.09 device pixels wide, uneven from side to side, and
+# Chromium draws it 1.05 to 1.59. 0.6.6 (mods/blitz 0051) paints a box on
+# device pixels and makes the ring floor(1px x scale) wide, at least 1, so
+# every side is 1 device pixel. The difference is only hotty-blitz's: both
+# sides are hottyterm built the same way (scripts/compare-build.sh) at
+# a6008e7 and show hotty-surf's demo (7074079) on its settings screen, which
+# has buttons, fields and selects; f1 to f4 switch screens. The maintainer's
+# Ghostty config is copied in, so the font and scale (1.6) are the desktop's
+# own.
+brief = "Look at the outlines round the buttons, fields and selects: which looks right, A or B?"
+track = "look"
+hottyterm = "$SIDE_DIR/bin/hottyterm"
+seed = ["config/ghostty"]
+
+[before]
+label = "hotty-blitz 0.6.5 (ef73ca0), in hottyterm a6008e7"
+build = '''
+"$COMPARE_REPO/scripts/compare-build.sh" a6008e7
+rm -rf "$SIDE_WORK/surf" && mkdir -p "$SIDE_WORK/surf"
+git -C "$NEUROPLASTIO/hotty-surf/main" archive 7074079 | tar -x -C "$SIDE_WORK/surf"
+cd "$SIDE_WORK/surf" && MISE_TRUSTED_CONFIG_PATHS="$SIDE_WORK/surf" mise x -- go build -o "$SIDE_DIR/bin/surfdemo" ./cmd/surfdemo
+'''
+run = 'exec "$SIDE_DIR/bin/surfdemo" -switch -screen settings -density roomy'
+
+[after]
+label = "hotty-blitz 0.6.6 (b8e9afc), in hottyterm e27be30"
+build = '''
+"$COMPARE_REPO/scripts/compare-build.sh" e27be30
+rm -rf "$SIDE_WORK/surf" && mkdir -p "$SIDE_WORK/surf"
+git -C "$NEUROPLASTIO/hotty-surf/main" archive 7074079 | tar -x -C "$SIDE_WORK/surf"
+cd "$SIDE_WORK/surf" && MISE_TRUSTED_CONFIG_PATHS="$SIDE_WORK/surf" mise x -- go build -o "$SIDE_DIR/bin/surfdemo" ./cmd/surfdemo
+'''
+run = 'exec "$SIDE_DIR/bin/surfdemo" -switch -screen settings -density roomy'
