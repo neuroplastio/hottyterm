@@ -136,16 +136,21 @@ jobs:
             hotty-blitz/main/target/release
             ~/.cargo/registry
             ~/.cache/zig
-          key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-${{ github.sha }}
+          key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/hotty-blitz-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-${{ github.sha }}
           restore-keys: |
-            linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-
+            linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/hotty-blitz-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-
             linux-
 
       # -Dcpu=baseline (Ghostty's PACKAGING.md): zig build targets the
       # machine it runs on by default, and a runner's CPU can have what the
       # user's lacks. 26.10.02-dev.5abc98b was built with AVX512-FP16 and
       # died with SIGILL on a Zen 5 laptop.
+      # HOTTY_BLITZ_DIR: build the checkout above, which is the pin. Without
+      # it build.sh makes its own work dir from a local hotty-blitz
+      # repository, which a runner does not have.
       - name: Build
+        env:
+          HOTTY_BLITZ_DIR: ${{ github.workspace }}/hotty-blitz/main
         run: make -C hottyterm/main mods apply build ZIG_ARGS=-Dcpu=baseline
 
       - name: Save caches
@@ -156,7 +161,7 @@ jobs:
             hotty-blitz/main/target/release
             ~/.cargo/registry
             ~/.cache/zig
-          key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-${{ github.sha }}
+          key: linux-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/hotty-blitz-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-${{ github.sha }}
 
       # bin/hottyterm finds lib/libhotty_blitz.so through its $ORIGIN rpath,
       # and through nothing else: the build also gives it hotty-blitz's
@@ -238,9 +243,9 @@ jobs:
             hotty-blitz/main/target/release
             ~/.cargo/registry
             zig-cache
-          key: macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-${{ github.sha }}
+          key: macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/hotty-blitz-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-${{ github.sha }}
           restore-keys: |
-            macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-
+            macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/hotty-blitz-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-
             macos-
 
       - name: Fork
@@ -257,7 +262,7 @@ jobs:
             hotty-blitz/main/target/release
             ~/.cargo/registry
             zig-cache
-          key: macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-${{ github.sha }}
+          key: macos-${{ hashFiles('hotty-blitz/main/Cargo.lock', 'hottyterm/main/ghostty-ref', 'hottyterm/main/hotty-blitz-ref', 'hottyterm/main/mods/ghostty/*.patch') }}-${{ github.sha }}
 
       # Signed ad hoc: macOS blocks the first launch until it is allowed in
       # System Settings, Privacy & Security.
