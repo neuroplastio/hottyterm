@@ -373,9 +373,9 @@ name `ghostty`; they matter only for an install.
 
 ## Build and run
 
-Needs a checkout of [hotty-blitz](https://github.com/neuroplastio/hotty-blitz)
-next to this repository (or `HOTTY_BLITZ_DIR`), and
-[hotty](https://github.com/neuroplastio/hotty) for the examples.
+Needs a clone of [hotty-blitz](https://github.com/neuroplastio/hotty-blitz)
+at `../../hotty-blitz/main` (its forks beside it, as its `make blitz` leaves
+them), and [hotty](https://github.com/neuroplastio/hotty) for the examples.
 
 ```sh
 mise install
@@ -388,8 +388,17 @@ scripts/perf.sh               # what dash.py costs, per thread (docs/performance
 The binary is `../ghostty/zig-out/bin/hottyterm`. Its application id is its own,
 so it runs next to an installed Ghostty.
 
-A local build takes the hotty-blitz checkout as it is, and says so when that is
-not the commit in `hotty-blitz-ref`, which CI and every release build.
+A local build always builds hotty-blitz at the commit in `hotty-blitz-ref`,
+which CI and every release build, never a checkout as it is. `scripts/build.sh`
+clones that repository at the commit, with the forks from its `mods/`, into
+`~/.cache/hotty/hottyterm-build/hotty-blitz-<sha>` (outside the repository, one
+per commit, kept so cargo stays incremental). If the repository lacks the
+commit, the build stops and says to `git fetch` in hotty-blitz; it fetches
+nothing itself.
+
+To develop against a live checkout, `HOTTY_BLITZ_DIR=<path> make build`. It
+builds that checkout, uncommitted changes included, and prints a banner when
+that is not the pin: the result is not what CI ships.
 
 `scripts/build.sh` carries one workaround for this machine: a cached
 blueprint-compiler 0.20 whose warnings on upstream's UI files are hidden unless

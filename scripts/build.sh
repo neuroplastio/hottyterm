@@ -3,8 +3,20 @@
 #
 #   scripts/build.sh [ReleaseFast|Debug] [zig build args...]
 #
-# The fork is at ../ghostty (scripts/fork.sh), hotty-blitz at HOTTY_BLITZ_DIR
-# or next to this repository. One workaround for this machine, not needing
+# The fork is at ../ghostty (scripts/fork.sh). hotty-blitz is built at the
+# commit in hotty-blitz-ref, the one CI and every release build, in a work
+# dir of its own: a clone of the local hotty-blitz repository (the sibling
+# ../../hotty-blitz/main) with the forks its mods/ describe, as
+# scripts/lib-blitz.sh makes them. No checkout of anyone's is built. The
+# commit must be in that repository; if it is not, the build stops and says
+# how to fetch it. The work dir is kept per commit, so cargo stays
+# incremental.
+#
+# To develop against a live checkout instead: HOTTY_BLITZ_DIR=<path>. It is
+# built as it is, working-tree changes included, and the build says loudly
+# when that is not the pin. CI sets it to its own checkout, which is the pin.
+#
+# One workaround for this machine, not needing
 # root: blueprint-compiler >= 0.20 is not packaged here, so a checkout is
 # cached, one per version. Ghostty runs it as a system command, and a zig
 # build step fails on any stderr, so a wrapper passes its stderr on only when
@@ -16,20 +28,44 @@ OPT="${1:-ReleaseFast}"; [ $# -gt 0 ] && shift
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/hotty"
 ZIG="$(cd "$HERE" && mise which zig)"
 
-blitz_dir() {
-  for d in "${HOTTY_BLITZ_DIR:-}" "$(dirname "$HERE")/../hotty-blitz/main" "$(dirname "$HERE")/hotty-blitz"; do
-    [ -n "$d" ] && [ -f "$d/crates/hotty-blitz/include/hotty_blitz.h" ] && { (cd "$d" && pwd); return; }
-  done
-  echo "no hotty-blitz checkout: set HOTTY_BLITZ_DIR" >&2; exit 1
-}
-BLITZ="$(blitz_dir)"
-
-# CI builds the commit in hotty-blitz-ref; a local build takes the checkout as
-# it is, and says so when that is anything else.
 pin="$(grep -v '^#' "$HERE/hotty-blitz-ref" | head -1)"
-at="$(git -C "$BLITZ" rev-parse HEAD 2>/dev/null || echo unknown)"
-if [ "$at" != "$pin" ] || [ -n "$(git -C "$BLITZ" status --porcelain 2>/dev/null)" ]; then
-  echo "note: building hotty-blitz as checked out in $BLITZ ($(echo "$at" | cut -c1-7), with its changes), not hotty-blitz-ref's $(echo "$pin" | cut -c1-7)" >&2
+if [ -n "${HOTTY_BLITZ_DIR:-}" ]; then
+  [ -f "$HOTTY_BLITZ_DIR/crates/hotty-blitz/include/hotty_blitz.h" ] || { echo "HOTTY_BLITZ_DIR=$HOTTY_BLITZ_DIR is no hotty-blitz checkout" >&2; exit 1; }
+  BLITZ="$(cd "$HOTTY_BLITZ_DIR" && pwd)"
+  at="$(git -C "$BLITZ" rev-parse HEAD 2>/dev/null || echo unknown)"
+  dirty="$(git -C "$BLITZ" status --porcelain 2>/dev/null)"
+  if [ "$at" != "$pin" ] || [ -n "$dirty" ]; then
+    {
+      echo "################################################################"
+      echo "# NOT THE PIN: hotty-blitz is built from HOTTY_BLITZ_DIR, a live checkout."
+      echo "#   checkout:        $BLITZ"
+      echo "#   at:              $(echo "$at" | cut -c1-7)$([ -n "$dirty" ] && echo ", DIRTY ($(echo "$dirty" | wc -l | tr -d ' ') changed paths)")"
+      echo "#   hotty-blitz-ref: $(echo "$pin" | cut -c1-7)"
+      echo "# This is not what CI ships; make check proves nothing about the pin."
+      echo "################################################################"
+    } >&2
+  fi
+else
+  # The work dir: one per commit, under the cache that already holds
+  # blueprint-compiler, so it lives outside the repository and survives
+  # clean checkouts; the pin names it, so a moved pin cannot reuse another's.
+  HB="$(dirname "$(dirname "$HERE")")/hotty-blitz"
+  sha="$(git -C "$HB/main" rev-parse --verify -q "$pin^{commit}" 2>/dev/null)" || {
+    echo "hotty-blitz-ref names $pin, which the hotty-blitz repository at $HB/main does not have." >&2
+    echo "Fetch it there: git -C $HB/main fetch origin   (nothing here fetches for you)" >&2
+    echo "If the fetch fails (SSH), fix that first; or build a live checkout: HOTTY_BLITZ_DIR=<path>." >&2
+    exit 1
+  }
+  W="$CACHE/hottyterm-build/hotty-blitz-$(echo "$sha" | cut -c1-12)"
+  if [ ! -f "$W/.ready" ]; then
+    rm -rf "$W.tmp"; mkdir -p "$W.tmp"
+    . "$HERE/scripts/lib-blitz.sh"
+    blitz_tree "$HB" "$sha" "$W.tmp"
+    rm -rf "$W"; mv "$W.tmp" "$W"; echo "$sha" > "$W/.ready"
+  fi
+  BLITZ="$W/hotty-blitz"
+  # A path new to mise: hotty-blitz's own mise.toml.
+  export MISE_TRUSTED_CONFIG_PATHS="$BLITZ${MISE_TRUSTED_CONFIG_PATHS:+:$MISE_TRUSTED_CONFIG_PATHS}"
 fi
 
 # 1. blueprint-compiler, configured the way meson would.
@@ -62,4 +98,4 @@ LABEL="$("$HERE/scripts/versions.sh" "$BLITZ" | sed -n 's/^label=//p')"
 cd "$FORK"
 HOTTY_BLITZ_LIB="$BLITZ/target/release" HOTTYTERM_LABEL="$LABEL" PATH="$BIN:$PATH" \
   "$ZIG" build -Doptimize="$OPT" "$@"
-echo "built $FORK/zig-out/bin/hottyterm against $BLITZ"
+echo "built $FORK/zig-out/bin/hottyterm against hotty-blitz $(git -C "$BLITZ" rev-parse --short=7 HEAD) in $BLITZ"

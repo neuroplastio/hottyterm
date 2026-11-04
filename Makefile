@@ -1,6 +1,6 @@
 # hottyterm: the Ghostty fork is ../ghostty (scripts/fork.sh); hotty-blitz is
-# HOTTY_BLITZ_DIR or next to this repository, built as checked out (CI builds
-# the commit in hotty-blitz-ref).
+# the commit in hotty-blitz-ref, built in a work dir of its own (scripts/build.sh;
+# HOTTY_BLITZ_DIR=<path> builds a live checkout instead, loudly).
 .PHONY: check mods fork apply brand build debug smoke notices canary export pin-blitz
 
 check: mods apply build smoke   ## the gate

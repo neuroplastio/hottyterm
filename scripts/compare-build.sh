@@ -21,29 +21,7 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 CODE="$(dirname "$(dirname "$HERE")")"
 W="$SIDE_WORK"
 
-# A fresh clone of a local repository, at a commit, on a branch of that name.
-at() { # <repo> <dir> <commit> <branch>
-  rm -rf "$2"
-  git clone -q --shared --no-checkout "$1" "$2"
-  git -C "$2" checkout -q -B "$4" "$3"
-}
-apply() { # <dir> <patches dir>
-  set -- "$1" "$2"/*.patch
-  dir="$1"; shift
-  [ -e "$1" ] && git -C "$dir" am -q "$@"
-  return 0
-}
-base_of() { sed -n 's/^base:[[:space:]]*\([^[:space:]#]*\).*/\1/p' "$1"; }
-# vello_cpu's base is a crates.io version, the commit hotty-blitz's
-# scripts/vello-fork.sh makes of that package: the fork's tag `published`,
-# or `published-<version>` for another version.
-published() { # <fork> <version>
-  for t in $(git -C "$1" for-each-ref --format='%(refname)' refs/tags/published 'refs/tags/published-*'); do
-    [ "$(git -C "$1" log -1 --format=%s "$t")" = "vello_cpu $2 as published on crates.io" ] && { echo "$t"; return 0; }
-  done
-  echo "compare-build: $1 has no vello_cpu $2: tag its commit published-$2" >&2
-  return 1
-}
+. "$HERE/scripts/lib-blitz.sh"
 
 # hottyterm at <ref>
 rm -rf "$W/hottyterm"; mkdir -p "$W/hottyterm"
@@ -56,21 +34,9 @@ apply "$W/ghostty" "$H/mods/ghostty"
 "$H/scripts/brand.py" "$W/ghostty"
 
 # hotty-blitz at the pin, and its forks beside it
-HB="$CODE/hotty-blitz"
+HB="$CODE/hotty-blitz"   # main, blitz, parley, vello_cpu, stylo
 HBREF="$(git -C "$HB/main" rev-parse --verify "${2:-$(grep -v '^#' "$H/hotty-blitz-ref" | head -1)}^{commit}")"
-at "$HB/main" "$W/hotty-blitz" "$HBREF" main
-B="$W/hotty-blitz/mods"
-at "$HB/blitz" "$W/blitz" "$(base_of "$B/blitz/mod.md")" hotty
-apply "$W/blitz" "$B/blitz"
-at "$HB/parley" "$W/parley" "$(base_of "$B/parley/mod.md")" hotty
-apply "$W/parley" "$B/parley"
-VC="$(published "$HB/vello_cpu" "$(base_of "$B/vello_cpu/mod.md")")"
-at "$HB/vello_cpu" "$W/vello_cpu" "$VC" hotty
-apply "$W/vello_cpu" "$B/vello_cpu"
-if [ -f "$B/stylo/mod.md" ]; then
-  at "$HB/stylo" "$W/stylo" "$(base_of "$B/stylo/mod.md")" hotty
-  apply "$W/stylo" "$B/stylo"
-fi
+blitz_tree "$HB" "$HBREF" "$W"
 
 # The two checkouts are new paths to mise: their mise.toml are this
 # repository's and hotty-blitz's own.
