@@ -1,0 +1,222 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Wed, 4 Nov 2026 21:54:46 +0100
+Subject: [PATCH 52/52] hottyterm: a program's kitty delete leaves surfaces
+ alone (SPEC 5.4)
+
+Every hotty surface is a kitty image in the screen's image storage, its
+id in hotty's range. A kitty delete from a program took those too: plx,
+relaying its panes' kitty images, sends a=d before placing them again,
+and each time every surface lost its placement, was unplaced and was
+placed again by plx. The hotty UI flashed away and back whenever a pane
+showed a picture. SPEC 5.4 lists what removes a placement, and a
+program's kitty command is not among them.
+
+- The stream's kitty graphics command goes through Hotty.kittyGraphics.
+  A delete, by any selector, runs with the active screen's surface
+  images and their placements set aside, and puts them back unchanged:
+  no allocation on the way back (a removal returns its slot to the map's
+  free count and a delete only removes), tracked pins kept, total_bytes
+  untouched. A program's own images go exactly as before.
+- A transmit, placement or animation command naming a surface's image
+  id, or placing relative to one, is refused with EINVAL (a query is let
+  through). hotty.zig's own commands still go straight to the terminal,
+  and so do the terminal's own erases, Cmd+K, scrollback pruning and RIS.
+- A test, "Hotty.kittyGraphics", covers a=d, a=d,d=A, a delete by the
+  surface's id and by a range over it, and a refused a=p.
+
+Upstream files: 1 line changed in src/termio/stream_handler.zig (the
+call in apcEnd), 0 added.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig          | 151 +++++++++++++++++++++++++++++++++-
+ src/termio/stream_handler.zig |   2 +-
+ 2 files changed, 150 insertions(+), 3 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 5646d207c..027949925 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -1056,8 +1056,7 @@ pub const Hotty = struct {
+     /// z under kitty's line for images below the cells' backgrounds
+     /// (stackZ). The renderer bleeds it into the window's padding.
+     pub fn isBackdrop(image_id: u32, z: i32) bool {
+-        return image_id >= id_base and image_id - id_base < id_span and
+-            z < std.math.minInt(i32) / 2;
++        return isSurfaceImage(image_id) and z < std.math.minInt(i32) / 2;
+     }
+ 
+     /// The cursor goes to the start of the line below a placement `rows`
+@@ -1921,6 +1920,85 @@ pub const Hotty = struct {
+         return true;
+     }
+ 
++    /// Whether a kitty image id is a surface's (`id_base`, `id_span`).
++    fn isSurfaceImage(image_id: u32) bool {
++        return image_id >= id_base and image_id - id_base < id_span;
++    }
++
++    /// Runs a kitty graphics command a program sent (the stream handler's
++    /// APC). Surfaces are kitty images only inside hottyterm, so no kitty
++    /// command a program sends touches one: SPEC §5.4 lists what removes a
++    /// placement, and a kitty delete is not among them. A multiplexer
++    /// relaying its panes' images sends `a=d` before placing them again,
++    /// which took every surface off the screen with them.
++    ///
++    /// A delete runs with the active screen's surface images and their
++    /// placements set aside, then puts them back as they were: a program's
++    /// own images go exactly as before, by any selector. The placements
++    /// keep their tracked pins, and `total_bytes` still counts the images.
++    /// A command that would make or change a surface's image or placement,
++    /// or place an image relative to one, is refused with EINVAL.
++    pub fn kittyGraphics(_: *Hotty, t: *terminal.Terminal, alloc: Allocator, cmd: *kitty.graphics.Command) ?kitty.graphics.Response {
++        const storage = &t.screens.active.kitty_images;
++        switch (cmd.control) {
++            .delete => {},
++            .query => return t.kittyGraphics(global.io(), alloc, cmd),
++            else => |c| {
++                const ids = c.identifiers();
++                const parent = switch (c) {
++                    .display => |d| d.parent_id,
++                    .transmit_and_display => |td| td.display.parent_id,
++                    else => 0,
++                };
++                if (!storage.enabled() or !(isSurfaceImage(ids.image_id) or isSurfaceImage(parent)))
++                    return t.kittyGraphics(global.io(), alloc, cmd);
++                const resp: kitty.graphics.Response = .{
++                    .id = ids.image_id,
++                    .image_number = ids.image_number,
++                    .placement_id = ids.placement_id,
++                    .message = "EINVAL: image id is reserved",
++                };
++                return switch (cmd.quiet) {
++                    .no, .ok => resp,
++                    .failures => null,
++                };
++            },
++        }
++
++        const Images = @TypeOf(storage.images);
++        const Placements = @TypeOf(storage.placements);
++        var images: std.ArrayList(Images.KV) = .empty;
++        defer images.deinit(alloc);
++        var placements: std.ArrayList(Placements.KV) = .empty;
++        defer placements.deinit(alloc);
++        images.ensureTotalCapacity(alloc, storage.images.count()) catch
++            return t.kittyGraphics(global.io(), alloc, cmd);
++        placements.ensureTotalCapacity(alloc, storage.placements.count()) catch
++            return t.kittyGraphics(global.io(), alloc, cmd);
++
++        var pit = storage.placements.iterator();
++        while (pit.next()) |e| {
++            if (!isSurfaceImage(e.key_ptr.image_id)) continue;
++            placements.appendAssumeCapacity(.{ .key = e.key_ptr.*, .value = e.value_ptr.* });
++            storage.placements.removeByPtr(e.key_ptr);
++        }
++        var iit = storage.images.iterator();
++        while (iit.next()) |e| {
++            if (!isSurfaceImage(e.key_ptr.*)) continue;
++            images.appendAssumeCapacity(.{ .key = e.key_ptr.*, .value = e.value_ptr.* });
++            storage.images.removeByPtr(e.key_ptr);
++        }
++
++        const resp = t.kittyGraphics(global.io(), alloc, cmd);
++
++        // A removal gives its slot back to the map's free count
++        // (`available`) and a delete only removes, so each goes back
++        // without allocating, under a key nothing took meanwhile.
++        for (placements.items) |kv| storage.placements.putAssumeCapacityNoClobber(kv.key, kv.value);
++        for (images.items) |kv| storage.images.putAssumeCapacityNoClobber(kv.key, kv.value);
++        return resp;
++    }
++
+     /// Runs a kitty graphics command built in memory on the active screen.
+     /// True unless the terminal reported a failure.
+     fn exec(self: *Hotty, t: *terminal.Terminal, cmd: *kitty.graphics.Command) bool {
+@@ -3657,3 +3735,72 @@ test "Hotty.keepImage: eviction passes over a placed surface's image" {
+     try t.expect(!storage.images.contains(id_base));
+     try t.expectEqual(Hotty.Fate.gone, Hotty.fate(&term, p));
+ }
++
++test "Hotty.kittyGraphics: a program's kitty deletes pass over surfaces" {
++    const t = std.testing;
++    const alloc = t.allocator;
++    const io = t.io;
++    var term = try terminal.Terminal.init(io, alloc, .{ .cols = 4, .rows = 3 });
++    defer term.deinit(alloc);
++    const s = term.screens.active;
++    const storage = &s.kitty_images;
++    var hotty: Hotty = undefined;
++    const run = struct {
++        fn run(h: *Hotty, tm: *terminal.Terminal, data: []const u8) !?kitty.graphics.Response {
++            var cmd = try kitty.graphics.CommandParser.parseString(std.testing.allocator, data);
++            defer cmd.deinit(std.testing.allocator);
++            return h.kittyGraphics(tm, std.testing.allocator, &cmd);
++        }
++    }.run;
++    // A surface, placed, and a program's own image, placed beside it.
++    try storage.addImage(io, alloc, s, .{ .id = id_base });
++    const pin = try s.pages.trackPin(s.pages.pin(.{ .active = .{} }).?);
++    try storage.addPlacement(io, alloc, s, id_base, 1, .{ .location = .{ .pin = pin } });
++    const p: Placed = .{
++        .image_id = id_base,
++        .cols = 4,
++        .rows = 1,
++        .win = .{ .x = 0, .y = 0, .w = 4, .h = 1 },
++        .z = 0,
++        .created = 0,
++        .screen = .primary,
++    };
++    const program = struct {
++        fn place(st: *kitty.graphics.ImageStorage, sc: *terminal.Screen) !void {
++            const pp = try sc.pages.trackPin(sc.pages.pin(.{ .active = .{ .y = 1 } }).?);
++            try st.addPlacement(std.testing.io, std.testing.allocator, sc, 7, 1, .{ .location = .{ .pin = pp } });
++        }
++        fn placed(st: *kitty.graphics.ImageStorage) bool {
++            return st.placements.contains(.{ .image_id = 7, .placement_id = .{ .tag = .external, .id = 1 } });
++        }
++    };
++    try storage.addImage(io, alloc, s, .{ .id = 7 });
++    try program.place(storage, s);
++    const bytes = storage.total_bytes;
++
++    // a=d: every visible placement goes but the surface's.
++    try t.expect((try run(&hotty, &term, "a=d")) == null);
++    try t.expect(!program.placed(storage));
++    try t.expect(storage.images.contains(7));
++    try t.expectEqual(Hotty.Fate.stays, Hotty.fate(&term, p));
++
++    // a=d,d=A: the program's image goes with its placement.
++    try program.place(storage, s);
++    try t.expect((try run(&hotty, &term, "a=d,d=A")) == null);
++    try t.expect(!storage.images.contains(7));
++    try t.expectEqual(Hotty.Fate.stays, Hotty.fate(&term, p));
++
++    // By the surface's own id, or a range over it: nothing.
++    _ = try run(&hotty, &term, std.fmt.comptimePrint("a=d,d=I,i={d}", .{id_base}));
++    _ = try run(&hotty, &term, "a=d,d=R,x=1,y=4294967295");
++    try t.expectEqual(Hotty.Fate.stays, Hotty.fate(&term, p));
++    try t.expectEqual(bytes, storage.total_bytes);
++    const kept = storage.placements.get(.{ .image_id = id_base, .placement_id = .{ .tag = .external, .id = 1 } }).?;
++    try t.expectEqual(pin, kept.location.pin);
++    try t.expectEqual(@as(u32, 1), storage.images.get(id_base).?.metadata.placement_count);
++
++    // Placing the surface's image anew is refused, and changes nothing.
++    const resp = (try run(&hotty, &term, std.fmt.comptimePrint("a=p,i={d},p=1", .{id_base}))).?;
++    try t.expect(!resp.ok());
++    try t.expectEqual(pin, storage.placements.get(.{ .image_id = id_base, .placement_id = .{ .tag = .external, .id = 1 } }).?.location.pin);
++}
+diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
+index 072058640..5de0cc16c 100644
+--- a/src/termio/stream_handler.zig
++++ b/src/termio/stream_handler.zig
+@@ -520,7 +520,7 @@ pub const StreamHandler = struct {
+         switch (result) {
+             .unknown => return,
+             .kitty => |*kitty_cmd| {
+-                if (self.terminal.kittyGraphics(global.io(), self.alloc, kitty_cmd)) |resp| {
++                if (self.hotty.kittyGraphics(self.terminal, self.alloc, kitty_cmd)) |resp| { // hottyterm
+                     var buf: [1024]u8 = undefined;
+                     var writer: std.Io.Writer = .fixed(&buf);
+                     try resp.encode(&writer);
