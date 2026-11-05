@@ -199,6 +199,11 @@ def main():
         comps.append({"kind": "bundled", "name": "AdwaitaMono Nerd Font Propo (in hotty-blitz)", "version": "3.5.1",
                       "license": "OFL-1.1; its icon sets as NOTICE.txt lists",
                       "source": "https://github.com/ryanoasis/nerd-fonts", "files": license_files(fonts)})
+    # Plex Sans (0.6.9): its licence file, IBM-Plex-OFL.txt, escapes LICENSE_NAME.
+    plex = os.path.join(fonts, "IBM-Plex-OFL.txt")
+    if os.path.isfile(plex):
+        comps.append({"kind": "bundled", "name": "IBM Plex Sans (in hotty-blitz)", "version": "6.4.0",
+                      "license": "OFL-1.1", "source": "https://github.com/IBM/plex", "files": [plex]})
     for name, url, d in a.extra:
         comps.append({"kind": "bundled", "name": name, "version": "", "license": "", "source": url,
                       "files": license_files(d)})
