@@ -1,0 +1,113 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Thu, 5 Nov 2026 23:10:10 +0100
+Subject: [PATCH 54/54] hottyterm: a long press over a surface is hotty's
+ secondary press (SPEC 9.1)
+
+hotty_host_touch takes phase 4, a long press: over an element that takes a
+secondary press it is one, returns 2 (the surface's) and opens no menu.
+
+- TouchPhase gains long_press = 4. Hotty.touch passes it only for a touch
+  that began over a surface; over the cells it answers .cells and sends
+  nothing, so a touch there is unchanged.
+- Ghostty has no long-press gesture, so the GTK surface gets a
+  GestureLongPress, touch only and in the capture phase like the touch
+  drag. Its callback calls hotty.surfaceLongPress with the finger's point;
+  GTK's timeout carries no event, so the mods are the keyboard's last.
+  The touch stays the surface's to its end if the result is taken.
+
+Not run: the headless display has no touch. It compiles; the path is
+traced by reading.
+
+Upstream files: 15 lines added in src/apprt/gtk (6 in ui/1.0/surface.blp,
+9 in class/surface.zig: the callback and its binding).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/apprt/gtk/class/surface.zig  |  9 +++++++++
+ src/apprt/gtk/ui/1.0/surface.blp |  6 ++++++
+ src/termio/hotty.zig             | 13 +++++++++++--
+ 3 files changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
+index 86c3eab74..2095bb995 100644
+--- a/src/apprt/gtk/class/surface.zig
++++ b/src/apprt/gtk/class/surface.zig
+@@ -3230,6 +3230,14 @@ pub const Surface = extern struct {
+         _ = hotty.surfaceTouch(core_surface, if (lifted) .up else .cancel, self.touchFinger(offset_x, offset_y), touchMods(gesture));
+     }
+ 
++    // hottyterm: GTK took the live touch for a long press (SPEC §9.1).
++    fn touchLongPress(_: *gtk.GestureLongPress, x: f64, y: f64, self: *Self) callconv(.c) void {
++        const priv = self.private();
++        const core_surface = priv.core_surface orelse return;
++        const at = self.scaledCoordinates(x, y);
++        if (priv.touch_hotty) _ = hotty.surfaceLongPress(core_surface, .{ .x = @floatCast(at.x), .y = @floatCast(at.y) });
++    }
++
+     /// hottyterm: where the live touch's finger is, `offset` from where it
+     /// began, in surface pixels.
+     fn touchFinger(self: *Self, offset_x: f64, offset_y: f64) apprt.CursorPos {
+@@ -4080,6 +4088,7 @@ pub const Surface = extern struct {
+             class.bindTemplateCallback("touch_scroll_begin", &touchScrollBegin);
+             class.bindTemplateCallback("touch_scroll_update", &touchScrollUpdate);
+             class.bindTemplateCallback("touch_scroll_end", &touchScrollEnd);
++            class.bindTemplateCallback("touch_long_press", &touchLongPress);
+             class.bindTemplateCallback("drop", &dtDrop);
+             class.bindTemplateCallback("render_surface_realize", &renderSurfaceRealize);
+             class.bindTemplateCallback("render_surface_unrealize", &renderSurfaceUnrealize);
+diff --git a/src/apprt/gtk/ui/1.0/surface.blp b/src/apprt/gtk/ui/1.0/surface.blp
+index 7c13e75de..99f87da36 100644
+--- a/src/apprt/gtk/ui/1.0/surface.blp
++++ b/src/apprt/gtk/ui/1.0/surface.blp
+@@ -80,6 +80,12 @@ Overlay terminal_page {
+       drag-update => $touch_scroll_update();
+       drag-end => $touch_scroll_end();
+     }
++
++    GestureLongPress {
++      touch-only: true;
++      propagation-phase: capture;
++      pressed => $touch_long_press();
++    }
+   };
+ 
+   [overlay]
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 4600e62da..8c086b08a 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -377,8 +377,8 @@ pub const PointerKind = enum(u32) { move = 0, down = 1, up = 2, leave = 3 };
+ 
+ /// A finger's phase, as hotty_host_touch takes it: down when the first
+ /// finger touches; cancel when a second one does or the platform cancelled
+-/// it. hottyterm takes no long press, so it never sends hotty-blitz's 4.
+-pub const TouchPhase = enum(u32) { down = 0, move = 1, up = 2, cancel = 3 };
++/// it; long_press when the apprt took the touch for one, at the finger.
++pub const TouchPhase = enum(u32) { down = 0, move = 1, up = 2, cancel = 3, long_press = 4 };
+ 
+ /// Whose a touch is after one of its phases (SPEC §9.1, §9.6), for the
+ /// apprt.
+@@ -2442,6 +2442,8 @@ pub const Hotty = struct {
+             @memcpy(self.touch_surface[0..tg.name.len], tg.name);
+             self.touch_len = tg.name.len;
+         }
++        // A long press is the terminal's anywhere but over a surface.
++        if (phase == .long_press and (self.touch_cells or self.touch_len == 0)) return .cells;
+         if (self.touch_cells) return self.cellsTouch(t, h, phase, px, py, mods, reports);
+         if (self.touch_len == 0) {
+             // The lift ends the wheel gesture the touch scrolled with.
+@@ -3044,6 +3046,13 @@ fn secondaryButton(s: *Surface, action: input.MouseButtonState, pos: apprt.Curso
+     return took;
+ }
+ 
++/// The GTK apprt took a touch that began over a surface for a long press,
++/// with the finger at `pos` (SPEC §9.1). The apprt has no modifiers for it:
++/// those are the keyboard's last. True if the surface took it.
++pub fn surfaceLongPress(s: *Surface, pos: apprt.CursorPos) bool {
++    return surfaceTouch(s, .long_press, pos, s.mouse.mods) == .taken;
++}
++
+ /// The apprt's count of the press it is about to hand over in a run of
+ /// clicks (GTK's n_press): the platform's, by the user's own settings,
+ /// which a click on a surface carries (SPEC §9). An apprt that hands none
