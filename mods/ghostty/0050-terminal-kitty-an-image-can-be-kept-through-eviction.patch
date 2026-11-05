@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Tue, 3 Nov 2026 18:43:19 +0100
-Subject: [PATCH 50/52] terminal/kitty: an image can be kept through eviction
+Subject: [PATCH 50/54] terminal/kitty: an image can be kept through eviction
 
 An embedder that draws part of its own interface as kitty images (a
 panel, an overlay) loses it when a client's images fill the storage:

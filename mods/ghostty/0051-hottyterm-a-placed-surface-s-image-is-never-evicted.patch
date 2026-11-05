@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Tue, 3 Nov 2026 18:43:26 +0100
-Subject: [PATCH 51/52] hottyterm: a placed surface's image is never evicted
+Subject: [PATCH 51/54] hottyterm: a placed surface's image is never evicted
 
 Each hotty surface is a kitty image in its screen's image storage.
 Past image-storage-limit (320 MB a screen by default), the storage

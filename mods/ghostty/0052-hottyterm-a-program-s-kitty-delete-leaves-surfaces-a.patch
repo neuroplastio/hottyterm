@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Wed, 4 Nov 2026 21:54:46 +0100
-Subject: [PATCH 52/52] hottyterm: a program's kitty delete leaves surfaces
+Subject: [PATCH 52/54] hottyterm: a program's kitty delete leaves surfaces
  alone (SPEC 5.4)
 
 Every hotty surface is a kitty image in the screen's image storage, its
