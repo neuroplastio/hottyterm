@@ -95,7 +95,7 @@ The hooks:
   hotty-blitz takes the hotty version's MAJOR.MINOR (gov P-5 rule 6): its
   0.7.x speaks hotty 0.7 and 0.6 too (HOST.md §4 in hotty), and a program talks
   to it with an SDK of 0.7.x, or of 0.6.x. Its capabilities name it
-  (`"host": "hotty-blitz"`, `"version": "0.7.0"`).
+  (`"host": "hotty-blitz"`, `"version": "0.7.1"`).
 - **Native, not the polyfill.** A program sends hottyterm OSC 7279 and
   nothing else, and the linked hotty-blitz lays out and renders every
   surface. No kitty graphics crosses the pty: turning surfaces into kitty
