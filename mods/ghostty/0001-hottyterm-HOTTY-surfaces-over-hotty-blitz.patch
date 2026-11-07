@@ -27,7 +27,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 369bb2399..66bc25205 100644
+index 7f7b1df88..b1f26651c 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -27,6 +27,7 @@ const crash = @import("crash/main.zig");
@@ -1366,7 +1366,7 @@ index 000000000..8080b0883
 +    return consumed;
 +}
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index 0f1ee50f7..1c4ce5418 100644
+index 6cc7010f2..99715f923 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
 @@ -11,6 +11,7 @@ const internal_os = @import("../os/main.zig");
@@ -1415,7 +1415,7 @@ index 0f1ee50f7..1c4ce5418 100644
          }
      }
  
-@@ -931,6 +938,7 @@ pub const StreamHandler = struct {
+@@ -936,6 +943,7 @@ pub const StreamHandler = struct {
          self: *StreamHandler,
      ) !void {
          self.terminal.fullReset();

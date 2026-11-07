@@ -25,7 +25,7 @@ lines: 68 (GTK apprt only).
  3 files changed, 68 insertions(+)
 
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index f398ed296..045a9a936 100644
+index 4efa1cb0d..39f833a5d 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -679,6 +679,11 @@ pub const Surface = extern struct {

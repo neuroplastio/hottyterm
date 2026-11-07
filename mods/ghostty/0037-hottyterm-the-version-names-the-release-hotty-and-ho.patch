@@ -39,10 +39,10 @@ index 6292596d7..77dca248d 100644
              "https://github.com/ghostty-org/ghostty/issues",
              "website",
 diff --git a/src/build/Config.zig b/src/build/Config.zig
-index 24157293b..c6595a26a 100644
+index 5693bab38..11c1801e0 100644
 --- a/src/build/Config.zig
 +++ b/src/build/Config.zig
-@@ -710,6 +710,8 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
+@@ -750,6 +750,8 @@ pub fn addOptions(self: *const Config, step: *std.Build.Step.Options) !void {
          .{self.version},
          0,
      ));

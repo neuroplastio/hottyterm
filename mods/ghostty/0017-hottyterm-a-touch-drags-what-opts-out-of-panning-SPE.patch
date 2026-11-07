@@ -29,7 +29,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 145 insertions(+), 5 deletions(-)
 
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index d8c49643a..659c0b867 100644
+index 510bd3c9a..52b15d22c 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -44,6 +44,7 @@ const gtk_version = @import("../gtk_version.zig");

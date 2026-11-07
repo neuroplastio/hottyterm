@@ -24,7 +24,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 73 insertions(+), 4 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 204116195..b7da38577 100644
+index 75cf10088..3571b4102 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -2455,7 +2455,7 @@ fn copySelectionToClipboards(
@@ -47,10 +47,10 @@ index 204116195..b7da38577 100644
  
          .copy_url_to_clipboard => {
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 05b0008d4..47938c7b7 100644
+index 9c3460373..3020607b1 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -6737,6 +6737,19 @@ pub const Keybinds = struct {
+@@ -6754,6 +6754,19 @@ pub const Keybinds = struct {
                  );
              }
  

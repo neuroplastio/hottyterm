@@ -208,10 +208,10 @@ index 5646d207c..027949925 100644
 +    try t.expectEqual(pin, storage.placements.get(.{ .image_id = id_base, .placement_id = .{ .tag = .external, .id = 1 } }).?.location.pin);
 +}
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index 072058640..5de0cc16c 100644
+index 6c5825fc2..84962fa38 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
-@@ -520,7 +520,7 @@ pub const StreamHandler = struct {
+@@ -525,7 +525,7 @@ pub const StreamHandler = struct {
          switch (result) {
              .unknown => return,
              .kitty => |*kitty_cmd| {

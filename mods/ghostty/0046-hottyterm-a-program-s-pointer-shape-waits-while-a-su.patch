@@ -27,7 +27,7 @@ a surface, the pointer is its document's).
  2 files changed, 14 insertions(+)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 31b68a50f..cdb7fdf9a 100644
+index 1d883f837..7eb073741 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -1134,6 +1134,9 @@ pub fn handleMessage(self: *Surface, msg: Message) !void {

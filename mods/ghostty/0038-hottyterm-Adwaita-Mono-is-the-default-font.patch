@@ -15,14 +15,14 @@ too. JetBrains Mono stays embedded for the tests only, which reference
 it, so it no longer reaches the binary.
 
 Upstream files: a lazy dependency in build.zig.zon (and its URL in
-build.zig.zon.txt), four anonymous imports in src/build/SharedDeps.zig,
+deps/packages.txt), four anonymous imports in src/build/SharedDeps.zig,
 the default faces in src/font/embedded.zig, the fallback faces in
 src/font/SharedGridSet.zig, and one name in src/inspector/Inspector.zig.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  build.zig.zon               |  5 +++
- build.zig.zon.txt           |  1 +
+ deps/packages.txt           |  1 +
  src/build/SharedDeps.zig    | 20 ++++++++++
  src/font/SharedGridSet.zig  | 78 ++++++++++---------------------------
  src/font/embedded.zig       |  9 ++++-
@@ -30,10 +30,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  6 files changed, 56 insertions(+), 61 deletions(-)
 
 diff --git a/build.zig.zon b/build.zig.zon
-index 67dfd211f..f3278aafa 100644
+index 5b55de7f8..8fcfcf085 100644
 --- a/build.zig.zon
 +++ b/build.zig.zon
-@@ -109,6 +109,11 @@
+@@ -173,6 +173,11 @@
              .hash = "N-V-__8AAIC5lwAVPJJzxnCAahSvZTIlG-HhtOvnM1uh-66x",
              .lazy = true,
          },
@@ -45,23 +45,23 @@ index 67dfd211f..f3278aafa 100644
          .nerd_fonts_symbols_only = .{
              .url = "https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz",
              .hash = "N-V-__8AAMVLTABmYkLqhZPLXnMl-KyN38R8UVYqGrxqO26s",
-diff --git a/build.zig.zon.txt b/build.zig.zon.txt
-index 85cbabae6..3e43a56d6 100644
---- a/build.zig.zon.txt
-+++ b/build.zig.zon.txt
-@@ -6,6 +6,7 @@ https://deps.files.ghostty.org/N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI.
+diff --git a/deps/packages.txt b/deps/packages.txt
+index 00edabf67..863140b48 100644
+--- a/deps/packages.txt
++++ b/deps/packages.txt
+@@ -4,6 +4,7 @@ https://deps.files.ghostty.org/N-V-__8AAEbOfQBnvcFcCX2W5z7tDaN8vaNZGamEQtNOe0UI.
  https://deps.files.ghostty.org/N-V-__8AAFdWDwA0ktbNUi9pFBHCRN4weXIgIfCrVjfGxqgA.tar.gz
  https://deps.files.ghostty.org/N-V-__8AAOgqbADacob-q2_DMQlmgaG4xKHRuW-6PJ4oJzMZ.tar.xz
  https://deps.files.ghostty.org/NerdFontsSymbolsOnly-3.4.0.tar.gz
 +https://download.gnome.org/sources/adwaita-fonts/50/adwaita-fonts-50.0.tar.xz
+ https://deps.files.ghostty.org/aro-d0c8c4d9c55daa7ef6e40cf0f630a5b5e900989b.tar.gz
  https://deps.files.ghostty.org/breakpad-b99f444ba5f6b98cac261cbb391d8766b34a5918.tar.gz
  https://deps.files.ghostty.org/freetype-1220b81f6ecfb3fd222f76cf9106fecfa6554ab07ec7fdc4124b9bb063ae2adf969d.tar.gz
- https://deps.files.ghostty.org/gettext-0.24.tar.gz
 diff --git a/src/build/SharedDeps.zig b/src/build/SharedDeps.zig
-index 8f4e23954..982ff00ed 100644
+index 41dccb8c7..6905b5710 100644
 --- a/src/build/SharedDeps.zig
 +++ b/src/build/SharedDeps.zig
-@@ -644,6 +644,26 @@ pub fn add(
+@@ -652,6 +652,26 @@ pub fn add(
              );
          }
  

@@ -27,7 +27,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 72 insertions(+)
 
 diff --git a/src/terminal/kitty/graphics_image.zig b/src/terminal/kitty/graphics_image.zig
-index 851ed141e..8716ebfe1 100644
+index 9789b431d..1c57251a4 100644
 --- a/src/terminal/kitty/graphics_image.zig
 +++ b/src/terminal/kitty/graphics_image.zig
 @@ -795,6 +795,12 @@ pub const Image = struct {
@@ -44,7 +44,7 @@ index 851ed141e..8716ebfe1 100644
      /// with r naming the displayed frame) changed in place, each with
      /// the generation its edit stamped, so a renderer holding an
 diff --git a/src/terminal/kitty/graphics_storage.zig b/src/terminal/kitty/graphics_storage.zig
-index 705dba79d..4eb202a8b 100644
+index d92b237a3..5fef315cc 100644
 --- a/src/terminal/kitty/graphics_storage.zig
 +++ b/src/terminal/kitty/graphics_storage.zig
 @@ -1892,6 +1892,7 @@ pub const ImageStorage = struct {
@@ -55,7 +55,7 @@ index 705dba79d..4eb202a8b 100644
  
                      const current = Candidate.init(img);
                      if (best == null or current.lessThan(best.?)) best = current;
-@@ -3826,6 +3827,71 @@ test "storage: evicts images in priority order" {
+@@ -3831,6 +3832,71 @@ test "storage: evicts images in priority order" {
      try testing.expect(!s.images.contains(3));
  }
  

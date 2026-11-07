@@ -22,7 +22,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 19 insertions(+), 4 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 3025103f5..31b68a50f 100644
+index faa8b4cae..1d883f837 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -3028,15 +3028,25 @@ pub fn keyCallback(

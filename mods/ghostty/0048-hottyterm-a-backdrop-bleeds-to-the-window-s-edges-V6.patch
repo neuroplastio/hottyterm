@@ -29,7 +29,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 256 insertions(+), 37 deletions(-)
 
 diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
-index 7c2cb8871..83bf2e801 100644
+index 7dda82a5e..6738f4661 100644
 --- a/src/renderer/generic.zig
 +++ b/src/renderer/generic.zig
 @@ -1958,6 +1958,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
@@ -54,7 +54,7 @@ index 7c2cb8871..83bf2e801 100644
                      &self.api,
                      self.shaders.pipelines.image,
 diff --git a/src/renderer/image.zig b/src/renderer/image.zig
-index 08e0ee285..23fd56aec 100644
+index 8b21eb06e..621d92b1c 100644
 --- a/src/renderer/image.zig
 +++ b/src/renderer/image.zig
 @@ -9,6 +9,7 @@ const Renderer = @import("../renderer.zig").Renderer;
@@ -67,7 +67,7 @@ index 08e0ee285..23fd56aec 100644
  
 @@ -47,6 +48,27 @@ pub const State = struct {
      /// Overlays
-     overlay_placements: std.ArrayListUnmanaged(Placement),
+     overlay_placements: std.ArrayList(Placement),
  
 +    /// hottyterm: where a backdrop bleeds to, set before each draw.
 +    bleed: Bleed = .{},

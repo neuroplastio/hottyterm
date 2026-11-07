@@ -34,10 +34,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  7 files changed, 66 insertions(+), 73 deletions(-)
 
 diff --git a/macos/Sources/App/AppDelegate.swift b/macos/Sources/App/AppDelegate.swift
-index d559e547a..a9e068c66 100644
+index 2ea098a51..07cc9e14b 100644
 --- a/macos/Sources/App/AppDelegate.swift
 +++ b/macos/Sources/App/AppDelegate.swift
-@@ -194,6 +194,8 @@ class AppDelegate: NSObject,
+@@ -211,6 +211,8 @@ class AppDelegate: NSObject,
              UserDefaults.ghostty.removePersistentDomain(forName: suite)
          }
          #endif
@@ -46,7 +46,7 @@ index d559e547a..a9e068c66 100644
          UserDefaults.ghostty.register(defaults: [
              // Disable the automatic full screen menu item because we handle
              // it manually.
-@@ -1214,6 +1216,9 @@ extension AppDelegate {
+@@ -1246,6 +1248,9 @@ extension AppDelegate {
          syncMenuShortcut(config, action: "new_tab", menuItem: self.menuNewTab)
          syncMenuShortcut(config, action: "close_surface", menuItem: self.menuClose)
          syncMenuShortcut(config, action: "close_tab", menuItem: self.menuCloseTab)
@@ -57,7 +57,7 @@ index d559e547a..a9e068c66 100644
          syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
          syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
 diff --git a/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift b/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift
-index 81b6666a1..d972d9a1a 100644
+index e2f0ca39d..5204fd6b4 100644
 --- a/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift	
 +++ b/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift	
 @@ -95,13 +95,10 @@ class TerminalWindow: NSWindow {
@@ -79,10 +79,10 @@ index 81b6666a1..d972d9a1a 100644
          // All new windows are based on the app config at the time of creation.
          guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
 diff --git a/src/apprt/gtk/class/application.zig b/src/apprt/gtk/class/application.zig
-index 08d5d7c30..e59fd0b40 100644
+index 18786bad1..487e19e15 100644
 --- a/src/apprt/gtk/class/application.zig
 +++ b/src/apprt/gtk/class/application.zig
-@@ -2528,24 +2528,14 @@ const Action = struct {
+@@ -2561,24 +2561,14 @@ const Action = struct {
                  return false;
              },
  
@@ -220,10 +220,10 @@ index 5e6eaa8b1..06e94b127 100644
      submenu {
        label: _("Split");
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index ebb02eef1..09e1fa08e 100644
+index c07cc66e5..ae4973800 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -7454,6 +7454,49 @@ pub const Keybinds = struct {
+@@ -7471,6 +7471,49 @@ pub const Keybinds = struct {
                  .{ .esc = "f" },
              );
          }

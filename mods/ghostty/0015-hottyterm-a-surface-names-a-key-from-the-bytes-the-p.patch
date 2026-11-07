@@ -27,7 +27,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 57 insertions(+), 38 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index bbc54b156..03d3c9267 100644
+index 35a671ba7..472fca99c 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -3410,7 +3410,7 @@ fn encodeKey(

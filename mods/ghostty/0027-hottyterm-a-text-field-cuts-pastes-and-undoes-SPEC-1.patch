@@ -22,7 +22,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 79 insertions(+), 2 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index b7da38577..3d1a1d32d 100644
+index 3571b4102..b3c669a58 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -6262,7 +6262,7 @@ fn startClipboardRequest(

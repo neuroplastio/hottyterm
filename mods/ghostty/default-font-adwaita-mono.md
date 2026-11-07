@@ -11,10 +11,11 @@ a lazy dependency in `build.zig.zon`. All four static faces are embedded,
 so bold and italic are the font's own rather than weights of a variable
 font, and the Inspector draws in it too. JetBrains Mono stays embedded for
 the tests, which reference it, so it no longer reaches the binary, which
-grows by about 5 MB. Upstream lines: the dependency in `build.zig.zon` and
-`build.zig.zon.txt`, four imports in `src/build/SharedDeps.zig`, the
-default faces in `src/font/embedded.zig`, the fallback faces in
-`src/font/SharedGridSet.zig`, one name in `src/inspector/Inspector.zig`.
+grows by about 5 MB. Upstream lines: the dependency in `build.zig.zon`
+and in upstream's mirror list, `deps/packages.txt`, four imports in
+`src/build/SharedDeps.zig`, the default faces in `src/font/embedded.zig`,
+the fallback faces in `src/font/SharedGridSet.zig`, one name in
+`src/inspector/Inspector.zig`.
 
 **Why we carry it:** hotty-blitz draws surfaces in Adwaita Mono (hotty's
 HOST.md §2), in Nerd Fonts' build of the same release, so the letters are

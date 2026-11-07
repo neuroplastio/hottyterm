@@ -32,10 +32,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 86 insertions(+), 9 deletions(-)
 
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 19667ab70..0ba08e598 100644
+index a6494d1c9..116f625b2 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -3938,6 +3938,23 @@ term: []const u8 = "xterm-ghostty",
+@@ -3940,6 +3940,23 @@ term: []const u8 = "xterm-ghostty",
  /// running. Defaults to an empty string if not set.
  @"enquiry-response": []const u8 = "",
  
@@ -219,7 +219,7 @@ index c5b2d4cfe..9977f2671 100644
  
      /// Forgets placements whose image is gone: scrolled out of the
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index 1c4ce5418..3cfb81eb5 100644
+index 99715f923..a04f58cb7 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
 @@ -130,7 +130,7 @@ pub const StreamHandler = struct {

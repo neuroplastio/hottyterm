@@ -25,7 +25,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 270 insertions(+), 10 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 3d1a1d32d..d90143fbd 100644
+index b3c669a58..ffa563f9f 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -6298,6 +6298,7 @@ fn completeClipboardPaste(

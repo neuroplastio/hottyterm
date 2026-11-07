@@ -25,7 +25,7 @@ split-focus condition).
  5 files changed, 34 insertions(+), 2 deletions(-)
 
 diff --git a/macos/Sources/Ghostty/Ghostty.Config.swift b/macos/Sources/Ghostty/Ghostty.Config.swift
-index 78cc9024d..bd244fdf0 100644
+index fb7325d44..ab6979984 100644
 --- a/macos/Sources/Ghostty/Ghostty.Config.swift
 +++ b/macos/Sources/Ghostty/Ghostty.Config.swift
 @@ -351,6 +351,16 @@ extension Ghostty {
@@ -46,7 +46,7 @@ index 78cc9024d..bd244fdf0 100644
              let defaultValue = MacOSTitlebarStyle.transparent
              guard let config = self.config else { return defaultValue }
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index cbec3079e..280c46cf4 100644
+index 5da5291db..8552d8a40 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 @@ -711,7 +711,7 @@ extension Ghostty {
@@ -96,7 +96,7 @@ index cbec3079e..280c46cf4 100644
          }
  
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 88aba2f8d..bbc54b156 100644
+index d99cb2ce5..35a671ba7 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -347,6 +347,7 @@ const DerivedConfig = struct {
@@ -116,7 +116,7 @@ index 88aba2f8d..bbc54b156 100644
              .scroll_to_bottom = config.@"scroll-to-bottom",
              .notify_on_command_finish = config.@"notify-on-command-finish",
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 92cd59784..f398ed296 100644
+index fe67e43be..4efa1cb0d 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -2948,7 +2948,7 @@ pub const Surface = extern struct {
@@ -129,10 +129,10 @@ index 92cd59784..f398ed296 100644
              return;
          }
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 7795dca11..ebb02eef1 100644
+index 20128d580..c07cc66e5 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -3966,6 +3966,16 @@ term: []const u8 = "xterm-ghostty",
+@@ -3968,6 +3968,16 @@ term: []const u8 = "xterm-ghostty",
  ///   * `modifier` - only a click with Ctrl (Cmd on macOS) held opens it.
  @"hotty-link-click": HottyLinkClick = .plain,
  
@@ -149,7 +149,7 @@ index 7795dca11..ebb02eef1 100644
  /// Configures the low-level API to use for async IO, eventing, etc.
  ///
  /// Most users should leave this set to `auto`. This will automatically detect
-@@ -5577,6 +5587,7 @@ pub const WindowSubtitle = enum {
+@@ -5579,6 +5589,7 @@ pub const WindowSubtitle = enum {
  
  // hottyterm: `hotty-link-click`.
  pub const HottyLinkClick = enum { plain, modifier };

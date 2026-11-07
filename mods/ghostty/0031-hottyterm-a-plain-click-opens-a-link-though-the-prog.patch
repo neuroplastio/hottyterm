@@ -35,7 +35,7 @@ over in the motion report), Config.zig 5 (the option's text).
  3 files changed, 96 insertions(+), 10 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index d90143fbd..39854ff04 100644
+index ffa563f9f..34e4d90de 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -2882,6 +2882,7 @@ pub fn keyCallback(
@@ -96,10 +96,10 @@ index d90143fbd..39854ff04 100644
          // This only applies if there is a mouse button pressed so that
          // movement reports are not affected.
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 47938c7b7..775eca573 100644
+index 3020607b1..ef91ab391 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -3960,9 +3960,10 @@ term: []const u8 = "xterm-ghostty",
+@@ -3962,9 +3962,10 @@ term: []const u8 = "xterm-ghostty",
  /// in a HOTTY surface.
  ///
  ///   * `plain` - a click with no modifiers held opens it, and the pointer

@@ -32,7 +32,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  7 files changed, 249 insertions(+), 49 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 81aea70a3..3025103f5 100644
+index 7d8986e68..faa8b4cae 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -1660,7 +1660,7 @@ fn modsChanged(self: *Surface, mods: input.Mods) void {
@@ -318,7 +318,7 @@ index 2d02195f3..d98dccd06 100644
      // Presenting
  
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index d34c969f5..fd2a39dfd 100644
+index 12e3e6527..59c3c9fa9 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -848,6 +848,7 @@ pub const Surface = extern struct {
@@ -330,7 +330,7 @@ index d34c969f5..fd2a39dfd 100644
      }
  
 diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
-index df70aa3c7..2b4099471 100644
+index 8b44ba1af..c81981ed4 100644
 --- a/src/renderer/generic.zig
 +++ b/src/renderer/generic.zig
 @@ -3,6 +3,7 @@ const builtin = @import("builtin");

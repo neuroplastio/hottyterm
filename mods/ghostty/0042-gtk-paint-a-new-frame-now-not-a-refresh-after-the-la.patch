@@ -58,7 +58,7 @@ index d98dccd06..df5b520ee 100644
      // Presenting
  
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index fd2a39dfd..86c3eab74 100644
+index 59c3c9fa9..593516426 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -849,7 +849,7 @@ pub const Surface = extern struct {

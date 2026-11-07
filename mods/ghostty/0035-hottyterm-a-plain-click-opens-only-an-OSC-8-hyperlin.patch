@@ -22,7 +22,7 @@ underline goes.
  3 files changed, 30 insertions(+), 11 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 39854ff04..66efb1593 100644
+index 34e4d90de..a492e2754 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -1743,6 +1743,9 @@ fn mouseRefreshLinks(
@@ -45,10 +45,10 @@ index 39854ff04..66efb1593 100644
      // are preserved.
      if (self.io.terminal.flags.mouse_event == .none) return mods;
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index d5c4b317f..824b37e9c 100644
+index 35bdbc372..0d993c118 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -3956,10 +3956,11 @@ term: []const u8 = "xterm-ghostty",
+@@ -3958,10 +3958,11 @@ term: []const u8 = "xterm-ghostty",
  @"hotty-net": []const u8 = "",
  
  // hottyterm: how a click opens a link.

@@ -30,10 +30,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  5 files changed, 59 insertions(+), 12 deletions(-)
 
 diff --git a/include/ghostty.h b/include/ghostty.h
-index 9a12b9cad..d93b30407 100644
+index 439195c75..2a1796494 100644
 --- a/include/ghostty.h
 +++ b/include/ghostty.h
-@@ -1197,6 +1197,8 @@ GHOSTTY_API void ghostty_surface_set_color_scheme(ghostty_surface_t,
+@@ -1223,6 +1223,8 @@ GHOSTTY_API void ghostty_surface_set_color_scheme(ghostty_surface_t,
                                                       ghostty_color_scheme_e);
  GHOSTTY_API ghostty_input_mods_e ghostty_surface_key_translation_mods(ghostty_surface_t,
                                                                           ghostty_input_mods_e);
@@ -43,10 +43,10 @@ index 9a12b9cad..d93b30407 100644
  GHOSTTY_API bool ghostty_surface_key_is_binding(ghostty_surface_t,
                                                     ghostty_input_key_s,
 diff --git a/macos/Sources/App/AppDelegate.swift b/macos/Sources/App/AppDelegate.swift
-index a9e068c66..80ba12163 100644
+index 07cc9e14b..825f9cfc2 100644
 --- a/macos/Sources/App/AppDelegate.swift
 +++ b/macos/Sources/App/AppDelegate.swift
-@@ -1216,9 +1216,11 @@ extension AppDelegate {
+@@ -1248,9 +1248,11 @@ extension AppDelegate {
          syncMenuShortcut(config, action: "new_tab", menuItem: self.menuNewTab)
          syncMenuShortcut(config, action: "close_surface", menuItem: self.menuClose)
          syncMenuShortcut(config, action: "close_tab", menuItem: self.menuCloseTab)
@@ -60,7 +60,7 @@ index a9e068c66..80ba12163 100644
          syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
          syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index 280c46cf4..dccd76ffc 100644
+index 8552d8a40..1704a3c3c 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 @@ -1342,6 +1342,30 @@ extension Ghostty {
@@ -122,7 +122,7 @@ index 280c46cf4..dccd76ffc 100644
              switch event.charactersIgnoringModifiers {
              case "\r":
 diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
-index 697f0a786..e0f9cffce 100644
+index 548169bc1..1fe60d5e1 100644
 --- a/src/apprt/embedded.zig
 +++ b/src/apprt/embedded.zig
 @@ -2067,6 +2067,20 @@ pub const CAPI = struct {
@@ -147,10 +147,10 @@ index 697f0a786..e0f9cffce 100644
      /// This will handle the keymap translation and send the appropriate
      /// key and char events.
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 09e1fa08e..05b0008d4 100644
+index ae4973800..9c3460373 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -7460,10 +7460,8 @@ pub const Keybinds = struct {
+@@ -7477,10 +7477,8 @@ pub const Keybinds = struct {
  
      /// hottyterm: no tabs, since plx has them, and windows and full screen
      /// are the window manager's: no default keys for tabs, for quitting,
@@ -162,7 +162,7 @@ index 09e1fa08e..05b0008d4 100644
          var drop: std.ArrayList(inputpkg.Binding.Trigger) = .empty;
          defer drop.deinit(alloc);
          var it = set.bindings.iterator();
-@@ -7473,11 +7471,6 @@ pub const Keybinds = struct {
+@@ -7490,11 +7488,6 @@ pub const Keybinds = struct {
                  .leaf => |leaf| leaf.action,
                  else => continue,
              };
@@ -174,7 +174,7 @@ index 09e1fa08e..05b0008d4 100644
              const gone = switch (action) {
                  .new_tab,
                  .close_tab,
-@@ -7487,11 +7480,12 @@ pub const Keybinds = struct {
+@@ -7504,11 +7497,12 @@ pub const Keybinds = struct {
                  .goto_tab,
                  .move_tab,
                  .toggle_tab_overview,

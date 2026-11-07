@@ -28,7 +28,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 167 insertions(+), 11 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 03d3c9267..204116195 100644
+index 472fca99c..75cf10088 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -2791,7 +2791,7 @@ pub fn keyEventIsBinding(

@@ -23,7 +23,7 @@ hovering underlines), Config.zig 14 (the option and its enum).
  3 files changed, 37 insertions(+), 5 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 3d3f4ae9e..88aba2f8d 100644
+index 967675228..d99cb2ce5 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -346,6 +346,7 @@ const DerivedConfig = struct {
@@ -59,10 +59,10 @@ index 3d3f4ae9e..88aba2f8d 100644
      // are preserved.
      if (self.io.terminal.flags.mouse_event == .none) return mods;
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 0ba08e598..7795dca11 100644
+index 116f625b2..20128d580 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
-@@ -3955,6 +3955,17 @@ term: []const u8 = "xterm-ghostty",
+@@ -3957,6 +3957,17 @@ term: []const u8 = "xterm-ghostty",
  /// only what the program sent them. (HOTTY SPEC §7.2.)
  @"hotty-net": []const u8 = "",
  
@@ -80,7 +80,7 @@ index 0ba08e598..7795dca11 100644
  /// Configures the low-level API to use for async IO, eventing, etc.
  ///
  /// Most users should leave this set to `auto`. This will automatically detect
-@@ -5564,6 +5575,9 @@ pub const WindowSubtitle = enum {
+@@ -5566,6 +5577,9 @@ pub const WindowSubtitle = enum {
      @"working-directory",
  };
  
