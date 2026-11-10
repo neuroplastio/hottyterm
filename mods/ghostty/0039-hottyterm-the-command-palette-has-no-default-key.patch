@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Mon, 26 Oct 2026 21:30:30 +0100
-Subject: [PATCH 39/54] hottyterm: the command palette has no default key
+Subject: [PATCH 39/55] hottyterm: the command palette has no default key
 
 Ctrl+Shift+P (Cmd+Shift+P on the Mac) opened the command palette over
 whatever ran in the terminal, so a program never got the key: plx,
@@ -20,7 +20,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 4 insertions(+), 1 deletion(-)
 
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 0d993c118..fb22e8dcf 100644
+index 0d993c11..fb22e8dc 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -7492,7 +7492,9 @@ pub const Keybinds = struct {

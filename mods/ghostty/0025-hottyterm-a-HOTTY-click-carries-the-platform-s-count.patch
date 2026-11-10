@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Tue, 13 Oct 2026 21:05:50 +0200
-Subject: [PATCH 25/54] =?UTF-8?q?hottyterm:=20a=20HOTTY=20click=20carries?=
+Subject: [PATCH 25/55] =?UTF-8?q?hottyterm:=20a=20HOTTY=20click=20carries?=
  =?UTF-8?q?=20the=20platform's=20count=20(SPEC=20=C2=A79)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -25,7 +25,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 63 insertions(+), 11 deletions(-)
 
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 52b15d22c..ef9e10619 100644
+index 52b15d22..ef9e1061 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -2936,7 +2936,7 @@ pub const Surface = extern struct {
@@ -46,7 +46,7 @@ index 52b15d22c..ef9e10619 100644
          // Report the event
          const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 1938244e7..1145d35cd 100644
+index 1938244e..1145d35c 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -88,7 +88,7 @@ extern fn hotty_host_redeliver(h: *Host, surface: [*:0]const u8) void;

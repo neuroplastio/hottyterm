@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Fri, 30 Oct 2026 02:28:48 +0100
-Subject: [PATCH 44/54] hottyterm: a HOTTY command draws once, with the output
+Subject: [PATCH 44/55] hottyterm: a HOTTY command draws once, with the output
  it came in
 
 Each HOTTY command queued a render of its own, although Termio had
@@ -20,7 +20,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 8 insertions(+), 1 deletion(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 6d0b7fd6c..6ee43d95b 100644
+index 6d0b7fd6..6ee43d95 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -801,13 +801,20 @@ pub const Hotty = struct {

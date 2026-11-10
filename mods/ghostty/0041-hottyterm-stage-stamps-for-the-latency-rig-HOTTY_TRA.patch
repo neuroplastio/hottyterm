@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Thu, 29 Oct 2026 22:29:42 +0100
-Subject: [PATCH 41/54] hottyterm: stage stamps for the latency rig
+Subject: [PATCH 41/55] hottyterm: stage stamps for the latency rig
  (HOTTY_TRACE)
 
 With HOTTY_TRACE=<dir>, the terminal writes hottyterm-<pid>.jsonl in the
@@ -32,7 +32,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  7 files changed, 249 insertions(+), 49 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 7d8986e68..faa8b4cae 100644
+index 7d8986e6..faa8b4ca 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -1660,7 +1660,7 @@ fn modsChanged(self: *Surface, mods: input.Mods) void {
@@ -239,7 +239,7 @@ index 7d8986e68..faa8b4cae 100644
  
      // Update our mouse state. We set this to null initially because we only
 diff --git a/src/apprt/gtk/class/render_surface.zig b/src/apprt/gtk/class/render_surface.zig
-index 2d02195f3..d98dccd06 100644
+index 2d02195f..d98dccd0 100644
 --- a/src/apprt/gtk/class/render_surface.zig
 +++ b/src/apprt/gtk/class/render_surface.zig
 @@ -13,6 +13,7 @@ const CoreSurface = @import("../../../Surface.zig");
@@ -318,7 +318,7 @@ index 2d02195f3..d98dccd06 100644
      // Presenting
  
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 12e3e6527..59c3c9fa9 100644
+index 12e3e652..59c3c9fa 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -848,6 +848,7 @@ pub const Surface = extern struct {
@@ -330,7 +330,7 @@ index 12e3e6527..59c3c9fa9 100644
      }
  
 diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
-index 8b44ba1af..c81981ed4 100644
+index 8b44ba1a..c81981ed 100644
 --- a/src/renderer/generic.zig
 +++ b/src/renderer/generic.zig
 @@ -3,6 +3,7 @@ const builtin = @import("builtin");
@@ -380,7 +380,7 @@ index 8b44ba1af..c81981ed4 100644
              // Upload the background image to the GPU as necessary.
              try self.uploadBackgroundImage();
 diff --git a/src/renderer/metal/IOSurfaceLayer.zig b/src/renderer/metal/IOSurfaceLayer.zig
-index cd97126a4..8a11a3590 100644
+index cd97126a..8a11a359 100644
 --- a/src/renderer/metal/IOSurfaceLayer.zig
 +++ b/src/renderer/metal/IOSurfaceLayer.zig
 @@ -6,6 +6,7 @@ const std = @import("std");
@@ -424,7 +424,7 @@ index cd97126a4..8a11a3590 100644
  
  pub const DisplayCallback = ?*align(8) const fn (?*anyopaque) void;
 diff --git a/src/termio/Exec.zig b/src/termio/Exec.zig
-index df57e0f4f..238c20cb0 100644
+index df57e0f4..238c20cb 100644
 --- a/src/termio/Exec.zig
 +++ b/src/termio/Exec.zig
 @@ -22,6 +22,7 @@ const shell_integration = @import("shell_integration.zig");
@@ -463,7 +463,7 @@ index df57e0f4f..238c20cb0 100644
                  total += n;
  
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index b394c77c6..6d0b7fd6c 100644
+index b394c77c..6d0b7fd6 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -59,6 +59,122 @@ pub const version_label: [:0]const u8 = if (build_options.hottyterm_label.len >

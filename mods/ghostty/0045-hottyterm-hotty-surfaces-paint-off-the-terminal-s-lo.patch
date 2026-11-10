@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Fri, 30 Oct 2026 07:59:22 +0100
-Subject: [PATCH 45/54] hottyterm: hotty surfaces paint off the terminal's lock
+Subject: [PATCH 45/55] hottyterm: hotty surfaces paint off the terminal's lock
 
 io-reader held renderer_state.mutex for the whole of each hotty-blitz
 paint: 35-50 ms when plx opens a palette, during which a key in another
@@ -48,7 +48,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  5 files changed, 574 insertions(+), 52 deletions(-)
 
 diff --git a/src/renderer/State.zig b/src/renderer/State.zig
-index 118422147..88990ef9d 100644
+index 11842214..88990ef9 100644
 --- a/src/renderer/State.zig
 +++ b/src/renderer/State.zig
 @@ -33,6 +33,12 @@ preedit: ?Preedit = null,
@@ -65,7 +65,7 @@ index 118422147..88990ef9d 100644
  /// `lockDemand`. This is not protected by the mutex; it is read by
  /// hot lock/unlock loops (the IO parse thread) in `yieldToDemand` to
 diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
-index c81981ed4..7dda82a5e 100644
+index c81981ed..7dda82a5 100644
 --- a/src/renderer/generic.zig
 +++ b/src/renderer/generic.zig
 @@ -1425,7 +1425,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
@@ -79,7 +79,7 @@ index c81981ed4..7dda82a5e 100644
                      return;
                  }
 diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
-index 3a7c1f62a..17f31be4f 100644
+index 3a7c1f62..17f31be4 100644
 --- a/src/termio/Termio.zig
 +++ b/src/termio/Termio.zig
 @@ -432,6 +432,7 @@ pub fn threadEnter(
@@ -105,7 +105,7 @@ index 3a7c1f62a..17f31be4f 100644
                  &self.terminal,
                  buf[i .. i + 1],
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 6ee43d95b..78b009b27 100644
+index 6ee43d95..78b009b2 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -553,6 +553,36 @@ pub const Hotty = struct {
@@ -982,7 +982,7 @@ index 6ee43d95b..78b009b27 100644
      return hs.takes(&s.io.terminal, std.mem.span(c));
  }
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index d54751072..6c5825fc2 100644
+index d5475107..6c5825fc 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
 @@ -757,7 +757,7 @@ pub const StreamHandler = struct {

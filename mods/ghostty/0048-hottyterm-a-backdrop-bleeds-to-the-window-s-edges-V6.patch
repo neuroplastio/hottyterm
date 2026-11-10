@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Sat, 31 Oct 2026 13:00:08 +0100
-Subject: [PATCH 48/54] hottyterm: a backdrop bleeds to the window's edges
+Subject: [PATCH 48/55] hottyterm: a backdrop bleeds to the window's edges
  (V6-06)
 
 A backdrop that reaches an edge of the grid goes on to the window's edge,
@@ -29,7 +29,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 256 insertions(+), 37 deletions(-)
 
 diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
-index 7dda82a5e..6738f4661 100644
+index 7dda82a5..6738f466 100644
 --- a/src/renderer/generic.zig
 +++ b/src/renderer/generic.zig
 @@ -1958,6 +1958,20 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
@@ -54,7 +54,7 @@ index 7dda82a5e..6738f4661 100644
                      &self.api,
                      self.shaders.pipelines.image,
 diff --git a/src/renderer/image.zig b/src/renderer/image.zig
-index 8b21eb06e..621d92b1c 100644
+index 8b21eb06..621d92b1 100644
 --- a/src/renderer/image.zig
 +++ b/src/renderer/image.zig
 @@ -9,6 +9,7 @@ const Renderer = @import("../renderer.zig").Renderer;
@@ -357,7 +357,7 @@ index 8b21eb06e..621d92b1c 100644
 +    for (State.bleedQuads(padded, inner)) |q| try testing.expect(q == null);
 +}
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 89a121761..195f66441 100644
+index 89a12176..195f6644 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -1049,6 +1049,14 @@ pub const Hotty = struct {

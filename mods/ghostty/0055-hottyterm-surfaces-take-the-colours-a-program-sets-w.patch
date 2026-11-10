@@ -1,0 +1,79 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Tue, 10 Nov 2026 16:40:28 +0100
+Subject: [PATCH 55/55] hottyterm: surfaces take the colours a program sets
+ with OSC 4, 10 and 11
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+--hotty-bg stayed at the configured background after a program set OSC 11,
+so a document that fills with var(--hotty-bg) drew a second background
+beside the cells (HT-03). The host's configuration is now taken again at the
+end of a batch of output when the foreground, background or palette differ
+from the ones the surfaces were drawn with; hotty-blitz restyles every
+surface and a program that asked for caps hears the new theme (SPEC §8).
+Nothing happens when a program sets the colours it already had.
+
+Adds no lines to upstream's files: all in src/termio/hotty.zig.
+---
+ src/termio/hotty.zig | 31 +++++++++++++++++++++++++++++++
+ 1 file changed, 31 insertions(+)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 8c086b08..abc8166f 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -435,6 +435,11 @@ pub const Hotty = struct {
+     next_id: u32 = id_base,
+     cell_w: u32 = 0,
+     cell_h: u32 = 0,
++    /// The terminal's colours the surfaces were last drawn with: the
++    /// foreground, the background and the 16 palette colours, as a program's
++    /// OSC 4, 10 and 11 leave them (`recolored`).
++    theme: [18]u32 = @splat(0),
++    theme_set: bool = false,
+     /// The size Ghostty loads the terminal's font at: points, and the DPI
+     /// that holds the display's content scale (Surface.font_size). The
+     /// Surface sets it (`surfaceFont`); a resize follows every change.
+@@ -778,7 +783,32 @@ pub const Hotty = struct {
+         return (@as(u32, v.r) << 16) | (@as(u32, v.g) << 8) | v.b;
+     }
+ 
++    /// The terminal's colours as the surfaces' stylesheet takes them
++    /// (`--hotty-fg`, `--hotty-bg`, `--hotty-ansi-N`): what a program has set
++    /// with OSC 4, 10 or 11, else the configured ones.
++    fn themeOf(t: *terminal.Terminal) [18]u32 {
++        var th: [18]u32 = undefined;
++        th[0] = rgb(t.colors.foreground.get(), 0xffffff);
++        th[1] = rgb(t.colors.background.get(), 0x000000);
++        for (th[2..], 0..) |*p, i| p.* = rgb(t.colors.palette.current[i], 0);
++        return th;
++    }
++
++    /// A program changed the terminal's colours (OSC 4, 10, 11 or their
++    /// resets): the surfaces are drawn again with the stylesheet that holds
++    /// them, as SPEC §8 says of a changed theme. Nothing happens when what
++    /// the stylesheet holds is unchanged, so a program that sets the same
++    /// colours again costs nothing.
++    pub fn recolored(self: *Hotty, t: *terminal.Terminal) void {
++        if (self.host == null) return;
++        const now = themeOf(t);
++        if (self.theme_set and std.mem.eql(u32, &now, &self.theme)) return;
++        self.resized(t);
++    }
++
+     fn config(self: *Hotty, t: *terminal.Terminal) Config {
++        self.theme = themeOf(t);
++        self.theme_set = true;
+         const cell_w: u32 = if (t.cols > 0) t.width_px / t.cols else 10;
+         const cell_h: u32 = if (t.rows > 0) t.height_px / t.rows else 21;
+         self.cell_w = cell_w;
+@@ -1076,6 +1106,7 @@ pub const Hotty = struct {
+     /// parsing meanwhile (gov R-22, S1).
+     pub fn flush(self: *Hotty, t: *terminal.Terminal) void {
+         if (self.host == null) return;
++        self.recolored(t);
+         // The paint thread has the host: it looks again when it is done,
+         // and the end of a batch waits for that. An update begun since
+         // shows nothing until it ends, and its end holds again

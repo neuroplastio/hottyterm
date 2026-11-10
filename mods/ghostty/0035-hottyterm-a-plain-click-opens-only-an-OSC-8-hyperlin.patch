@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 17 Oct 2026 18:32:57 +0200
-Subject: [PATCH 35/54] hottyterm: a plain click opens only an OSC 8 hyperlink
+Subject: [PATCH 35/55] hottyterm: a plain click opens only an OSC 8 hyperlink
 
 With hotty-link-click = plain, no modifier held was the link gesture
 for every link, so a URL or a path the link regex found underlined under
@@ -22,7 +22,7 @@ underline goes.
  3 files changed, 30 insertions(+), 11 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 34e4d90de..a492e2754 100644
+index 34e4d90d..a492e275 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -1743,6 +1743,9 @@ fn mouseRefreshLinks(
@@ -45,7 +45,7 @@ index 34e4d90de..a492e2754 100644
      // are preserved.
      if (self.io.terminal.flags.mouse_event == .none) return mods;
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 35bdbc372..0d993c118 100644
+index 35bdbc37..0d993c11 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -3958,10 +3958,11 @@ term: []const u8 = "xterm-ghostty",
@@ -64,7 +64,7 @@ index 35bdbc372..0d993c118 100644
  ///     reports the mouse: the program sees no click on a link, but a drag
  ///     that starts on one reaches it. A click with Ctrl (Cmd on macOS)
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index d765e54f7..ebd7426c2 100644
+index d765e54f..ebd7426c 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -1838,17 +1838,32 @@ fn osc8Gesture(s: *Surface, mods: input.Mods) bool {

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 17 Oct 2026 14:33:50 +0200
-Subject: [PATCH 34/54] =?UTF-8?q?hottyterm:=20key=20names=20are=20myelin?=
+Subject: [PATCH 34/55] =?UTF-8?q?hottyterm:=20key=20names=20are=20myelin?=
  =?UTF-8?q?=20key=20names=200.1=20(HOTTY=200.4,=20SPEC=20=C2=A710.4)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -19,7 +19,7 @@ Menus' cells_key and the copy keys take both names too.
  2 files changed, 183 insertions(+), 79 deletions(-)
 
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index ef91ab391..35bdbc372 100644
+index ef91ab39..35bdbc37 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -6755,7 +6755,7 @@ pub const Keybinds = struct {
@@ -32,7 +32,7 @@ index ef91ab391..35bdbc372 100644
              // is (SPEC §11). Before the platform's own keys below, which the
              // menu shows.
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 5f6f47960..d765e54f7 100644
+index 5f6f4796..d765e54f 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -101,7 +101,7 @@ extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;

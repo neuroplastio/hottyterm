@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Toly <1397674+AnatolyRugalev@users.noreply.github.com>
 Date: Tue, 29 Sep 2026 17:02:56 +0200
-Subject: [PATCH 01/54] hottyterm: HOTTY surfaces over hotty-blitz
+Subject: [PATCH 01/55] hottyterm: HOTTY surfaces over hotty-blitz
 
 Programs send HOTTY (HTML over the TTY) on OSC 7279; hottyterm renders
 the surfaces itself through hotty-blitz's C ABI and shows each one as a
@@ -27,7 +27,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  create mode 100644 src/termio/hotty.zig
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 7f7b1df88..b1f26651c 100644
+index 7f7b1df8..b1f26651 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -27,6 +27,7 @@ const crash = @import("crash/main.zig");
@@ -95,7 +95,7 @@ index 7f7b1df88..b1f26651c 100644
      // we need to clear any hover states.
      if (pos.x < 0 or pos.y < 0) {
 diff --git a/src/build/GhosttyExe.zig b/src/build/GhosttyExe.zig
-index 13c3cd145..72c32d48c 100644
+index 13c3cd14..72c32d48 100644
 --- a/src/build/GhosttyExe.zig
 +++ b/src/build/GhosttyExe.zig
 @@ -33,6 +33,16 @@ pub fn init(b: *std.Build, cfg: *const Config, deps: *const SharedDeps) !Ghostty
@@ -116,7 +116,7 @@ index 13c3cd145..72c32d48c 100644
      try checkNixShell(exe, cfg);
  
 diff --git a/src/termio/Termio.zig b/src/termio/Termio.zig
-index 49bd6e0cd..655301d11 100644
+index 49bd6e0c..655301d1 100644
 --- a/src/termio/Termio.zig
 +++ b/src/termio/Termio.zig
 @@ -12,6 +12,7 @@ const EnvMap = std.process.Environ.Map;
@@ -181,7 +181,7 @@ index 49bd6e0cd..655301d11 100644
      if (self.terminal_stream.handler.termio_messaged) {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
 new file mode 100644
-index 000000000..8080b0883
+index 00000000..8080b088
 --- /dev/null
 +++ b/src/termio/hotty.zig
 @@ -0,0 +1,1180 @@
@@ -1366,7 +1366,7 @@ index 000000000..8080b0883
 +    return consumed;
 +}
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index 6cc7010f2..99715f923 100644
+index 6cc7010f..99715f92 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
 @@ -11,6 +11,7 @@ const internal_os = @import("../os/main.zig");

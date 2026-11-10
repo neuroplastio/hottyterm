@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Fri, 30 Oct 2026 01:15:06 +0100
-Subject: [PATCH 43/54] core: a keystroke draws only what it changed
+Subject: [PATCH 43/55] core: a keystroke draws only what it changed
 
 Every key that writes to the pty drew a frame twice over: the surface
 queued a render to show the selection it clears and the viewport it
@@ -22,7 +22,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 19 insertions(+), 4 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index faa8b4cae..1d883f837 100644
+index faa8b4ca..1d883f83 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -3028,15 +3028,25 @@ pub fn keyCallback(
@@ -54,7 +54,7 @@ index faa8b4cae..1d883f837 100644
  
      return .consumed;
 diff --git a/src/termio/Thread.zig b/src/termio/Thread.zig
-index 79cdf8936..5caaaa1bb 100644
+index 79cdf893..5caaaa1b 100644
 --- a/src/termio/Thread.zig
 +++ b/src/termio/Thread.zig
 @@ -306,8 +306,13 @@ fn drainMailbox(

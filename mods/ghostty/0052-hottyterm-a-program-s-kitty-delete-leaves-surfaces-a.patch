@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Wed, 4 Nov 2026 21:54:46 +0100
-Subject: [PATCH 52/54] hottyterm: a program's kitty delete leaves surfaces
+Subject: [PATCH 52/55] hottyterm: a program's kitty delete leaves surfaces
  alone (SPEC 5.4)
 
 Every hotty surface is a kitty image in the screen's image storage, its
@@ -35,7 +35,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 150 insertions(+), 3 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 5646d207c..027949925 100644
+index 5646d207..02794992 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -1056,8 +1056,7 @@ pub const Hotty = struct {
@@ -208,7 +208,7 @@ index 5646d207c..027949925 100644
 +    try t.expectEqual(pin, storage.placements.get(.{ .image_id = id_base, .placement_id = .{ .tag = .external, .id = 1 } }).?.location.pin);
 +}
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index 6c5825fc2..84962fa38 100644
+index 6c5825fc..84962fa3 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
 @@ -525,7 +525,7 @@ pub const StreamHandler = struct {

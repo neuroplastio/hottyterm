@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Wed, 14 Oct 2026 14:57:15 +0200
-Subject: [PATCH 29/54] =?UTF-8?q?hottyterm:=20edit=20commands=20and=20prog?=
+Subject: [PATCH 29/55] =?UTF-8?q?hottyterm:=20edit=20commands=20and=20prog?=
  =?UTF-8?q?rams'=20menus=20(SPEC=20=C2=A710.5,=20=C2=A710.6)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -25,7 +25,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 270 insertions(+), 10 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index b3c669a58..ffa563f9f 100644
+index b3c669a5..ffa563f9 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -6298,6 +6298,7 @@ fn completeClipboardPaste(
@@ -37,7 +37,7 @@ index b3c669a58..ffa563f9f 100644
      if (hotty.pasteInto(self, data)) return;
  
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 9ad608c26..3b57908b0 100644
+index 9ad608c2..3b57908b 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -29,6 +29,7 @@

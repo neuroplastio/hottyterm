@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Thu, 5 Nov 2026 23:10:10 +0100
-Subject: [PATCH 53/54] hottyterm: a secondary press on an element that takes
+Subject: [PATCH 53/55] hottyterm: a secondary press on an element that takes
  it is the surface's (SPEC 9)
 
 A secondary press on a surface is the surface's where an element there or
@@ -29,7 +29,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 52 insertions(+)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 027949925..4600e62da 100644
+index 02794992..4600e62d 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -243,6 +243,7 @@ extern fn hotty_host_key_bytes(h: *Host, data: [*]const u8, len: usize, fx: *con

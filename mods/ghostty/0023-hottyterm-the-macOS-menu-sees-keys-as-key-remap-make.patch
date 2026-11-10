@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 19:17:45 +0200
-Subject: [PATCH 23/54] hottyterm: the macOS menu sees keys as key-remap makes
+Subject: [PATCH 23/55] hottyterm: the macOS menu sees keys as key-remap makes
  them; no Mac keys for quit, close or full screen
 
 The maintainer, 2026-10-10: kill Cmd+Q, Cmd+W and Ctrl+Cmd+F on the Mac
@@ -30,7 +30,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  5 files changed, 59 insertions(+), 12 deletions(-)
 
 diff --git a/include/ghostty.h b/include/ghostty.h
-index 439195c75..2a1796494 100644
+index 439195c7..2a179649 100644
 --- a/include/ghostty.h
 +++ b/include/ghostty.h
 @@ -1223,6 +1223,8 @@ GHOSTTY_API void ghostty_surface_set_color_scheme(ghostty_surface_t,
@@ -43,7 +43,7 @@ index 439195c75..2a1796494 100644
  GHOSTTY_API bool ghostty_surface_key_is_binding(ghostty_surface_t,
                                                     ghostty_input_key_s,
 diff --git a/macos/Sources/App/AppDelegate.swift b/macos/Sources/App/AppDelegate.swift
-index 07cc9e14b..825f9cfc2 100644
+index 07cc9e14..825f9cfc 100644
 --- a/macos/Sources/App/AppDelegate.swift
 +++ b/macos/Sources/App/AppDelegate.swift
 @@ -1248,9 +1248,11 @@ extension AppDelegate {
@@ -60,7 +60,7 @@ index 07cc9e14b..825f9cfc2 100644
          syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
          syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index 8552d8a40..1704a3c3c 100644
+index 8552d8a4..1704a3c3 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 @@ -1342,6 +1342,30 @@ extension Ghostty {
@@ -122,7 +122,7 @@ index 8552d8a40..1704a3c3c 100644
              switch event.charactersIgnoringModifiers {
              case "\r":
 diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
-index 548169bc1..1fe60d5e1 100644
+index 548169bc..1fe60d5e 100644
 --- a/src/apprt/embedded.zig
 +++ b/src/apprt/embedded.zig
 @@ -2067,6 +2067,20 @@ pub const CAPI = struct {
@@ -147,7 +147,7 @@ index 548169bc1..1fe60d5e1 100644
      /// This will handle the keymap translation and send the appropriate
      /// key and char events.
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index ae4973800..9c3460373 100644
+index ae497380..9c346037 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -7477,10 +7477,8 @@ pub const Keybinds = struct {

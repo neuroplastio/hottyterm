@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Wed, 14 Oct 2026 17:31:01 +0200
-Subject: [PATCH 30/54] =?UTF-8?q?hottyterm:=20keys=20wait=20behind=20a=20p?=
+Subject: [PATCH 30/55] =?UTF-8?q?hottyterm:=20keys=20wait=20behind=20a=20p?=
  =?UTF-8?q?aste=20command,=20and=20a=20screen=20switch=20drops=20its=20com?=
  =?UTF-8?q?mands=20at=20once=20(SPEC=20=C2=A710.6)?=
 MIME-Version: 1.0
@@ -21,7 +21,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 89 insertions(+), 3 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 3b57908b0..4808c7b47 100644
+index 3b57908b..4808c7b4 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -381,10 +381,24 @@ pub const Hotty = struct {
@@ -162,7 +162,7 @@ index 3b57908b0..4808c7b47 100644
  /// program's hides on Escape and on a key it does not list (SPEC §10.6).
  /// The key goes on.
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index a04f58cb7..d54751072 100644
+index a04f58cb..d5475107 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
 @@ -710,14 +710,17 @@ pub const StreamHandler = struct {

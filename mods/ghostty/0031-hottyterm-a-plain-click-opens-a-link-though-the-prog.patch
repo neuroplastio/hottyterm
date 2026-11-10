@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Fri, 16 Oct 2026 19:23:27 +0200
-Subject: [PATCH 31/54] hottyterm: a plain click opens a link though the
+Subject: [PATCH 31/55] hottyterm: a plain click opens a link though the
  program reports the mouse
 
 With `hotty-link-click = plain`, a click with no modifier opened a URL
@@ -35,7 +35,7 @@ over in the motion report), Config.zig 5 (the option's text).
  3 files changed, 96 insertions(+), 10 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index ffa563f9f..34e4d90de 100644
+index ffa563f9..34e4d90d 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -2882,6 +2882,7 @@ pub fn keyCallback(
@@ -96,7 +96,7 @@ index ffa563f9f..34e4d90de 100644
          // This only applies if there is a mouse button pressed so that
          // movement reports are not affected.
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 3020607b1..ef91ab391 100644
+index 3020607b..ef91ab39 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -3962,9 +3962,10 @@ term: []const u8 = "xterm-ghostty",
@@ -114,7 +114,7 @@ index 3020607b1..ef91ab391 100644
  @"hotty-link-click": HottyLinkClick = .plain,
  
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 4808c7b47..88650a4f4 100644
+index 4808c7b4..88650a4f 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -359,6 +359,11 @@ pub const Hotty = struct {

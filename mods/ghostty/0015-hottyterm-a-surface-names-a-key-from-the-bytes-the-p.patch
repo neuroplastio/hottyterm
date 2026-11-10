@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Fri, 9 Oct 2026 10:46:18 +0200
-Subject: [PATCH 15/54] hottyterm: a surface names a key from the bytes the
+Subject: [PATCH 15/55] hottyterm: a surface names a key from the bytes the
  program would read
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -27,7 +27,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 57 insertions(+), 38 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 35a671ba7..472fca99c 100644
+index 35a671ba..472fca99 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -3410,7 +3410,7 @@ fn encodeKey(
@@ -64,7 +64,7 @@ index 35a671ba7..472fca99c 100644
                  self.queueIo(.{ .write_stable = ck.normal }, .unlocked);
              } else {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 06beafade..6dcb41e6a 100644
+index 06beafad..6dcb41e6 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -89,7 +89,7 @@ extern fn hotty_host_render(h: *Host, ctx: ?*anyopaque, cb: FrameFn) void;

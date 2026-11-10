@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Fri, 9 Oct 2026 20:32:46 +0200
-Subject: [PATCH 17/54] =?UTF-8?q?hottyterm:=20a=20touch=20drags=20what=20o?=
+Subject: [PATCH 17/55] =?UTF-8?q?hottyterm:=20a=20touch=20drags=20what=20o?=
  =?UTF-8?q?pts=20out=20of=20panning=20(SPEC=20=C2=A79.1)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -29,7 +29,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 145 insertions(+), 5 deletions(-)
 
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 510bd3c9a..52b15d22c 100644
+index 510bd3c9..52b15d22 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -44,6 +44,7 @@ const gtk_version = @import("../gtk_version.zig");
@@ -146,7 +146,7 @@ index 510bd3c9a..52b15d22c 100644
  
      fn ecMouseScrollVertical(
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 6dcb41e6a..2883c1964 100644
+index 6dcb41e6..2883c196 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -91,6 +91,8 @@ extern fn hotty_host_reset(h: *Host, fx: ?*const Effects) void;

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Tue, 6 Oct 2026 22:30:15 +0200
-Subject: [PATCH 09/54] hottyterm: a document that scrolls takes the wheel
+Subject: [PATCH 09/55] hottyterm: a document that scrolls takes the wheel
  first
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -37,7 +37,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 63 insertions(+)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index b1f26651c..967675228 100644
+index b1f26651..96767522 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -3605,6 +3605,9 @@ pub fn scrollCallback(
@@ -51,7 +51,7 @@ index b1f26651c..967675228 100644
          // We use cell_size to determine if we have accumulated enough to trigger a scroll
          const cell_size: f64 = @floatFromInt(self.size.cell.height);
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 5da27c3b6..5bc29f184 100644
+index 5da27c3b..5bc29f18 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -88,6 +88,7 @@ extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;

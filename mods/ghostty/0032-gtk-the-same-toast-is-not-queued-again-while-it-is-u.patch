@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Fri, 16 Oct 2026 19:23:38 +0200
-Subject: [PATCH 32/54] gtk: the same toast is not queued again while it is up
+Subject: [PATCH 32/55] gtk: the same toast is not queued again while it is up
 
 Each clipboard write toasted "Copied to clipboard", and AdwToastOverlay
 shows toasts one at a time, so a program that wrote the clipboard many
@@ -18,7 +18,7 @@ Upstream lines: 20 (GTK apprt only).
  1 file changed, 21 insertions(+), 2 deletions(-)
 
 diff --git a/src/apprt/gtk/class/window.zig b/src/apprt/gtk/class/window.zig
-index fe27453d9..6292596d7 100644
+index fe27453d..6292596d 100644
 --- a/src/apprt/gtk/class/window.zig
 +++ b/src/apprt/gtk/class/window.zig
 @@ -5,6 +5,7 @@ const adw = @import("adw");

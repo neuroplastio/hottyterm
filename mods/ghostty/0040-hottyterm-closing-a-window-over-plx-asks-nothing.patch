@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Mon, 26 Oct 2026 22:42:03 +0100
-Subject: [PATCH 40/54] hottyterm: closing a window over plx asks nothing
+Subject: [PATCH 40/55] hottyterm: closing a window over plx asks nothing
 
 plx keeps its panes, tabs and running jobs in its daemon when its
 terminal closes, and plain `plx` brings them back. Ghostty's close
@@ -27,7 +27,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 41 insertions(+)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index f022ac6f0..7d8986e68 100644
+index f022ac6f..7d8986e6 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -1011,6 +1011,7 @@ pub fn needsConfirmQuit(self: *Surface) bool {
@@ -82,7 +82,7 @@ index f022ac6f0..7d8986e68 100644
  /// surface.
  pub fn handleMessage(self: *Surface, msg: Message) !void {
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index fb22e8dcf..7b1409753 100644
+index fb22e8dc..7b140975 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -2625,6 +2625,10 @@ keybind: Keybinds = .{},

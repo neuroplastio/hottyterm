@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Fri, 30 Oct 2026 00:50:57 +0100
-Subject: [PATCH 42/54] gtk: paint a new frame now, not a refresh after the
+Subject: [PATCH 42/55] gtk: paint a new frame now, not a refresh after the
  last input
 
 GTK handles every input event in a frame clock cycle of its own
@@ -27,7 +27,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 21 insertions(+), 1 deletion(-)
 
 diff --git a/src/apprt/gtk/class/render_surface.zig b/src/apprt/gtk/class/render_surface.zig
-index d98dccd06..df5b520ee 100644
+index d98dccd0..df5b520e 100644
 --- a/src/apprt/gtk/class/render_surface.zig
 +++ b/src/apprt/gtk/class/render_surface.zig
 @@ -251,6 +251,26 @@ pub const RenderSurface = extern struct {
@@ -58,7 +58,7 @@ index d98dccd06..df5b520ee 100644
      // Presenting
  
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 59c3c9fa9..593516426 100644
+index 59c3c9fa..59351642 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -849,7 +849,7 @@ pub const Surface = extern struct {

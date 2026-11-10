@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 17 Oct 2026 20:47:52 +0200
-Subject: [PATCH 36/54] =?UTF-8?q?hottyterm:=20a=20finger=20drags=20in=20th?=
+Subject: [PATCH 36/55] =?UTF-8?q?hottyterm:=20a=20finger=20drags=20in=20th?=
  =?UTF-8?q?e=20cells=20(SPEC=20=C2=A79.6)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -34,7 +34,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 114 insertions(+), 20 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index a492e2754..f022ac6f0 100644
+index a492e275..f022ac6f 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -3836,7 +3836,7 @@ pub fn mouseReportingActive(self: *Surface) bool {
@@ -56,7 +56,7 @@ index a492e2754..f022ac6f0 100644
      switch (self.config.mouse_shift_capture) {
          .never => return false,
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index ef9e10619..12e3e6527 100644
+index ef9e1061..12e3e652 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -689,8 +689,8 @@ pub const Surface = extern struct {
@@ -71,7 +71,7 @@ index ef9e10619..12e3e6527 100644
  
          /// True when the child has exited.
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index ebd7426c2..73f12edd1 100644
+index ebd7426c..73f12edd 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -85,6 +85,15 @@ pub const Effects = extern struct {

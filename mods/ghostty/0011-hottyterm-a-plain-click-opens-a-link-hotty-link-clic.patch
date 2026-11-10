@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Thu, 8 Oct 2026 17:21:16 +0200
-Subject: [PATCH 11/54] hottyterm: a plain click opens a link
+Subject: [PATCH 11/55] hottyterm: a plain click opens a link
  (hotty-link-click)
 
 `hotty-link-click = plain`, the default, opens a link with a click and no
@@ -23,7 +23,7 @@ hovering underlines), Config.zig 14 (the option and its enum).
  3 files changed, 37 insertions(+), 5 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 967675228..d99cb2ce5 100644
+index 96767522..d99cb2ce 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -346,6 +346,7 @@ const DerivedConfig = struct {
@@ -59,7 +59,7 @@ index 967675228..d99cb2ce5 100644
      // are preserved.
      if (self.io.terminal.flags.mouse_event == .none) return mods;
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 116f625b2..20128d580 100644
+index 116f625b..20128d58 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -3957,6 +3957,17 @@ term: []const u8 = "xterm-ghostty",
@@ -91,7 +91,7 @@ index 116f625b2..20128d580 100644
      false,
      true,
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index cf9e97ee1..76737c2a5 100644
+index cf9e97ee..76737c2a 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -1237,14 +1237,28 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M

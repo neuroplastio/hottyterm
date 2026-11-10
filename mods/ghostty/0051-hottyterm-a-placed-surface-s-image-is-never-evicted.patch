@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Tue, 3 Nov 2026 18:43:26 +0100
-Subject: [PATCH 51/54] hottyterm: a placed surface's image is never evicted
+Subject: [PATCH 51/55] hottyterm: a placed surface's image is never evicted
 
 Each hotty surface is a kitty image in its screen's image storage.
 Past image-storage-limit (320 MB a screen by default), the storage
@@ -35,7 +35,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 69 insertions(+), 2 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 8b21b2d2d..5646d207c 100644
+index 8b21b2d2..5646d207 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -931,6 +931,7 @@ pub const Hotty = struct {

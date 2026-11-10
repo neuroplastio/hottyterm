@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Wed, 14 Oct 2026 00:27:25 +0200
-Subject: [PATCH 26/54] =?UTF-8?q?hottyterm:=20Control+c=20and=20Command+c?=
+Subject: [PATCH 26/55] =?UTF-8?q?hottyterm:=20Control+c=20and=20Command+c?=
  =?UTF-8?q?=20copy=20a=20surface's=20selection=20too=20(SPEC=20=C2=A711)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -24,7 +24,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 73 insertions(+), 4 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 75cf10088..3571b4102 100644
+index 75cf1008..3571b410 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -2455,7 +2455,7 @@ fn copySelectionToClipboards(
@@ -47,7 +47,7 @@ index 75cf10088..3571b4102 100644
  
          .copy_url_to_clipboard => {
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index 9c3460373..3020607b1 100644
+index 9c346037..3020607b 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -6754,6 +6754,19 @@ pub const Keybinds = struct {
@@ -71,7 +71,7 @@ index 9c3460373..3020607b1 100644
              // ctrl+c is to kill the process.
              const mods: inputpkg.Mods = if (builtin.target.os.tag.isDarwin())
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 1145d35cd..befb3ea25 100644
+index 1145d35c..befb3ea2 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -101,6 +101,8 @@ extern fn hotty_host_hyperlink(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;

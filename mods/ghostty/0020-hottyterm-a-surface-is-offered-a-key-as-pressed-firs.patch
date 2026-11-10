@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 18:06:45 +0200
-Subject: [PATCH 20/54] =?UTF-8?q?hottyterm:=20a=20surface=20is=20offered?=
+Subject: [PATCH 20/55] =?UTF-8?q?hottyterm:=20a=20surface=20is=20offered?=
  =?UTF-8?q?=20a=20key=20as=20pressed=20first=20(SPEC=20=C2=A710.4)?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -28,7 +28,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 167 insertions(+), 11 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 472fca99c..75cf10088 100644
+index 472fca99..75cf1008 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -2791,7 +2791,7 @@ pub fn keyEventIsBinding(
@@ -61,7 +61,7 @@ index 472fca99c..75cf10088 100644
  
      // If this input event has text, then we hide the mouse if configured.
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 59cbefab9..a3cf4621b 100644
+index 59cbefab..a3cf4621 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -90,6 +90,7 @@ extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;

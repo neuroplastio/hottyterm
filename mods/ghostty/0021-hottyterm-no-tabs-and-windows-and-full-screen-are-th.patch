@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: HOTTY Agent <hotty@neuroplast.io>
 Date: Sat, 10 Oct 2026 18:52:10 +0200
-Subject: [PATCH 21/54] hottyterm: no tabs, and windows and full screen are the
+Subject: [PATCH 21/55] hottyterm: no tabs, and windows and full screen are the
  window manager's
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -34,7 +34,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  7 files changed, 66 insertions(+), 73 deletions(-)
 
 diff --git a/macos/Sources/App/AppDelegate.swift b/macos/Sources/App/AppDelegate.swift
-index 2ea098a51..07cc9e14b 100644
+index 2ea098a5..07cc9e14 100644
 --- a/macos/Sources/App/AppDelegate.swift
 +++ b/macos/Sources/App/AppDelegate.swift
 @@ -211,6 +211,8 @@ class AppDelegate: NSObject,
@@ -57,7 +57,7 @@ index 2ea098a51..07cc9e14b 100644
          syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
          syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
 diff --git a/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift b/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift
-index e2f0ca39d..5204fd6b4 100644
+index e2f0ca39..5204fd6b 100644
 --- a/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift	
 +++ b/macos/Sources/Features/Terminal/Window Styles/TerminalWindow.swift	
 @@ -95,13 +95,10 @@ class TerminalWindow: NSWindow {
@@ -79,7 +79,7 @@ index e2f0ca39d..5204fd6b4 100644
          // All new windows are based on the app config at the time of creation.
          guard let appDelegate = NSApp.delegate as? AppDelegate else { return }
 diff --git a/src/apprt/gtk/class/application.zig b/src/apprt/gtk/class/application.zig
-index 18786bad1..487e19e15 100644
+index 18786bad..487e19e1 100644
 --- a/src/apprt/gtk/class/application.zig
 +++ b/src/apprt/gtk/class/application.zig
 @@ -2561,24 +2561,14 @@ const Action = struct {
@@ -113,7 +113,7 @@ index 18786bad1..487e19e15 100644
              },
          }
 diff --git a/src/apprt/gtk/ui/1.0/surface.blp b/src/apprt/gtk/ui/1.0/surface.blp
-index 8dd0427ea..7c13e75de 100644
+index 8dd0427e..7c13e75d 100644
 --- a/src/apprt/gtk/ui/1.0/surface.blp
 +++ b/src/apprt/gtk/ui/1.0/surface.blp
 @@ -382,26 +382,6 @@ menu context_menu_model {
@@ -144,7 +144,7 @@ index 8dd0427ea..7c13e75de 100644
        label: _("Window");
  
 diff --git a/src/apprt/gtk/ui/1.4/window.blp b/src/apprt/gtk/ui/1.4/window.blp
-index 5e6eaa8b1..06e94b127 100644
+index 5e6eaa8b..06e94b12 100644
 --- a/src/apprt/gtk/ui/1.4/window.blp
 +++ b/src/apprt/gtk/ui/1.4/window.blp
 @@ -24,7 +24,7 @@ template $GhosttyWindow: Adw.ApplicationWindow {
@@ -220,7 +220,7 @@ index 5e6eaa8b1..06e94b127 100644
      submenu {
        label: _("Split");
 diff --git a/src/config/Config.zig b/src/config/Config.zig
-index c07cc66e5..ae4973800 100644
+index c07cc66e..ae497380 100644
 --- a/src/config/Config.zig
 +++ b/src/config/Config.zig
 @@ -7471,6 +7471,49 @@ pub const Keybinds = struct {
@@ -274,7 +274,7 @@ index c07cc66e5..ae4973800 100644
  
      pub fn parseCLI(self: *Keybinds, alloc: Allocator, input: ?[]const u8) !void {
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index a3cf4621b..2339b009a 100644
+index a3cf4621..2339b009 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -1751,8 +1751,8 @@ fn namedKey(key: input.Key) ?[]const u8 {

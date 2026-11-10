@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Sat, 31 Oct 2026 12:14:35 +0100
-Subject: [PATCH 47/54] hottyterm: a backdrop placement is drawn under the
+Subject: [PATCH 47/55] hottyterm: a backdrop placement is drawn under the
  cells (V6-06)
 
 hotty 0.6's V6-06: a placement with b=1 is a backdrop. hotty-blitz reads
@@ -24,7 +24,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 45 insertions(+), 10 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 4723b9c44..89a121761 100644
+index 4723b9c4..89a12176 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -195,8 +195,9 @@ pub const Config = extern struct {
