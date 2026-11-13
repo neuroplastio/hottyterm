@@ -27,11 +27,10 @@ published() { # <fork> <version>
   return 1
 }
 
-# hotty-blitz at <commit> in <work>/hotty-blitz, with the Blitz, parley and
-# vello_cpu forks from its own mods/ beside it, and the Stylo fork where its
-# mods/ has that set. <root> holds the repositories: main, blitz, parley,
-# vello_cpu, stylo. (glifo is not cloned: hotty-blitz's `make blitz` makes it
-# from the published package.)
+# hotty-blitz at <commit> in <work>/hotty-blitz, with the forks its mods/
+# describe beside it. <root> holds the repositories: main, blitz, parley,
+# vello_cpu, stylo. A Git-based vello set carries both vello_cpu and glifo;
+# for an older crates.io set, `make blitz` creates the separate glifo fork.
 blitz_tree() { # <root> <commit> <work>
   root=$1; commit=$2; tw=$3
   at "$root/main" "$tw/hotty-blitz" "$commit" main
@@ -40,9 +39,22 @@ blitz_tree() { # <root> <commit> <work>
   apply "$tw/blitz" "$B/blitz"
   at "$root/parley" "$tw/parley" "$(base_of "$B/parley/mod.md")" hotty
   apply "$tw/parley" "$B/parley"
-  vc="$(published "$root/vello_cpu" "$(base_of "$B/vello_cpu/mod.md")")"
-  at "$root/vello_cpu" "$tw/vello_cpu" "$vc" hotty
-  apply "$tw/vello_cpu" "$B/vello_cpu"
+  vc_base="$(base_of "$B/vello_cpu/mod.md")"
+  if printf '%s\n' "$vc_base" | grep -Eq '^[0-9a-f]{40}$'; then
+    if ! git -C "$root/vello_cpu" cat-file -e "$vc_base:vello_cpu/Cargo.toml" 2>/dev/null; then
+      echo "vello fork at $root/vello_cpu lacks workspace base $vc_base; move the old fork aside and rerun make blitz in hotty-blitz" >&2
+      return 1
+    fi
+    at "$root/vello_cpu" "$tw/vello_cpu" "$vc_base" hotty
+    apply "$tw/vello_cpu" "$B/vello_cpu"
+    apply "$tw/vello_cpu" "$B/glifo"
+    at "$root/vello_cpu" "$tw/glifo" "$vc_base" hotty
+    apply "$tw/glifo" "$B/glifo"
+  else
+    vc="$(published "$root/vello_cpu" "$vc_base")"
+    at "$root/vello_cpu" "$tw/vello_cpu" "$vc" hotty
+    apply "$tw/vello_cpu" "$B/vello_cpu"
+  fi
   if [ -f "$B/stylo/mod.md" ]; then
     at "$root/stylo" "$tw/stylo" "$(base_of "$B/stylo/mod.md")" hotty
     apply "$tw/stylo" "$B/stylo"
