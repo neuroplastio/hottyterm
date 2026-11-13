@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Thu, 5 Nov 2026 23:10:10 +0100
-Subject: [PATCH 54/55] hottyterm: a long press over a surface is hotty's
+Subject: [PATCH 54/56] hottyterm: a long press over a surface is hotty's
  secondary press (SPEC 9.1)
 
 hotty_host_touch takes phase 4, a long press: over an element that takes a

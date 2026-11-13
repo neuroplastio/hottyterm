@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Tue, 10 Nov 2026 16:40:28 +0100
-Subject: [PATCH 55/55] hottyterm: surfaces take the colours a program sets
+Subject: [PATCH 55/56] hottyterm: surfaces take the colours a program sets
  with OSC 4, 10 and 11
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8

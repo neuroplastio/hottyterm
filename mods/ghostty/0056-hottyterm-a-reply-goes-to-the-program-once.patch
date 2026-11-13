@@ -1,0 +1,90 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Fri, 13 Nov 2026 23:08:25 +0100
+Subject: [PATCH 56/56] hottyterm: a reply goes to the program once
+
+What the surfaces collect for the program (a click, a key, a fit) was
+sent from two threads: the app thread's deliver read and emptied the
+buffer without the renderer lock, while the IO thread sent and emptied
+the same buffer under it (osc, tick). When they met, both sent the same
+bytes, and a click arrived twice. The IO thread also emptied the buffer
+after a send that can let go of the lock, dropping what the app thread
+collected meanwhile.
+
+Every sender now takes the buffer's bytes and empties it in one step,
+under the lock (takeReplies), and sends after.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig | 37 ++++++++++++++++++++++++-------------
+ 1 file changed, 24 insertions(+), 13 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index abc8166f..fb8b7a4b 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -915,10 +915,9 @@ pub const Hotty = struct {
+         // (the mailbox was full), so a draw may run in between: then the
+         // rest of the parse needs another. (A wait for a paint lets it go
+         // too: `hostReady` queues that one.)
+-        if (self.replies.items.len > 0) {
+-            defer self.replies.clearRetainingCapacity();
++        if (try self.takeReplies()) |msg| {
+             // What the handler's (private) messageWriter does.
+-            handler.termio_mailbox.send(try termio.Message.writeReq(self.alloc, self.replies.items), handler.renderer_state.mutex);
++            handler.termio_mailbox.send(msg, handler.renderer_state.mutex);
+             handler.termio_messaged = true;
+             try handler.queueRender();
+         }
+@@ -1249,14 +1248,24 @@ pub const Hotty = struct {
+         self.streamHandler().renderer_state.hotty_hold = false;
+     }
+ 
++    /// What is collected for the program, as one write, and the buffer
++    /// emptied, under the renderer lock. Empty first, send after: a send
++    /// to a full mailbox lets go of the lock, and the app thread may then
++    /// collect a click or send (`deliver`). Emptying after the send would
++    /// drop what it collected meanwhile, and a sender reading the buffer
++    /// without the lock would send the same bytes twice.
++    fn takeReplies(self: *Hotty) !?termio.Message {
++        if (self.replies.items.len == 0) return null;
++        defer self.replies.clearRetainingCapacity();
++        return try termio.Message.writeReq(self.alloc, self.replies.items);
++    }
++
+     /// Sends what is collected for the program (a `fit` a render found)
+     /// from the IO thread, as `osc` does. Termio wakes the mailbox after a
+     /// batch of output or a message; `onTimer` wakes it itself.
+     fn sendReplies(self: *Hotty) void {
+-        if (self.replies.items.len == 0) return;
+-        defer self.replies.clearRetainingCapacity();
++        const msg = (self.takeReplies() catch return) orelse return;
+         const handler: *StreamHandler = @fieldParentPtr("hotty", self);
+-        const msg = termio.Message.writeReq(self.alloc, self.replies.items) catch return;
+         handler.termio_mailbox.send(msg, handler.renderer_state.mutex);
+         handler.termio_messaged = true;
+     }
+@@ -2593,14 +2602,16 @@ fn hostMods(mods: input.Mods) u32 {
+ /// surface took the event or drew a frame.
+ fn deliver(s: *Surface, redraw: bool) void {
+     const hs = &s.io.terminal_stream.handler.hotty;
+-    if (hs.replies.items.len > 0) {
+-        defer hs.replies.clearRetainingCapacity();
++    // The IO thread sends the same buffer (`osc`, `tick`), under the lock:
++    // taken without it, a click could go out twice, from both threads.
++    const msg = msg: {
++        lockState(s, @src());
++        defer s.renderer_state.mutex.unlock(global.io());
++        break :msg hs.takeReplies() catch null;
++    };
++    if (msg) |m| {
+         // Surface.queueIo drops writes in readonly mode; so do we.
+-        if (!s.readonly) {
+-            if (termio.Message.writeReq(s.alloc, hs.replies.items)) |msg| {
+-                s.io.queueMessage(msg, .unlocked);
+-            } else |_| {}
+-        }
++        if (s.readonly) m.deinit() else s.io.queueMessage(m, .unlocked);
+     }
+     if (redraw) s.renderer_thread.wakeup.notify() catch {};
+ }

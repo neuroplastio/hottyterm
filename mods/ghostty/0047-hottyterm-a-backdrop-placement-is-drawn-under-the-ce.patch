@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Sat, 31 Oct 2026 12:14:35 +0100
-Subject: [PATCH 47/55] hottyterm: a backdrop placement is drawn under the
+Subject: [PATCH 47/56] hottyterm: a backdrop placement is drawn under the
  cells (V6-06)
 
 hotty 0.6's V6-06: a placement with b=1 is a backdrop. hotty-blitz reads
