@@ -8,6 +8,7 @@ check: mods apply build smoke   ## the gate
 mods:   ## mods/ as gov P-7 has it: every patch described, and base is ghostty-ref
 	@python3 scripts/mods.py check
 	@test "$$(python3 scripts/mods.py base mods/ghostty)" = "$$(grep -v '^#' ghostty-ref | head -1)" || { echo "mods/ghostty/mod.md: base is not the commit in ghostty-ref" >&2; exit 1; }
+	@scripts/test-lib-blitz.sh
 
 fork:
 	@scripts/fork.sh

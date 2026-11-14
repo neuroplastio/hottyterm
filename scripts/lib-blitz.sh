@@ -12,10 +12,10 @@ at() { # <repo> <dir> <commit> <branch>
 apply() { # <dir> <patches dir>
   set -- "$1" "$2"/*.patch
   dir="$1"; shift
-  [ -e "$1" ] && git -C "$dir" am -q "$@"
-  return 0
+  if [ -e "$1" ]; then git -C "$dir" am -q "$@"; fi
 }
 base_of() { sed -n 's/^base:[[:space:]]*\([^[:space:]#]*\).*/\1/p' "$1"; }
+field_of() { sed -n "s/^$2:[[:space:]]*\\([^[:space:]#]*\\).*/\\1/p" "$1"; }
 # vello_cpu's base is a crates.io version, the commit hotty-blitz's
 # scripts/vello-fork.sh makes of that package: the fork's tag `published`,
 # or `published-<version>` for another version.
@@ -28,46 +28,63 @@ published() { # <fork> <version>
 }
 
 # hotty-blitz at <commit> in <work>/hotty-blitz, with the forks its mods/
-# describe beside it. <root> holds the repositories: main, blitz, parley,
-# vello_cpu, stylo and, when present in the pin, resvg. A Git-based vello
-# set carries both vello_cpu and glifo; for an older crates.io set, `make
-# blitz` creates the separate glifo fork.
+# describe beside it. A set's URL basename names its local repository and
+# checkout unless mod.md specifies source-path or fork-path; additional-sets
+# are applied to the same checkout after that set.
 blitz_tree() { # <root> <commit> <work>
   root=$1; commit=$2; tw=$3
-  at "$root/main" "$tw/hotty-blitz" "$commit" main
+  at "$root/main" "$tw/hotty-blitz" "$commit" main || return 1
   B="$tw/hotty-blitz/mods"
-  at "$root/blitz" "$tw/blitz" "$(base_of "$B/blitz/mod.md")" hotty
-  apply "$tw/blitz" "$B/blitz"
-  at "$root/parley" "$tw/parley" "$(base_of "$B/parley/mod.md")" hotty
-  apply "$tw/parley" "$B/parley"
-  vc_base="$(base_of "$B/vello_cpu/mod.md")"
-  if printf '%s\n' "$vc_base" | grep -Eq '^[0-9a-f]{40}$'; then
-    if ! git -C "$root/vello_cpu" cat-file -e "$vc_base:vello_cpu/Cargo.toml" 2>/dev/null; then
-      echo "vello fork at $root/vello_cpu lacks workspace base $vc_base; move the old fork aside and rerun make blitz in hotty-blitz" >&2
+  for set_path in "$B"/*/mod.md; do
+    [ -f "$set_path" ] || continue
+    set_name=$(basename "$(dirname "$set_path")")
+    set_url=$(field_of "$set_path" url)
+    set_repo=${set_url%/}; set_repo=${set_repo##*/}; set_repo=${set_repo%.git}
+    set_source=$(field_of "$set_path" source-path)
+    set_fork=$(field_of "$set_path" fork-path)
+    set_extra=$(field_of "$set_path" additional-sets)
+    set_base=$(base_of "$set_path")
+    [ -n "$set_repo" ] && [ -n "$set_base" ] || { echo "Missing url or base in $set_path" >&2; return 1; }
+
+    # Pins predating these metadata fields used a Vello workspace with two
+    # sets and a local repository called vello_cpu, not the URL's basename.
+    if [ "$set_repo" = vello ] && [ -z "$set_source" ] && [ -z "$set_fork" ]; then
+      case "$set_name" in
+        vello_cpu) set_source=vello_cpu; set_fork=vello_cpu; [ ! -f "$B/glifo/mod.md" ] || set_extra=glifo ;;
+        glifo) set_source=vello_cpu; set_fork=glifo ;;
+      esac
+      # The older crates.io layout used a separate glifo fork created by
+      # hotty-blitz's own setup, rather than a shared Git workspace.
+      if ! printf '%s\n' "$set_base" | grep -Eq '^[0-9a-f]{40}$'; then
+        [ "$set_name" != glifo ] || continue
+        [ "$set_name" != vello_cpu ] || set_extra=
+      fi
+    fi
+    set_source=${set_source:-$set_repo}
+    set_fork=${set_fork:-$set_repo}
+    for set_relative in "$set_source" "$set_fork"; do
+      case "$set_relative" in /*|..|../*|*/../*|*/..) echo "Invalid fork path $set_relative in $set_path" >&2; return 1 ;; esac
+    done
+    if ! git -C "$root/$set_source" rev-parse --git-dir >/dev/null 2>&1; then
+      echo "No local $set_name repository at $root/$set_source; clone $set_url there before building this hotty-blitz pin." >&2
       return 1
     fi
-    at "$root/vello_cpu" "$tw/vello_cpu" "$vc_base" hotty
-    apply "$tw/vello_cpu" "$B/vello_cpu"
-    apply "$tw/vello_cpu" "$B/glifo"
-    at "$root/vello_cpu" "$tw/glifo" "$vc_base" hotty
-    apply "$tw/glifo" "$B/glifo"
-  else
-    vc="$(published "$root/vello_cpu" "$vc_base")"
-    at "$root/vello_cpu" "$tw/vello_cpu" "$vc" hotty
-    apply "$tw/vello_cpu" "$B/vello_cpu"
-  fi
-  if [ -f "$B/stylo/mod.md" ]; then
-    at "$root/stylo" "$tw/stylo" "$(base_of "$B/stylo/mod.md")" hotty
-    apply "$tw/stylo" "$B/stylo"
-  fi
-  if [ -f "$B/usvg/mod.md" ]; then
-    if ! git -C "$root/resvg" rev-parse --git-dir >/dev/null 2>&1; then
-      echo "No local resvg repository at $root/resvg; clone https://github.com/linebender/resvg there before building this hotty-blitz pin." >&2
-      return 1
+    if ! printf '%s\n' "$set_base" | grep -Eq '^[0-9a-f]{40}$'; then
+      if [ "$set_name" != vello_cpu ]; then echo "Invalid base $set_base in $set_path" >&2; return 1; fi
+      set_base=$(published "$root/$set_source" "$set_base") || return 1
     fi
-    at "$root/resvg" "$tw/resvg" "$(base_of "$B/usvg/mod.md")" hotty
-    apply "$tw/resvg" "$B/usvg"
-  fi
+    at "$root/$set_source" "$tw/$set_fork" "$set_base" hotty || return 1
+    apply "$tw/$set_fork" "$(dirname "$set_path")" || return 1
+    set_list=$(printf '%s' "$set_extra" | tr ',' ' ')
+    for extra_name in $set_list; do
+      extra_path="$B/$extra_name/mod.md"
+      if [ ! -f "$extra_path" ] || [ "$(base_of "$extra_path")" != "$(base_of "$set_path")" ] || [ "$(field_of "$extra_path" url)" != "$set_url" ]; then
+        echo "Additional set $extra_name does not share $set_name's source and base" >&2
+        return 1
+      fi
+      apply "$tw/$set_fork" "$B/$extra_name" || return 1
+    done
+  done
 }
 
 # Sets BLITZ to the hotty-blitz tree to build: the work dir at hotty-blitz-ref
