@@ -29,6 +29,13 @@ source = "https://github.com/mbadolato/iTerm2-Color-Schemes"
 license = "MIT"
 files = ["upstream/iTerm2-Color-Schemes.txt"]  # Ghostty's themes are built from it
 
+[zig.openmoji]
+source = "https://github.com/hfg-gmuend/openmoji"
+license = "CC-BY-SA-4.0"
+# The release's font zip has no licence file: the attribution OpenMoji
+# asks for, then LICENSE.txt at 17.0.0.
+files = ["OpenMoji-attribution.txt", "upstream/OpenMoji.txt"]
+
 # Bundled in the macOS app. build-macos.sh points at Xcode's checkout of it;
 # this is the fallback, at the version Ghostty's Package.resolved pins.
 

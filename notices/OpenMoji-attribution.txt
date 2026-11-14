@@ -1,0 +1,7 @@
+All emojis designed by OpenMoji – the open-source emoji and icon project.
+License: CC BY-SA 4.0
+© HfG Schwäbisch Gmünd, https://openmoji.org/
+
+hottyterm embeds the fonts unmodified: OpenMoji Color (CBDT on Linux, sbix
+on macOS) and OpenMoji Black from the 17.0.0 release's openmoji-font.zip, and
+hotty-blitz embeds OpenMoji Color's COLRv0 build. The licence follows.

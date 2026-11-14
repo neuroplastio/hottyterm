@@ -14,7 +14,8 @@ What a build contains, and so what the file lists with its licence texts:
 - every Rust crate linked into hotty-blitz for --target (cargo metadata,
   normal dependencies only), hotty-blitz itself included;
 - the Zig and Rust standard libraries, which are compiled in;
-- the font hotty-blitz embeds, with its OFL and its icon sets' notices;
+- the fonts hotty-blitz embeds, with their licences and the icon sets'
+  notices;
 - anything else bundled (--extra: the macOS app's Sparkle framework).
 
 System libraries (GTK and the rest on Linux, the frameworks on macOS) are the
@@ -204,6 +205,13 @@ def main():
     if os.path.isfile(plex):
         comps.append({"kind": "bundled", "name": "IBM Plex Sans (in hotty-blitz)", "version": "6.4.0",
                       "license": "OFL-1.1", "source": "https://github.com/IBM/plex", "files": [plex]})
+    # OpenMoji (0.7.6): CC-BY-SA-4.0, OpenMoji-CC-BY-SA-4.0.txt, which also
+    # escapes LICENSE_NAME; its attribution is at the top of NOTICE.txt.
+    openmoji = os.path.join(fonts, "OpenMoji-CC-BY-SA-4.0.txt")
+    if os.path.isfile(openmoji):
+        comps.append({"kind": "bundled", "name": "OpenMoji Color (in hotty-blitz)", "version": "17.0.0",
+                      "license": "CC-BY-SA-4.0", "source": "https://github.com/hfg-gmuend/openmoji",
+                      "files": [os.path.join(NOTICES, "OpenMoji-attribution.txt"), openmoji]})
     for name, url, d in a.extra:
         comps.append({"kind": "bundled", "name": name, "version": "", "license": "", "source": url,
                       "files": license_files(d)})
