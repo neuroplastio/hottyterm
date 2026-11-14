@@ -29,8 +29,9 @@ published() { # <fork> <version>
 
 # hotty-blitz at <commit> in <work>/hotty-blitz, with the forks its mods/
 # describe beside it. <root> holds the repositories: main, blitz, parley,
-# vello_cpu, stylo. A Git-based vello set carries both vello_cpu and glifo;
-# for an older crates.io set, `make blitz` creates the separate glifo fork.
+# vello_cpu, stylo and, when present in the pin, resvg. A Git-based vello
+# set carries both vello_cpu and glifo; for an older crates.io set, `make
+# blitz` creates the separate glifo fork.
 blitz_tree() { # <root> <commit> <work>
   root=$1; commit=$2; tw=$3
   at "$root/main" "$tw/hotty-blitz" "$commit" main
@@ -58,6 +59,14 @@ blitz_tree() { # <root> <commit> <work>
   if [ -f "$B/stylo/mod.md" ]; then
     at "$root/stylo" "$tw/stylo" "$(base_of "$B/stylo/mod.md")" hotty
     apply "$tw/stylo" "$B/stylo"
+  fi
+  if [ -f "$B/usvg/mod.md" ]; then
+    if ! git -C "$root/resvg" rev-parse --git-dir >/dev/null 2>&1; then
+      echo "No local resvg repository at $root/resvg; clone https://github.com/linebender/resvg there before building this hotty-blitz pin." >&2
+      return 1
+    fi
+    at "$root/resvg" "$tw/resvg" "$(base_of "$B/usvg/mod.md")" hotty
+    apply "$tw/resvg" "$B/usvg"
   fi
 }
 
