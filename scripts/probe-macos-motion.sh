@@ -22,9 +22,9 @@ on run argv
         tell process "System Settings"
             repeat 60 times
                 try
-                    repeat with control in (entire contents of window 1)
-                        if role of control is "AXCheckBox" and name of control is "Reduce motion" then
-                            if (value of control as integer) is not wanted then click control
+                    repeat with ctl in (entire contents of window 1)
+                        if role of ctl is "AXCheckBox" and name of ctl is "Reduce motion" then
+                            if (value of ctl as integer) is not wanted then click ctl
                             return
                         end if
                     end repeat
