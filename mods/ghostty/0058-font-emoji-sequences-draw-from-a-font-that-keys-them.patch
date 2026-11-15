@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Sat, 14 Nov 2026 19:30:41 +0100
-Subject: [PATCH 58/59] font: emoji sequences draw from a font that keys them
+Subject: [PATCH 58/60] font: emoji sequences draw from a font that keys them
  on VS16
 
 OpenMoji's ligatures for emoji sequences (the rainbow flag, heart on

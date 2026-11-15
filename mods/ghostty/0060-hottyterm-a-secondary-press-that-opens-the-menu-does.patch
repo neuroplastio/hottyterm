@@ -1,0 +1,107 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Sun, 15 Nov 2026 23:03:35 +0100
+Subject: [PATCH 60/60] hottyterm: a secondary press that opens the menu does
+ not hold the pointer
+
+A secondary press nothing takes was a press on the cells, and held the
+pointer for the program until the last button went up (SPEC 9.1,
+programHolds). When it was Ghostty's context menu that took it, the menu
+took the release as well (GTK's popover grabs the pointer, AppKit's menu
+tracks it), so no release came: Ghostty's state of the button stayed
+pressed and the hold never ended. Every later pointer event over a
+surface, a click, a hover or the wheel, was "the program's", and the
+program, with mouse reporting off, heard none of it. The window drew its
+chrome and the program was idle: it looked like a deadlock, but no thread
+waited on a lock; the paint thread and the parser sat in their idle waits.
+
+Surface.mouseButtonCallback calls hotty.menuPress where it leaves a
+secondary press unconsumed for the apprt's menu: the button is released,
+and the hold ends unless another button's gesture is still down. The logic
+and its test (menuTakesRelease) are in hotty.zig; the change adds 2 lines
+to src/Surface.zig. A right press over the cells is as it was.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ src/Surface.zig      |  2 ++
+ src/termio/hotty.zig | 47 ++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 49 insertions(+)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 7eb07374..100964bc 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -4337,6 +4337,7 @@ pub fn mouseButtonCallback(
+                 try self.queueRender();
+ 
+                 // Don't consume so that we show the context menu in apprt.
++                hotty.menuPress(self, button, action); // hottyterm: the menu takes the release
+                 return false;
+             },
+             .copy => {
+@@ -4387,6 +4388,7 @@ pub fn mouseButtonCallback(
+         return true;
+     }
+ 
++    hotty.menuPress(self, button, action); // hottyterm: the menu takes the release
+     return false;
+ }
+ 
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index b070612d..b4ee7bb5 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -3109,6 +3109,53 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
+     return took;
+ }
+ 
++/// Surface.mouseButtonCallback, for a secondary press it leaves unconsumed:
++/// the apprt opens its context menu, and the menu takes the release (GTK's
++/// popover grabs the pointer, AppKit's menu tracks it), so no release
++/// follows. The press `surfaceButton` saw is over: Ghostty's state of the
++/// button is released, and the program no longer holds the pointer for a
++/// gesture that has no end. Left as it was, `program_hold` stayed true
++/// after the menu, and every later pointer event, a click, a hover or the
++/// wheel, was the program's, not the surface's: a surface that had
++/// opened the menu was dead until the next secondary release.
++pub fn menuPress(s: *Surface, button: input.MouseButton, action: input.MouseButtonState) void {
++    if (button != .right or action != .press) return;
++    const hs = &s.io.terminal_stream.handler.hotty;
++    hs.program_hold = menuTakesRelease(&s.mouse.click_state, hs.program_hold);
++}
++
++/// `menuPress`: releases the secondary button in `states`, and says whether
++/// the program still holds the pointer, which it does only for a gesture
++/// another button began and has not ended.
++fn menuTakesRelease(states: []input.MouseButtonState, held: bool) bool {
++    states[@intFromEnum(input.MouseButton.right)] = .release;
++    for (states) |st| if (st == .press) return held;
++    return false;
++}
++
++test "menuTakesRelease" {
++    const t = std.testing;
++    const right = @intFromEnum(input.MouseButton.right);
++    const left = @intFromEnum(input.MouseButton.left);
++    var states: [input.MouseButton.max + 1]input.MouseButtonState = @splat(.release);
++    // A secondary press the program holds the pointer for (nothing took it,
++    // `programHolds`), whose menu takes the release: the hold ends with it.
++    states[right] = .press;
++    try t.expect(!menuTakesRelease(&states, true));
++    try t.expectEqual(input.MouseButtonState.release, states[right]);
++    // A press the program did not hold stays so.
++    states[right] = .press;
++    try t.expect(!menuTakesRelease(&states, false));
++    // A left press still down began a gesture of its own: the hold is its.
++    states[right] = .press;
++    states[left] = .press;
++    try t.expect(menuTakesRelease(&states, true));
++    try t.expectEqual(input.MouseButtonState.release, states[right]);
++    try t.expectEqual(input.MouseButtonState.press, states[left]);
++    states[right] = .press;
++    try t.expect(!menuTakesRelease(&states, false));
++}
++
+ /// Surface.mouseButtonCallback, for the secondary button (SPEC §9): a press
+ /// on an element that takes it is the surface's, and so is the release after
+ /// it. Neither reaches the program or `right-click-action`, and Ghostty's

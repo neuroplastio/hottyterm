@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Sat, 14 Nov 2026 18:48:10 +0100
-Subject: [PATCH 57/59] hottyterm: emoji draw from OpenMoji on every platform
+Subject: [PATCH 57/60] hottyterm: emoji draw from OpenMoji on every platform
 
 The emoji fallback is OpenMoji 17.0 (CC BY-SA 4.0), the release's
 openmoji-font.zip as a lazy dependency: OpenMoji Color in the format the

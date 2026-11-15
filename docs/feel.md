@@ -409,3 +409,18 @@ rounds alternate the release against a baseline. On
   thread to a faster core there, so whether the raster workers and an
   opening's resolve should run at the user-interactive class, as
   Ghostty's renderer thread does, is unmeasured.
+
+## A right-click over a surface
+
+`scripts/feel/ctxmenu.sh` is not a timing run: it checks that the terminal
+still answers a surface after Ghostty's context menu has opened over it. On
+a private headless sway of its own (no lock of the rig's), it runs
+`scripts/feel/ctxprog` (one scrolling document filling the window, rows that
+take a click, mouse reporting off), right-clicks the window's middle, closes
+the menu with Escape and clicks two rows: the program must hear them. With
+`--gdb` the build runs under gdb and every thread's stack is dumped if it
+does not; `--control` skips the right-click, and `--cells` runs a shell with
+text in the cells instead, whose word under the pointer gets selected and
+whose menu opens as stock Ghostty's does. Found on 2026-11-15: the menu
+took the secondary release, so the program kept the pointer for a press that
+never ended (mods/ghostty/menu-takes-release.md).
