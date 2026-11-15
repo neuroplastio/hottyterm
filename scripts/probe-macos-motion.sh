@@ -1,6 +1,6 @@
 #!/bin/sh
-# Only on a probe-macos CI runner: exercise AppKit's real watched preference.
-# UI scripting changes the setting so NSWorkspace emits its notification.
+# Only on a probe-macos CI runner: use the real system preference, with a
+# probe-only injected notification. No System Settings AX tree is involved.
 set -eu
 [ "${GITHUB_ACTIONS:-}" = true ] && [ "${RUNNER_OS:-}" = macOS ] || {
     echo 'Run through probe-macos.yml with reduced_motion=true, on its macOS runner.' >&2
@@ -11,49 +11,89 @@ OUT="$2/motion"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 mkdir -p "$OUT"
 OUT="$(cd "$OUT" && pwd)"
+: > "$OUT/actions.log"
+rm -f "$OUT/probe-signing.log" "$OUT/app.log"
+pid=""
+last_action="setup"
+log() {
+    last_action="$*"
+    printf '%s\n' "$*" | tee -a "$OUT/actions.log"
+}
+cleanup() {
+    rc=$?
+    trap - EXIT
+    if [ -n "$pid" ]; then kill "$pid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; fi
+    if [ "$rc" -ne 0 ]; then
+        printf 'FAIL motion probe (exit %s), last action: %s\n' "$rc" "$last_action" >&2
+        defaults read com.apple.universalaccess reduceMotion >&2 || true
+        for file in actions.log signing.log probe-signing.log app.log; do
+            if [ -f "$OUT/$file" ]; then printf 'Diagnostics: %s\n' "$file" >&2; cat "$OUT/$file" >&2; fi
+        done
+    fi
+    exit "$rc"
+}
+trap cleanup EXIT
+log 'Scope: defaults writes are real. Injected notifications test the hottyterm observer and AppKit getter; this does NOT prove macOS posts a notification for a real setting change.'
+log "Inspect signing: codesign -d --verbose=4 $APP"
+codesign -d --verbose=4 "$APP" 2>"$OUT/signing.log"
+cat "$OUT/signing.log"
+PROBE_APP="$APP"
+if grep -Eq 'flags=.*(runtime|library-validation|restrict)' "$OUT/signing.log"; then
+    PROBE_APP="$OUT/hottyterm.app"
+    log "Restricted signature: copying $APP to $PROBE_APP and signing the probe copy ad hoc, flags=0"
+    ditto "$APP" "$PROBE_APP"
+    codesign --force --deep --sign - --options 0 "$PROBE_APP"
+    codesign -d --verbose=4 "$PROBE_APP" 2>"$OUT/probe-signing.log"
+    cat "$OUT/probe-signing.log"
+    if grep -Eq 'flags=.*(runtime|library-validation|restrict)' "$OUT/probe-signing.log"; then
+        log 'FAIL: the probe copy still restricts DYLD_INSERT_LIBRARIES'
+        exit 1
+    fi
+else
+    log 'Signature permits injection; using the original app without re-signing'
+fi
+log 'Compile and ad-hoc sign the probe-only AppKit notification helper'
+xcrun clang -dynamiclib -fobjc-arc -fblocks -framework AppKit -framework CoreFoundation \
+    "$HERE/scripts/probe-macos-motion-notify.m" -o "$OUT/motion-notify.dylib"
+codesign --force --sign - "$OUT/motion-notify.dylib"
 python3 -m venv "$OUT/venv"
 "$OUT/venv/bin/pip" -q install pillow
-set_motion() {
-    open 'x-apple.systempreferences:com.apple.Accessibility-Settings.extension?Display'
-    osascript - "$1" <<'APPLESCRIPT'
-on run argv
-    set wanted to (item 1 of argv) as integer
-    tell application "System Events"
-        tell process "System Settings"
-            repeat 60 times
-                try
-                    repeat with ctl in (entire contents of window 1)
-                        if role of ctl is "AXCheckBox" and name of ctl is "Reduce motion" then
-                            if (value of ctl as integer) is not wanted then click ctl
-                            return
-                        end if
-                    end repeat
-                end try
-                delay 0.5
-            end repeat
-            error "Cannot find the Reduce motion checkbox in Accessibility / Display"
-        end tell
-    end tell
-end run
-APPLESCRIPT
-    osascript -e 'tell application "System Settings" to close every window'
-}
 wait_for() {
     n=0
     until [ -f "$1" ]; do
         n=$((n + 1))
-        [ "$n" -lt 100 ] || { echo "FAIL waiting for $1" >&2; exit 1; }
+        [ "$n" -lt 100 ] || { log "FAIL waiting for $1"; exit 1; }
         sleep .1
     done
-    sleep 2
+}
+set_motion() {
+    want="$1"
+    if [ "$want" = 1 ]; then bool=true; else bool=false; fi
+    previous=$(defaults read com.apple.universalaccess reduceMotion 2>&1) || previous="unavailable: $previous"
+    log "Setting reduceMotion: previous=$previous; defaults write com.apple.universalaccess reduceMotion -bool $bool"
+    defaults write com.apple.universalaccess reduceMotion -bool "$bool"
+    actual=$(defaults read com.apple.universalaccess reduceMotion)
+    log "defaults read com.apple.universalaccess reduceMotion => $actual (expected $want)"
+    [ "$actual" = "$want" ] || { log 'FAIL: defaults did not retain the requested preference'; exit 1; }
+    if [ -n "$pid" ]; then
+        rm -f "$OUT/motion-ack"
+        log 'Request in-process NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification via notifyutil'
+        notifyutil -p io.github.neuroplastio.hottyterm.probe.motion
+        wait_for "$OUT/motion-ack"
+        actual=$(cat "$OUT/motion-ack")
+        log "AppKit getter after injected notification => $actual (expected $want)"
+        [ "$actual" = "$want" ] || { log 'FAIL: AppKit did not observe the defaults change'; exit 1; }
+    fi
 }
 shot() {
-    open -a "$APP"
+    log "Screenshot $1: expect $2 on $3 surface(s)"
+    open -a "$PROBE_APP"
     sleep 2
     screencapture -x "$OUT/$1.png"
     "$OUT/venv/bin/python" "$HERE/scripts/reduced-motion-check.py" --assert "$OUT/$1.png" "$2" "$3"
 }
 # This is the disposable CI runner's config and accessibility setting.
+rm -f "$OUT/ready" "$OUT/late" "$OUT/late-ready" "$OUT/motion-loaded" "$OUT/motion-ack" "$OUT/panel-pixels"
 set_motion 1
 mkdir -p "$HOME/.config/ghostty"
 cat > "$HOME/.config/ghostty/config" <<CFG
@@ -63,9 +103,16 @@ window-height = 20
 confirm-close-surface = false
 quit-after-last-window-closed = true
 CFG
-open -n -a "$APP"
-trap 'osascript -e '\''tell application "hottyterm" to quit'\'' || true' EXIT
+log "Fresh startup: DYLD_INSERT_LIBRARIES=$OUT/motion-notify.dylib $PROBE_APP/Contents/MacOS/ghostty"
+HOTTY_MOTION_PROBE_DIR="$OUT" DYLD_INSERT_LIBRARIES="$OUT/motion-notify.dylib" \
+    "$PROBE_APP/Contents/MacOS/ghostty" >"$OUT/app.log" 2>&1 &
+pid=$!
+wait_for "$OUT/motion-loaded"
+actual=$(cat "$OUT/motion-loaded")
+log "Injected helper loaded; startup AppKit getter => $actual (expected 1)"
+[ "$actual" = 1 ] || { log 'FAIL: fresh AppKit process did not read reduceMotion=true'; exit 1; }
 wait_for "$OUT/ready"
+sleep 2
 shot initial reduce 1
 set_motion 0
 shot changed no-preference 1

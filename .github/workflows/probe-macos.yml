@@ -117,5 +117,6 @@ jobs:
             probe/*/*.png
             probe/replies.log
             probe/latency/
-            probe/motion/
+            probe/motion/*.log
+            probe/motion/motion-*
           retention-days: 3
