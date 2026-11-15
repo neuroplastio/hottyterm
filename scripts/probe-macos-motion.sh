@@ -26,7 +26,7 @@ cleanup() {
     if [ "$rc" -ne 0 ]; then
         printf 'FAIL motion probe (exit %s), last action: %s\n' "$rc" "$last_action" >&2
         defaults read com.apple.universalaccess reduceMotion >&2 || true
-        for file in actions.log signing.log probe-signing.log app.log; do
+        for file in actions.log signing.log probe-signing.log app.log motion-window.json; do
             if [ -f "$OUT/$file" ]; then printf 'Diagnostics: %s\n' "$file" >&2; cat "$OUT/$file" >&2; fi
         done
     fi
@@ -89,8 +89,16 @@ shot() {
     log "Screenshot $1: expect $2 on $3 surface(s)"
     open -a "$PROBE_APP"
     sleep 2
-    screencapture -x "$OUT/$1.png"
-    "$OUT/venv/bin/python" "$HERE/scripts/reduced-motion-check.py" --assert "$OUT/$1.png" "$2" "$3"
+    rm -f "$OUT/motion-window.json"
+    notifyutil -p io.github.neuroplastio.hottyterm.probe.motion.bounds
+    wait_for "$OUT/motion-window.json"
+    cp "$OUT/motion-window.json" "$OUT/motion-$1.json"
+    window_id=$("$OUT/venv/bin/python" "$HERE/scripts/probe-macos-motion-crop.py" --window-id "$OUT/motion-$1.json")
+    log "Capture window $window_id, then crop to its AppKit content bounds (excluding title bar)"
+    screencapture -x -o -l "$window_id" "$OUT/$1.png"
+    "$OUT/venv/bin/python" "$HERE/scripts/probe-macos-motion-crop.py" \
+        "$OUT/$1.png" "$OUT/motion-$1.json" "$OUT/$1-content.png"
+    "$OUT/venv/bin/python" "$HERE/scripts/reduced-motion-check.py" --assert "$OUT/$1-content.png" "$2" "$3"
 }
 # This is the disposable CI runner's config and accessibility setting.
 rm -f "$OUT/ready" "$OUT/late" "$OUT/late-ready" "$OUT/motion-loaded" "$OUT/motion-ack" "$OUT/panel-pixels"

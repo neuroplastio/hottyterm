@@ -38,6 +38,49 @@ static void changed(CFNotificationCenterRef center, void *observer,
     });
 }
 
+static void windowBounds(CFNotificationCenterRef center, void *observer,
+                         CFStringRef name, const void *object, CFDictionaryRef info) {
+    (void)center; (void)observer; (void)name; (void)object; (void)info;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @autoreleasepool {
+            NSWindow *window = NSApp.keyWindow ?: NSApp.mainWindow;
+            if (!window.isVisible) {
+                window = nil;
+                for (NSWindow *candidate in NSApp.windows) {
+                    if (candidate.isVisible && candidate.level == NSNormalWindowLevel) {
+                        window = candidate;
+                        break;
+                    }
+                }
+            }
+            if (!window) {
+                fprintf(stderr, "motion probe: no visible app window for capture\n");
+                return;
+            }
+            NSRect frame = window.frame;
+            NSRect content = [window convertRectToScreen:window.contentLayoutRect];
+            // screencapture -l -o has the window frame, no shadow. Its image
+            // starts at the top left; AppKit screen coordinates start below.
+            NSDictionary *geometry = @{
+                @"window_id": @(window.windowNumber),
+                @"window_width": @(NSWidth(frame)), @"window_height": @(NSHeight(frame)),
+                @"content_x": @(NSMinX(content) - NSMinX(frame)),
+                @"content_y": @(NSMaxY(frame) - NSMaxY(content)),
+                @"content_width": @(NSWidth(content)), @"content_height": @(NSHeight(content))
+            };
+            NSError *error = nil;
+            NSData *data = [NSJSONSerialization dataWithJSONObject:geometry options:0 error:&error];
+            NSString *path = [probeDirectory stringByAppendingPathComponent:@"motion-window.json"];
+            if (!data || ![data writeToFile:path options:NSDataWritingAtomic error:&error]) {
+                fprintf(stderr, "motion probe: cannot record window bounds: %s\n",
+                        error.localizedDescription.UTF8String);
+            } else {
+                fprintf(stderr, "motion probe: capture bounds %s\n", geometry.description.UTF8String);
+            }
+        }
+    });
+}
+
 __attribute__((constructor)) static void start(void) {
     const char *directory = getenv("HOTTY_MOTION_PROBE_DIR");
     if (!directory) return;
@@ -45,6 +88,9 @@ __attribute__((constructor)) static void start(void) {
         probeDirectory = [NSString stringWithUTF8String:directory];
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL,
             changed, CFSTR("io.github.neuroplastio.hottyterm.probe.motion"), NULL,
+            CFNotificationSuspensionBehaviorDeliverImmediately);
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL,
+            windowBounds, CFSTR("io.github.neuroplastio.hottyterm.probe.motion.bounds"), NULL,
             CFNotificationSuspensionBehaviorDeliverImmediately);
         dispatch_async(dispatch_get_main_queue(), ^{
             @autoreleasepool {
