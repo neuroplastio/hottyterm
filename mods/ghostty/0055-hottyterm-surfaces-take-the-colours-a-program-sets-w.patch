@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Tue, 10 Nov 2026 16:40:28 +0100
-Subject: [PATCH 55/60] hottyterm: surfaces take the colours a program sets
+Subject: [PATCH 55/61] hottyterm: surfaces take the colours a program sets
  with OSC 4, 10 and 11
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -21,7 +21,7 @@ Adds no lines to upstream's files: all in src/termio/hotty.zig.
  1 file changed, 31 insertions(+)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 8c086b08..abc8166f 100644
+index 8c086b08a..abc8166f9 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -435,6 +435,11 @@ pub const Hotty = struct {

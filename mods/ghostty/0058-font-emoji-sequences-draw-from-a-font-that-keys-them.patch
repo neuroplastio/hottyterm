@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Sat, 14 Nov 2026 19:30:41 +0100
-Subject: [PATCH 58/60] font: emoji sequences draw from a font that keys them
+Subject: [PATCH 58/61] font: emoji sequences draw from a font that keys them
  on VS16
 
 OpenMoji's ligatures for emoji sequences (the rainbow flag, heart on
@@ -24,7 +24,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  3 files changed, 73 insertions(+), 3 deletions(-)
 
 diff --git a/src/font/Collection.zig b/src/font/Collection.zig
-index dec64f65..1e239c1a 100644
+index dec64f659..1e239c1af 100644
 --- a/src/font/Collection.zig
 +++ b/src/font/Collection.zig
 @@ -821,7 +821,11 @@ pub const Entry = struct {
@@ -53,7 +53,7 @@ index dec64f65..1e239c1a 100644
      entry: Entry,
  
 diff --git a/src/font/shaper/harfbuzz.zig b/src/font/shaper/harfbuzz.zig
-index f1b0f619..d2d53357 100644
+index f1b0f6199..d2d533577 100644
 --- a/src/font/shaper/harfbuzz.zig
 +++ b/src/font/shaper/harfbuzz.zig
 @@ -981,6 +981,63 @@ test "shape variation selector VS16" {
@@ -121,7 +121,7 @@ index f1b0f619..d2d53357 100644
      const testing = std.testing;
      const alloc = testing.allocator;
 diff --git a/src/font/shaper/run.zig b/src/font/shaper/run.zig
-index 9f33ba32..235eee56 100644
+index 9f33ba32e..235eee566 100644
 --- a/src/font/shaper/run.zig
 +++ b/src/font/shaper/run.zig
 @@ -275,8 +275,12 @@ pub const RunIterator = struct {

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Sun, 15 Nov 2026 23:03:35 +0100
-Subject: [PATCH 60/60] hottyterm: a secondary press that opens the menu does
+Subject: [PATCH 60/61] hottyterm: a secondary press that opens the menu does
  not hold the pointer
 
 A secondary press nothing takes was a press on the cells, and held the
@@ -28,7 +28,7 @@ Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
  2 files changed, 49 insertions(+)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 7eb07374..100964bc 100644
+index 7eb073741..100964bcb 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -4337,6 +4337,7 @@ pub fn mouseButtonCallback(
@@ -48,7 +48,7 @@ index 7eb07374..100964bc 100644
  }
  
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index b070612d..b4ee7bb5 100644
+index b070612da..b4ee7bb5c 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -3109,6 +3109,53 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.

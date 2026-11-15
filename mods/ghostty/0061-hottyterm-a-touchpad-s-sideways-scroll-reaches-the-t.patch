@@ -1,0 +1,90 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Mon, 16 Nov 2026 00:32:38 +0100
+Subject: [PATCH 61/61] hottyterm: a touchpad's sideways scroll reaches the
+ terminal
+
+GTK's horizontal scroll controller turned a touchpad's sideways
+swipe (scroll unit surface) into tab switching when
+gtk-horizontal-tab-scroll is on, its default, and never passed it
+on. hottyterm has no tabs (the no-tabs patch), so the swipe did
+nothing: a hotty surface that scrolls sideways (SPEC 5.3), such as
+a wide table, could not be scrolled with a touchpad.
+
+The swipe now always goes to Surface.scrollCallback, scaled as the
+vertical controller scales a precise scroll (times 10, precision
+set), so hotty's wheel hook takes it in pixels as it takes the
+vertical one. A notched wheel's sideways click is unchanged.
+gtk-horizontal-tab-scroll no longer does anything.
+
+Upstream files: 8 lines added, 42 removed, in
+src/apprt/gtk/class/surface.zig.
+---
+ src/apprt/gtk/class/surface.zig | 50 ++++++---------------------------
+ 1 file changed, 8 insertions(+), 42 deletions(-)
+
+diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
+index 144dc765e..ef9b1a138 100644
+--- a/src/apprt/gtk/class/surface.zig
++++ b/src/apprt/gtk/class/surface.zig
+@@ -3293,52 +3293,18 @@ pub const Surface = extern struct {
+     ) callconv(.c) c_int {
+         const priv: *Private = self.private();
+ 
+-        // Check if horizontal tab scrolling is enabled and this is a
+-        // touchpad surface scroll. If not, forward to the terminal.
+-        const tab_scroll_enabled = if (priv.config) |config|
+-            config.get().@"gtk-horizontal-tab-scroll"
+-        else
+-            true;
+-
+-        const is_surface_scroll = ec.getUnit() == .surface;
+-
+-        if (tab_scroll_enabled and is_surface_scroll) {
+-            priv.pending_horizontal_scroll += x;
+-
+-            if (@abs(priv.pending_horizontal_scroll) < 120) {
+-                if (priv.pending_horizontal_scroll_reset) |v| {
+-                    _ = glib.Source.remove(v);
+-                    priv.pending_horizontal_scroll_reset = null;
+-                }
+-                priv.pending_horizontal_scroll_reset = glib.timeoutAdd(500, ecMouseScrollHorizontalReset, self);
+-                return @intFromBool(true);
+-            }
+-
+-            _ = self.as(gtk.Widget).activateAction(
+-                if (priv.pending_horizontal_scroll < 0.0)
+-                    "tab.next-page"
+-                else
+-                    "tab.previous-page",
+-                null,
+-            );
+-
+-            if (priv.pending_horizontal_scroll_reset) |v| {
+-                _ = glib.Source.remove(v);
+-                priv.pending_horizontal_scroll_reset = null;
+-            }
+-
+-            priv.pending_horizontal_scroll = 0.0;
+-
+-            return @intFromBool(true);
+-        }
+-
+-        // Forward horizontal scroll to the terminal (e.g. for neovim).
++        // hottyterm: there are no tabs to switch (no-tabs), so a touchpad's
++        // sideways scroll goes to the terminal, and to a surface that
++        // scrolls (SPEC §5.3), scaled as ecMouseScrollVertical scales a
++        // precise one.
++        const precision = ec.getUnit() == .surface;
++        const multiplier: f64 = if (precision) 10.0 else 1.0;
+         const surface = priv.core_surface orelse return @intFromBool(false);
+         const scaled = self.scaledCoordinates(x, 0);
+         surface.scrollCallback(
+-            scaled.x * -1,
++            scaled.x * -1 * multiplier,
+             0,
+-            .{},
++            .{ .precision = precision },
+         ) catch |err| {
+             log.warn("error in scroll callback err={}", .{err});
+             return @intFromBool(false);

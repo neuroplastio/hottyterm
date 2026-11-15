@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Fri, 13 Nov 2026 23:08:25 +0100
-Subject: [PATCH 56/60] hottyterm: a reply goes to the program once
+Subject: [PATCH 56/61] hottyterm: a reply goes to the program once
 
 What the surfaces collect for the program (a click, a key, a fit) was
 sent from two threads: the app thread's deliver read and emptied the
@@ -20,7 +20,7 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 24 insertions(+), 13 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index abc8166f..fb8b7a4b 100644
+index abc8166f9..fb8b7a4bd 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -915,10 +915,9 @@ pub const Hotty = struct {

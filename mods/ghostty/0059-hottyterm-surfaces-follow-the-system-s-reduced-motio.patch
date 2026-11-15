@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Sun, 15 Nov 2026 17:44:24 +0100
-Subject: [PATCH 59/60] hottyterm: surfaces follow the system's reduced-motion
+Subject: [PATCH 59/61] hottyterm: surfaces follow the system's reduced-motion
  setting
 
 Watch GtkSettings gtk-enable-animations and NSWorkspace accessibility display changes. Keep the preference before the lazy hotty-blitz host exists, pass it through hotty_host_set_reduced_motion, and repaint idle surfaces on a change. Disconnect the platform observers before their surface is freed.
@@ -18,7 +18,7 @@ Co-Authored-By: GPT-6.1-sol (Codex) <noreply@openai.com>
  5 files changed, 69 insertions(+)
 
 diff --git a/include/ghostty.h b/include/ghostty.h
-index 2a179649..c5122048 100644
+index 2a1796494..c51220488 100644
 --- a/include/ghostty.h
 +++ b/include/ghostty.h
 @@ -1219,6 +1219,7 @@ GHOSTTY_API void ghostty_surface_set_size(ghostty_surface_t, uint32_t, uint32_t)
@@ -30,7 +30,7 @@ index 2a179649..c5122048 100644
                                                       ghostty_color_scheme_e);
  GHOSTTY_API ghostty_input_mods_e ghostty_surface_key_translation_mods(ghostty_surface_t,
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index 1704a3c3..8a6b8fc6 100644
+index 1704a3c3c..8a6b8fc6e 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 @@ -393,6 +393,10 @@ extension Ghostty {
@@ -65,7 +65,7 @@ index 1704a3c3..8a6b8fc6 100644
              // Remove our event monitor
              if let eventMonitor {
 diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
-index 1fe60d5e..865233a0 100644
+index 1fe60d5e1..865233a0d 100644
 --- a/src/apprt/embedded.zig
 +++ b/src/apprt/embedded.zig
 @@ -2033,6 +2033,10 @@ pub const CAPI = struct {
@@ -80,7 +80,7 @@ index 1fe60d5e..865233a0 100644
      export fn ghostty_surface_set_content_scale(surface: *Surface, x: f64, y: f64) void {
          surface.updateContentScale(x, y);
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index 98e7d889..144dc765 100644
+index 98e7d8895..144dc765e 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -1979,6 +1979,7 @@ pub const Surface = extern struct {
@@ -100,7 +100,7 @@ index 98e7d889..144dc765 100644
  
          // Give the render surface a pointer to the core surface so it
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index fb8b7a4b..b070612d 100644
+index fb8b7a4bd..b070612da 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -258,6 +258,7 @@ extern fn hotty_host_selected_text(h: *Host) ?[*:0]const u8;
