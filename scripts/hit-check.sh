@@ -1,5 +1,6 @@
 #!/bin/sh
 # Run the unchanged hit vectors end to end on a private headless display.
+# A second argument of versions checks 0.8/0.7 negotiation instead.
 # Invoke under the brief's systemd resource cap, like the other checks.
 set -eu
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -24,7 +25,7 @@ export WAYLAND_DISPLAY="$(cat "$XDG_CACHE_HOME/hotty/sway/display")"
 unset DISPLAY HYPRLAND_INSTANCE_SIGNATURE
 rm -f "$OUT/result.json"
 "$FORK/zig-out/bin/hottyterm" --gtk-single-instance=false --window-decoration=false \
-    -e python3 "$HERE/scripts/hit-check.py" "$OUT/result.json" >"$OUT/stdout.log" 2>"$OUT/terminal.log" &
+    -e python3 "$HERE/scripts/hit-check.py" "$OUT/result.json" "${2:-hit}" >"$OUT/stdout.log" 2>"$OUT/terminal.log" &
 pid=$!
 n=0
 until [ -f "$OUT/result.json" ]; do
@@ -38,5 +39,5 @@ result = json.load(open(sys.argv[1]))
 if not result['ok']:
     raise SystemExit(result['error'])
 for case in result['vectors']:
-    print(f"ok {case['hits']} hit queries: {case['name']}")
+    print(f"ok {case['queries']} queries: {case['name']}")
 PY

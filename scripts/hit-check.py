@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Run the spec's hit vectors through a hottyterm PTY (no host test hooks).
 
-Started by hit-check.sh. HOTTY_DIR supplies the unchanged spec vectors and
-Python wire client; the layout, C ABI call and reply all happen in hottyterm.
+Started by hit-check.sh. conformance/ contains the unchanged spec vectors;
+HOTTY_DIR supplies the Python wire client. The layout, C ABI call and reply
+all happen in hottyterm.
 """
 import json
 import os
@@ -42,18 +43,26 @@ def matches(message, expected):
             assert message.get(key) == value, (key, value, message.control)
 
 
-def main(out):
-    vectors = json.loads((HOTTY / 'conformance/vectors.json').read_text())
-    cases = [v for v in vectors['vectors'] if any(
-        step.get('send', {}).get('a') == 'hit' for step in v['steps'])]
-    assert len(cases) == 2, 'review new hit vectors before running this probe'
+def main(out, mode):
+    vectors = json.loads((Path(__file__).resolve().parent.parent / 'conformance/vectors.json').read_text())
+    if mode == 'versions':
+        cases = [v for v in vectors['vectors'] if all(
+            step.get('send', {}).get('a') == 'q' for step in v['steps']) and (
+                'highest version' in v['name'] or 'EVERSION' in v['name'] or
+                'speaks-0.7' in v.get('requires', []))]
+        assert len(cases) == 3, 'review new version vectors before running this probe'
+    else:
+        assert mode == 'hit', mode
+        cases = [v for v in vectors['vectors'] if any(
+            step.get('send', {}).get('a') == 'hit' for step in v['steps'])]
+        assert len(cases) == 2, 'review new hit vectors before running this probe'
     host = Hotty()
     results = []
     with host.raw():
         for case in cases:
             host.write('\x1bc\x1b[H')
             drain(host, .2)
-            hits = 0
+            queries = 0
             for index, step in enumerate(case['steps']):
                 assert set(step) <= {'send', 'payload', 'reply', 'events'}, step
                 host.send(payload=step.get('payload', '').encode(), **step['send'])
@@ -71,21 +80,21 @@ def main(out):
                         matches(replies[0], expected)
                 if 'events' in step:
                     assert step['events'] == [] and not events, (index, events)
-                if step['send']['a'] == 'hit':
-                    hits += 1
+                if step['send']['a'] in ('hit', 'q'):
+                    queries += 1
                     # Every hit body uses signed integer steps, when present.
                     for reply in replies:
                         for key in ('tx', 'ty'):
                             if key in (reply.body or {}):
                                 assert type(reply.body[key]) is int, reply.body
-            results.append({'name': case['name'], 'hits': hits})
+            results.append({'name': case['name'], 'queries': queries})
     out.write_text(json.dumps({'ok': True, 'vectors': results}, indent=2) + '\n')
 
 
 if __name__ == '__main__':
     result = Path(sys.argv[1])
     try:
-        main(result)
+        main(result, sys.argv[2] if len(sys.argv) > 2 else 'hit')
     except Exception:
         result.write_text(json.dumps({'ok': False, 'error': traceback.format_exc()}, indent=2) + '\n')
         raise
