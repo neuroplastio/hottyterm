@@ -112,6 +112,13 @@ The hooks:
 - **Animated images play** (GIF, APNG, WebP): hotty-blitz says when the next
   frame is due, and a timer on the IO thread's loop renders it then, as a
   frame edit of the image's box. Nothing plays, no timer.
+- **Reduced motion** (SPEC §8): `prefers-reduced-motion` follows the
+  system on which hottyterm runs: GTK's `gtk-enable-animations` (off means
+  `reduce`) and macOS's Accessibility → Display → Reduce motion. A change
+  redraws every surface, including idle ones; surfaces created later take
+  the current setting too. `scripts/reduced-motion-check.sh` checks GTK on
+  its own headless display with an isolated `XDG_CONFIG_HOME`; macOS is
+  checked on a CI runner with `probe-macos.yml`'s `reduced_motion` input.
 - **`fit`** (SPEC §5.2): hotty-blitz finds it as it renders a placement made
   with `f=1`; hotty.zig sends it to the program with the replies, from
   whichever path drew the frame.

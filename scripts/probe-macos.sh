@@ -82,6 +82,10 @@ echo "== cpu: $(sysctl -n machdep.cpu.brand_string 2>/dev/null), $levels perform
     l=$((l + 1))
   done)"
 
+if [ "$MODE" = reduced-motion ]; then
+    exec "$(dirname "$0")/probe-macos-motion.sh" "$APP" "$OUT"
+fi
+
 if [ "$MODE" = regions ]; then
 BASE="${4:-}"
 cat > "$OUT/regions.py" <<'EOF'

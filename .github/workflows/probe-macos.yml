@@ -33,6 +33,10 @@ on:
         description: Or a ci run whose macOS build to probe (kept 7 days)
         required: false
         default: ""
+      reduced_motion:
+        description: Probe the system Reduce Motion setting, including live changes
+        type: boolean
+        default: false
       remap:
         description: Swap Cmd and Ctrl (key-remap) and probe the menu with them
         type: boolean
@@ -99,7 +103,7 @@ jobs:
 
       - name: Probe
         env:
-          MODE: ${{ inputs.latency && 'latency' || inputs.regions && 'regions' || inputs.remap && 'remap' || '' }}
+          MODE: ${{ inputs.reduced_motion && 'reduced-motion' || inputs.latency && 'latency' || inputs.regions && 'regions' || inputs.remap && 'remap' || '' }}
           BASE: ${{ (inputs.baseline || inputs.baseline_run) && format('{0}/base/hottyterm.app', runner.temp) || '' }}
           LATENCY_ROUNDS: ${{ inputs.rounds }}
         run: scripts/probe-macos.sh /Applications/hottyterm.app probe "$MODE" "$BASE"
@@ -113,4 +117,5 @@ jobs:
             probe/*/*.png
             probe/replies.log
             probe/latency/
+            probe/motion/
           retention-days: 3
