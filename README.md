@@ -232,6 +232,12 @@ The hooks:
   `~/Library/Application Support/io.github.neuroplastio.hottyterm/config.ghostty`
   after `~/.config/ghostty/config`, for settings Ghostty itself should not
   get.
+- **`hit`** (SPEC §9.7): a program's `a=hit` goes through the same OSC
+  path to hotty-blitz and its answer returns through the pty, with its
+  request number and quiet level preserved. It names the surface's own
+  drag/drop target and optional steps without moving focus or the pointer.
+  `scripts/hit-check.sh` runs both unchanged spec vectors end to end:
+  target selection, steps, out-of-bounds cells, errors and quiet replies.
 - **Input:** clicks and
   hover on a surface go to it and are not reported to the program as mouse
   input, except where it takes no pointer (`pointer-events: none`, SPEC
