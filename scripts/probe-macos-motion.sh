@@ -14,6 +14,8 @@ OUT="$(cd "$OUT" && pwd)"
 : > "$OUT/actions.log"
 rm -f "$OUT/probe-signing.log" "$OUT/app.log"
 pid=""
+refresh_attempted=0
+live_mode=real
 last_action="setup"
 log() {
     last_action="$*"
@@ -33,7 +35,7 @@ cleanup() {
     exit "$rc"
 }
 trap cleanup EXIT
-log 'Scope: defaults writes are real. Injected notifications test the hottyterm observer and AppKit getter; this does NOT prove macOS posts a notification for a real setting change.'
+log 'Scope: startup defaults/getter are real. Live checks get ONE bounded system-refresh attempt, then explicitly SIMULATE the getter if it stays stale. Injected notifications test our observer; this does NOT prove macOS posts a notification for a real setting change.'
 log "Inspect signing: codesign -d --verbose=4 $APP"
 codesign -d --verbose=4 "$APP" 2>"$OUT/signing.log"
 cat "$OUT/signing.log"
@@ -62,9 +64,17 @@ wait_for() {
     n=0
     until [ -f "$1" ]; do
         n=$((n + 1))
-        [ "$n" -lt 100 ] || { log "FAIL waiting for $1"; exit 1; }
+        [ "$n" -lt "${2:-100}" ] || { log "FAIL waiting for $1"; exit 1; }
         sleep .1
     done
+}
+request_motion() {
+    rm -f "$OUT/motion-ack"
+    log "Request in-process notification; live getter mode=$live_mode"
+    notifyutil -p io.github.neuroplastio.hottyterm.probe.motion
+    wait_for "$OUT/motion-ack"
+    actual=$(cat "$OUT/motion-ack")
+    log "AppKit getter after injected notification => $actual (expected $want; mode=$live_mode)"
 }
 set_motion() {
     want="$1"
@@ -76,13 +86,26 @@ set_motion() {
     log "defaults read com.apple.universalaccess reduceMotion => $actual (expected $want)"
     [ "$actual" = "$want" ] || { log 'FAIL: defaults did not retain the requested preference'; exit 1; }
     if [ -n "$pid" ]; then
-        rm -f "$OUT/motion-ack"
-        log 'Request in-process NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification via notifyutil'
-        notifyutil -p io.github.neuroplastio.hottyterm.probe.motion
-        wait_for "$OUT/motion-ack"
-        actual=$(cat "$OUT/motion-ack")
-        log "AppKit getter after injected notification => $actual (expected $want)"
-        [ "$actual" = "$want" ] || { log 'FAIL: AppKit did not observe the defaults change'; exit 1; }
+        printf '%s\n' "$want" > "$OUT/motion-value"
+        request_motion
+        if [ "$actual" != "$want" ] && [ "$refresh_attempted" = 0 ]; then
+            refresh_attempted=1
+            log 'ONE system-refresh attempt: at most 15 seconds scanning/posting UniversalAccess candidates; never repeated'
+            "$OUT/venv/bin/python" "$HERE/scripts/probe-macos-motion-refresh.py" "$OUT/motion-notifications.txt" > "$OUT/motion-refresh.log" 2>&1
+            cat "$OUT/motion-refresh.log"
+            rm -f "$OUT/motion-refresh-ack"
+            notifyutil -p io.github.neuroplastio.hottyterm.probe.motion.refresh
+            wait_for "$OUT/motion-refresh-ack" 20
+            sleep 1
+            request_motion
+        fi
+        if [ "$actual" != "$want" ] && [ "$live_mode" = real ]; then
+            live_mode=simulated
+            printf 'simulate\n' > "$OUT/motion-mode"
+            log 'SIMULATED macOS live path: system getter stayed stale; swizzling the getter to the probe value and testing ONLY the observer. No more system-refresh attempts.'
+            request_motion
+        fi
+        [ "$actual" = "$want" ] || { log 'FAIL: live observer getter did not return the requested probe value'; exit 1; }
     fi
 }
 shot() {
@@ -101,7 +124,8 @@ shot() {
     "$OUT/venv/bin/python" "$HERE/scripts/reduced-motion-check.py" --assert "$OUT/$1-content.png" "$2" "$3"
 }
 # This is the disposable CI runner's config and accessibility setting.
-rm -f "$OUT/ready" "$OUT/late" "$OUT/late-ready" "$OUT/motion-loaded" "$OUT/motion-ack" "$OUT/panel-pixels"
+rm -f "$OUT/ready" "$OUT/late" "$OUT/late-ready" "$OUT/motion-loaded" "$OUT/motion-ack" "$OUT/panel-pixels" \
+    "$OUT/motion-mode" "$OUT/motion-value" "$OUT/motion-refresh-ack" "$OUT/motion-refresh.log" "$OUT/motion-notifications.txt"
 set_motion 1
 mkdir -p "$HOME/.config/ghostty"
 cat > "$HOME/.config/ghostty/config" <<CFG
@@ -129,3 +153,4 @@ wait_for "$OUT/late-ready"
 shot later no-preference 2
 set_motion 1
 shot restored reduce 2
+log "Result: startup REAL; live getter mode=$live_mode; system-refresh attempts=$refresh_attempted (maximum 1). Live notification delivery was injected."

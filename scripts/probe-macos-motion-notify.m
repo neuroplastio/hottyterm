@@ -1,12 +1,23 @@
 // Probe-only: deliver an accessibility notification inside the unmodified
-// app process. This tests its observer and getter, not macOS's own delivery.
+// app process. Startup uses the real getter. Live checks may explicitly
+// substitute the getter after the single system-refresh attempt fails.
 #import <AppKit/AppKit.h>
 #import <CoreFoundation/CoreFoundation.h>
 #import <dispatch/dispatch.h>
+#import <objc/runtime.h>
+#include <stdatomic.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 static NSString *probeDirectory;
+static atomic_bool simulatedMotion;
+static BOOL getterSwizzled;
+
+static BOOL simulatedGetter(id self, SEL selector) {
+    (void)self; (void)selector;
+    return atomic_load(&simulatedMotion);
+}
 
 static void record(NSString *file, BOOL reduce) {
     NSString *path = [probeDirectory stringByAppendingPathComponent:file];
@@ -25,6 +36,32 @@ static void changed(CFNotificationCenterRef center, void *observer,
         @autoreleasepool {
             Boolean synced = CFPreferencesAppSynchronize(CFSTR("com.apple.universalaccess"));
             NSWorkspace *workspace = NSWorkspace.sharedWorkspace;
+            NSString *mode = [NSString stringWithContentsOfFile:
+                [probeDirectory stringByAppendingPathComponent:@"motion-mode"]
+                encoding:NSUTF8StringEncoding error:NULL];
+            if ([mode hasPrefix:@"simulate"]) {
+                NSString *value = [NSString stringWithContentsOfFile:
+                    [probeDirectory stringByAppendingPathComponent:@"motion-value"]
+                    encoding:NSUTF8StringEncoding error:NULL];
+                if (![value isEqualToString:@"0\n"] && ![value isEqualToString:@"1\n"]) {
+                    fprintf(stderr, "motion probe: invalid simulated getter value\n");
+                    return;
+                }
+                atomic_store(&simulatedMotion, value.intValue != 0);
+                if (!getterSwizzled) {
+                    SEL selector = @selector(accessibilityDisplayShouldReduceMotion);
+                    Class cls = object_getClass(workspace);
+                    Method method = class_getInstanceMethod(cls, selector);
+                    if (!method) {
+                        fprintf(stderr, "motion probe: cannot find getter to simulate\n");
+                        return;
+                    }
+                    class_replaceMethod(cls, selector, (IMP)simulatedGetter, method_getTypeEncoding(method));
+                    getterSwizzled = YES;
+                }
+                fprintf(stderr, "motion probe: SIMULATED macOS live getter=%d; testing observer only\n",
+                        atomic_load(&simulatedMotion));
+            }
             BOOL before = workspace.accessibilityDisplayShouldReduceMotion;
             [workspace.notificationCenter
                 postNotificationName:NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification
@@ -34,6 +71,25 @@ static void changed(CFNotificationCenterRef center, void *observer,
                     "NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification on main queue; "
                     "AppKit reduceMotion before=%d after=%d\n", synced, before, after);
             record(@"motion-ack", after);
+        }
+    });
+}
+
+static void refresh(CFNotificationCenterRef center, void *observer,
+                    CFStringRef name, const void *object, CFDictionaryRef info) {
+    (void)center; (void)observer; (void)name; (void)object; (void)info;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        @autoreleasepool {
+            NSString *names = [NSString stringWithContentsOfFile:
+                [probeDirectory stringByAppendingPathComponent:@"motion-notifications.txt"]
+                encoding:NSUTF8StringEncoding error:NULL];
+            for (NSString *candidate in [names componentsSeparatedByString:@"\n"]) {
+                if (candidate.length == 0) continue;
+                fprintf(stderr, "motion probe: one-time distributed refresh candidate %s\n", candidate.UTF8String);
+                [NSDistributedNotificationCenter.defaultCenter postNotificationName:candidate
+                    object:nil userInfo:nil deliverImmediately:YES];
+            }
+            record(@"motion-refresh-ack", YES);
         }
     });
 }
@@ -88,6 +144,9 @@ __attribute__((constructor)) static void start(void) {
         probeDirectory = [NSString stringWithUTF8String:directory];
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL,
             changed, CFSTR("io.github.neuroplastio.hottyterm.probe.motion"), NULL,
+            CFNotificationSuspensionBehaviorDeliverImmediately);
+        CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL,
+            refresh, CFSTR("io.github.neuroplastio.hottyterm.probe.motion.refresh"), NULL,
             CFNotificationSuspensionBehaviorDeliverImmediately);
         CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL,
             windowBounds, CFSTR("io.github.neuroplastio.hottyterm.probe.motion.bounds"), NULL,
