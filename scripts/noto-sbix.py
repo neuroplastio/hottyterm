@@ -3,8 +3,10 @@
 
 CoreText draws no CBDT bitmaps, so hottyterm's macOS build embeds this copy
 of the file Ghostty embeds (src/font/res/NotoColorEmoji.ttf): the same PNGs,
-moved from CBDT/CBLC into an sbix strike, with empty outlines in glyf, as
-sbix fonts carry them. GSUB, cmap and the metrics are untouched, so a
+moved from CBDT/CBLC into an sbix strike. Each glyph's outline in glyf is
+a box over its bitmap, which nothing fills: Ghostty sizes a CoreText glyph
+by its outlines' bounds, and draws nothing for empty ones
+(probe-macos-font.py). GSUB, cmap and the metrics are untouched, so a
 sequence shapes as in the CBDT build. scripts/build-macos.sh runs it.
 
     noto-sbix.py <NotoColorEmoji.ttf> <out.ttf>
@@ -14,6 +16,7 @@ Needs fontTools.
 import sys
 
 from fontTools.ttLib import TTFont, newTable
+from fontTools.pens.ttGlyphPen import TTGlyphPen
 from fontTools.ttLib.tables._g_l_y_f import Glyph
 from fontTools.ttLib.tables.sbixGlyph import Glyph as SbixGlyph
 from fontTools.ttLib.tables.sbixStrike import Strike
@@ -27,6 +30,8 @@ def convert(src: str, out: str) -> None:
     ppem = cblc.strikes[0].bitmapSizeTable.ppemY
 
     strike = Strike(ppem=ppem, resolution=72)
+    units = font["head"].unitsPerEm / ppem
+    boxes = {}
     order = font.getGlyphOrder()
     bitmaps = cbdt.strikeData[0]
     for name in order:
@@ -44,6 +49,15 @@ def convert(src: str, out: str) -> None:
             originOffsetX=m.BearingX,
             originOffsetY=m.BearingY - m.height,
         )
+        x0, y0 = m.BearingX * units, (m.BearingY - m.height) * units
+        x1, y1 = x0 + m.width * units, y0 + m.height * units
+        pen = TTGlyphPen(None)
+        pen.moveTo((x0, y0))
+        pen.lineTo((x0, y1))
+        pen.lineTo((x1, y1))
+        pen.lineTo((x1, y0))
+        pen.closePath()
+        boxes[name] = pen.glyph()
 
     sbix = newTable("sbix")
     sbix.version, sbix.flags = 1, 1
@@ -53,7 +67,7 @@ def convert(src: str, out: str) -> None:
 
     glyf = newTable("glyf")
     glyf.glyphOrder = order
-    glyf.glyphs = {name: Glyph() for name in order}
+    glyf.glyphs = {name: boxes.get(name) or Glyph() for name in order}
     font["glyf"] = glyf
     font["loca"] = newTable("loca")
     maxp = font["maxp"]
@@ -67,6 +81,7 @@ def convert(src: str, out: str) -> None:
         ).split():
             setattr(maxp, field, 0)
         maxp.maxZones = 1
+    maxp.maxPoints, maxp.maxContours = 4, 1
     font["head"].indexToLocFormat = 0
     font.save(out)
 
