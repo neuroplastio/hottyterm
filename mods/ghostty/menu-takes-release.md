@@ -1,6 +1,6 @@
 ---
 title: "A secondary press that opens the menu does not hold the pointer"
-patch: 0060-hottyterm-a-secondary-press-that-opens-the-menu-does.patch
+patch: 0059-hottyterm-a-secondary-press-that-opens-the-menu-does.patch
 upstream-fit: no
 ---
 
