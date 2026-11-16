@@ -108,8 +108,8 @@ refresh.
 | `blitz.pointer`, `blitz.key`, `blitz.keybytes`, `blitz.wheel` | span | input the host handles: hover, a field's typing, a scroll |
 | `blitz.render` | span | every dirty surface rendered, through the C ABI |
 | `blitz.resolve` | span | a surface's style and layout |
-| `blitz.damage` | span | its damage turned into rectangles |
-| `blitz.paint` | span | its rectangles painted (`a.rects`, `a.px`, `a.w`, `a.h`) |
+| `blitz.damage` | span | its damage turned into rectangles: `a.asked` of them, `a.asked_px` pixels; `a.whole` says why the frame was painted whole instead (0 it was not, 1 the damage said so, 2 its size changed, 3 the root scrolled and its pixels could not be moved, 4 the rectangles cost more than one paint) |
+| `blitz.paint` | span | its rectangles painted (`a.rects`, `a.px`, `a.w`, `a.h`); `a.moved` 1 where a root scroll moved the pixels already painted first |
 | `blitz.scene` | span | one rectangle's scene built |
 | `blitz.raster` | span | one rectangle rasterised by vello_cpu's workers (`a.px`) |
 | `blitz.deliver` | span | the frame handed to the terminal, which writes its rectangles into the image (`a.full`, `a.px`) |

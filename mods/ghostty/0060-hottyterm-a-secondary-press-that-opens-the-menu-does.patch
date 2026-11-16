@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Sun, 15 Nov 2026 23:03:35 +0100
-Subject: [PATCH 60/61] hottyterm: a secondary press that opens the menu does
+Subject: [PATCH 60/62] hottyterm: a secondary press that opens the menu does
  not hold the pointer
 
 A secondary press nothing takes was a press on the cells, and held the

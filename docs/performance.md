@@ -156,6 +156,49 @@ hotty-blitz on its own, measured by the 300-frame `dash.py` replay on the
 | paint, p95 | 6.5 ms | 3.7 ms |
 | CPU | 3.03 s | 1.86 s |
 
+## A touch drag (2026-11-16)
+
+A finger dragging hotty-pot's Tasks table (1,000 tasks, a 1425×1881 px
+surface) on a 120 Hz touchscreen stalled for up to a second at a time. GDK
+hands over pointer motion and smooth scrolls once a frame, but a touch's
+updates one by one. Each one repainted the whole surface on GTK's main
+thread, about 6 ms, so the event queue never emptied and the frame clock,
+which waits for it, showed nothing.
+
+- **`0062`, scrolls paint on the paint thread.** A scroll or a pan's move
+  marks the host dirty and wakes `hotty-paint`, which paints from the latest
+  position. While a paint is under way, the moves and scrolls wait for it,
+  added up, so the main thread never waits out a paint.
+- **hotty-blitz 6c86fff, a root scroll moves the painted pixels.** The
+  root's scroll paints at whole device pixels. A render that finds it
+  scrolled moves the frame by that much and paints the strip it uncovered
+  and the scrollbars. A finger's pan also no longer hovers (SPEC §9.4); on
+  Tasks every hover change repainted the whole surface through its `:has()`
+  selectors. Blitz's cull now counts shadows and outlines (mods/blitz 0090),
+  or a strip's edge lost the shadows just above it.
+
+Measured with a synthetic drag (a test-only GLib timeout that sends the
+GTK surface touch moves 120 times a second, aimed at absolute times, so
+that it backs up as GDK's queue does). The run is 12 s of strokes 400 px up
+and back over 700 ms each, on a private headless sway at 120 Hz and scale
+1.6. Each thread's instructions and cycles were counted over 10 s of it,
+in 3 alternating rounds at load 2–6:
+
+| | base (bd605de) | `0062` | `0062` + 6c86fff |
+| --- | --- | --- | --- |
+| instructions, all threads | 105.6–106.4G | 106.2–106.8G | 17.5–17.6G |
+| cycles, all threads | 51.2–54.1G | 50.7–55.5G | 11.3–11.5G |
+| GTK's main thread | 30.6–30.9G | 2.7–3.1G | 0.74–0.75G |
+| frames shown a second | 90–95 | 118 | 112 |
+| scroll to screen, p50 / max | 6.6–6.9 / 552–763 ms | 3.8–4.0 / 12–15 ms | 4.1–4.2 / 11–12 ms |
+| paint, p50 | 4.3–4.4 ms, 2.68 Mpx | 4.6–4.7 ms, 2.68 Mpx | 1.23–1.25 ms, 0.10 Mpx |
+
+With the blit, fewer frames are shown only because nothing hovers in the
+pauses between strokes. The synthetic drag paces like the maintainer's real
+one (the traced window of 2026-11-16): 106 scrolls a second in a stroke
+against 112, 8.3 ms apart at the median against 8.4. Its strokes are
+longer and more regular, and its finger never stops in the middle of one.
+
 ## Tried and not kept
 
 - **Rasterising on the GPU** (vello and vello_hybrid over wgpu, read back

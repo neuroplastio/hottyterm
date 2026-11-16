@@ -1,0 +1,290 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Mon, 16 Nov 2026 01:30:42 +0100
+Subject: [PATCH 62/62] hottyterm: scrolls and a finger's moves paint on the
+ paint thread
+
+A scroll (wheel, touchpad, touch drag) and a touch's move that pans a
+surface no longer repaint on the thread that handed them over, GTK's
+main thread. They mark the host dirty and wake the paint thread, which
+repaints from the latest position. While a paint is under way, the
+latest move and the sum of the scrolls since wait for it, rather than
+the main thread waiting out the paint; the paint thread, or anyone else
+who waits for the host, hands them over first, so a lift never goes
+ahead of its moves. Such paints hold no renderer: no cells change with
+them, and held paint after paint the renderer drew nothing.
+
+GDK compresses pointer motion and smooth scrolls to one per frame, but
+not a touch's updates. At a touchscreen's 120 Hz, a 6 ms repaint per
+update kept the event queue from emptying, and the frame clock, which
+runs once it has, showed nothing for up to a second during a drag.
+
+All in src/termio/hotty.zig: no lines in upstream files.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/termio/hotty.zig | 143 +++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 131 insertions(+), 12 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index b4ee7bb5c..289e6bca3 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -487,6 +487,20 @@ pub const Hotty = struct {
+     /// (`a=touch`, SPEC §9.6): hotty-blitz has every phase of it
+     /// (`cellsTouch`), until it lifts.
+     touch_cells: bool = false,
++    /// Input that came while the paint thread had the host (`painting`),
++    /// for it to hand over before its next paint (`takePending`), rather
++    /// than the app's thread waiting out the paint: the latest move of a
++    /// finger that pans, and the scrolls since, added up. Only once the
++    /// host has said whose the gesture is: a pan (`.scroll`), a scroll a
++    /// surface took (`wheel_took`).
++    pending_move: ?struct { px: f64, py: f64, mods: u32 } = null,
++    pending_wheel: ?struct { px: f64, py: f64, dx: f64, dy: f64, mods: u32 } = null,
++    /// What the host said of the gesture's last move and scroll.
++    touch_last: Touch = .cells,
++    wheel_took: bool = false,
++    wheel_at: i96 = 0,
++    /// The paint thread is handing pending input over: it paints next.
++    taking: bool = false,
+     /// The reports of the mouse the last phase of a touch made, for
+     /// `touchMouse`.
+     mouse: [mouse_max]Mouse = undefined,
+@@ -584,6 +598,12 @@ pub const Hotty = struct {
+     /// repaint what is dirty, or stop.
+     paint_thread: ?std.Thread = null,
+     paint_wanted: bool = false,
++    /// The paint asked for shows the program's output (`wantPaint`), and
++    /// holds the renderer until it is in. A paint for input the host
++    /// handles alone (`inputPaint`) holds nothing: no cells change with
++    /// it, and the renderer, held paint after paint as a finger drags,
++    /// would draw nothing at all.
++    paint_holds: bool = false,
+     paint_quit: bool = false,
+     /// Threads waiting in `hostReady`: they have the host before the paint
+     /// thread paints again.
+@@ -684,6 +704,7 @@ pub const Hotty = struct {
+             self.host_waiters -= 1;
+             if (self.host_waiters == 0) self.host_cond.broadcast(io);
+             trace.span("term.host.wait", t0);
++            self.takePending();
+             // The lock went while this waited, as it goes for a full
+             // mailbox's send (`osc`): the renderer may have drawn
+             // meanwhile, and whatever is parsed after needs another draw.
+@@ -982,7 +1003,7 @@ pub const Hotty = struct {
+             pending = true;
+             if (self.hostReady()) |h| hotty_host_redeliver(h, p.surface.ptr);
+         }
+-        if (pending) _ = self.renderUnlocked(t);
++        if (pending) _ = self.renderUnlocked(t, true);
+         self.clearPlaces();
+     }
+ 
+@@ -1190,6 +1211,7 @@ pub const Hotty = struct {
+         }
+         self.holdRenderer(false);
+         self.paint_wanted = true;
++        self.paint_holds = true;
+         self.host_cond.broadcast(global.io());
+     }
+ 
+@@ -1210,12 +1232,16 @@ pub const Hotty = struct {
+             // This paint covers every update ended so far.
+             self.hold_wanted = false;
+             const t = sh.terminal;
++            self.takePending();
++            self.paint_wanted = false;
++            const hold = self.paint_holds;
++            self.paint_holds = false;
+             var drew = false;
+             if (self.host) |h| paint: {
+                 // A batch begun since waits for its own end.
+                 if (t.modes.get(.synchronized_output)) break :paint;
+                 if (hotty_host_has_dirty(h)) {
+-                    drew = self.renderUnlocked(t);
++                    drew = self.renderUnlocked(t, hold);
+                     break :paint;
+                 }
+                 // What a resize told the program (`caps`), with nothing to draw.
+@@ -1223,8 +1249,9 @@ pub const Hotty = struct {
+                 hotty_host_events(h, &fx);
+             }
+             // The surfaces are in: the renderer shows them, unless an
+-            // update ended meanwhile, whose paint is next.
+-            if (!self.hold_wanted) self.unhold();
++            // update ended meanwhile, whose paint is next, or output came
++            // during an input's paint.
++            if (!self.hold_wanted and (hold or !self.paint_holds)) self.unhold();
+             if (drew) sh.queueRender() catch {};
+             // The IO thread sends the replies (`tick`): a full mailbox
+             // would block this thread, and the loop may have stopped.
+@@ -1552,7 +1579,7 @@ pub const Hotty = struct {
+     /// lock and has the host (`hostReady`), and has both back after.
+     /// Meanwhile another thread may change the terminal, but it waits for
+     /// the host, so no frame of the host's lands between this paint's.
+-    fn renderUnlocked(self: *Hotty, t: *terminal.Terminal) bool {
++    fn renderUnlocked(self: *Hotty, t: *terminal.Terminal, hold: bool) bool {
+         const h = self.hostReady() orelse return false;
+         // Without a paint thread nothing holds the renderer (`batchEnded`).
+         if (self.paint_thread == null) return self.render(t);
+@@ -1563,8 +1590,9 @@ pub const Hotty = struct {
+         var paint: Paint = .{ .alloc = self.alloc };
+         defer paint.deinit();
+         const menu = self.menu_place != null;
+-        // The renderer waits for this paint, as it waited for the lock.
+-        self.holdRenderer(false);
++        // The renderer waits for this paint, as it waited for the lock,
++        // unless it only shows input the host handled (`paint_holds`).
++        if (hold) self.holdRenderer(false);
+         self.painting = true;
+         mutex.unlock(io);
+         const fx = paint.effects();
+@@ -1591,7 +1619,8 @@ pub const Hotty = struct {
+             again = true;
+         }
+         if (again and self.render(t)) ctx.drew = true;
+-        if (!self.hold_wanted) self.unhold();
++        // Output that came during an input's paint keeps its hold.
++        if (!self.hold_wanted and (hold or !self.paint_holds)) self.unhold();
+         return ctx.drew;
+     }
+ 
+@@ -2305,6 +2334,8 @@ pub const Hotty = struct {
+     /// the `count`th of its run of clicks (0 for another). True if a
+     /// surface took it; replies for the program stay in `replies`.
+     fn pointer(self: *Hotty, t: *terminal.Terminal, kind: PointerKind, px: f64, py: f64, mods: u32, count: u32) bool {
++        // The pointer moved: the next scroll may be over something else.
++        self.wheel_took = false;
+         self.shape = null;
+         self.setLink(null);
+         const h = self.hostReady() orelse return false;
+@@ -2434,6 +2465,22 @@ pub const Hotty = struct {
+     /// or while the program holds the pointer, the gesture is the
+     /// terminal's, even where it goes on over a surface.
+     fn wheel(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64, dx: f64, dy: f64, mods: u32) bool {
++        // A paint under way, and a surface took this gesture's last
++        // scroll: it takes this one too, which the paint thread hands over.
++        const now = std.Io.Timestamp.now(global.io(), .awake).nanoseconds;
++        const same = now - self.wheel_at < wheel_gesture_ms * std.time.ns_per_ms;
++        self.wheel_at = now;
++        if (self.painting and self.paint_thread != null and self.wheel_took and same and !self.program_hold) {
++            if (self.pending_wheel) |*w| {
++                w.dx += dx;
++                w.dy += dy;
++                w.px = px;
++                w.py = py;
++                w.mods = mods;
++            } else self.pending_wheel = .{ .px = px, .py = py, .dx = dx, .dy = dy, .mods = mods };
++            self.paint_wanted = true;
++            return true;
++        }
+         const h = self.hostReady() orelse return false;
+         const fx = self.effects();
+         const target: ?Target = if (self.program_hold) null else self.hit(t, px, py);
+@@ -2445,12 +2492,68 @@ pub const Hotty = struct {
+         const x: f32 = if (target) |tg| tg.x else 0;
+         const y: f32 = if (target) |tg| tg.y else 0;
+         const took = hotty_host_wheel(h, name, x, y, @floatCast(dx), @floatCast(dy), mods, &fx);
+-        if (self.render(t)) self.drew = true;
++        self.wheel_took = took;
++        self.inputPaint(t, h);
+         // Scrollbars show as it scrolls, and fade.
+-        self.schedule(t);
++        if (!self.taking) self.schedule(t);
+         return took;
+     }
+ 
++    /// How soon a scroll comes after the last for it to be the same
++    /// gesture's, whose surface takes it while a paint is under way.
++    const wheel_gesture_ms = 100;
++
++    /// What a scroll or a finger's move left to repaint, painted on the
++    /// paint thread (`wantPaint`), not on the app's thread that handed the
++    /// input over. GDK holds pointer motion and smooth scrolls for its
++    /// frame clock and hands them over once a frame, but not a touch's
++    /// moves: at a touchscreen's 120 Hz, a repaint on GTK's main thread
++    /// for each move kept its event queue from ever emptying, and the
++    /// frame clock, which runs only once it has, painted nothing for up to
++    /// a second while the finger dragged. The paint thread repaints from
++    /// the latest position, once per paint however many moves came
++    /// meanwhile. Without a paint thread, or inside a synchronized update
++    /// (whose paint waits for its end), it paints here as before. The
++    /// caller holds the lock and has the host.
++    fn inputPaint(self: *Hotty, t: *terminal.Terminal, h: *Host) void {
++        if (self.taking) return;
++        if (self.paint_thread == null or t.modes.get(.synchronized_output)) {
++            if (self.render(t)) self.drew = true;
++            return;
++        }
++        if (!hotty_host_has_dirty(h)) {
++            // What the input told the program, with nothing to draw.
++            const fx = self.effects();
++            hotty_host_events(h, &fx);
++            return;
++        }
++        self.paint_wanted = true;
++        self.host_cond.broadcast(global.io());
++    }
++
++    /// Hands the host the input that waited for a paint (`pending_move`,
++    /// `pending_wheel`), in the order it came: the paint thread before its
++    /// next paint, and anyone else who waited for the host before they
++    /// call it, so that a lift never goes ahead of the moves before it.
++    /// The caller holds the lock and has the host; what it changed is
++    /// painted next, by the paint thread.
++    fn takePending(self: *Hotty) void {
++        if (self.pending_move == null and self.pending_wheel == null) return;
++        if (self.taking) return;
++        const t = self.streamHandler().terminal;
++        self.taking = true;
++        defer self.taking = false;
++        if (self.pending_move) |m| {
++            self.pending_move = null;
++            _ = self.touch(t, .move, m.px, m.py, m.mods, false);
++        }
++        if (self.pending_wheel) |w| {
++            self.pending_wheel = null;
++            _ = self.wheel(t, w.px, w.py, w.dx, w.dy, w.mods);
++        }
++        self.paint_wanted = true;
++    }
++
+     /// A secondary press at viewport pixel (`px`, `py`) (SPEC §9): true if
+     /// a surface took it. Not while the program holds the pointer, nor over
+     /// the cells.
+@@ -2476,6 +2579,22 @@ pub const Hotty = struct {
+     /// the pointer, is the terminal's. A touch hovers nothing.
+     fn touch(self: *Hotty, t: *terminal.Terminal, phase: TouchPhase, px: f64, py: f64, mods: u32, reports: bool) Touch {
+         self.mouse_len = 0;
++        // A paint under way, and the finger pans a surface: the paint
++        // thread hands its latest move over.
++        if (phase == .move and self.painting and self.paint_thread != null and
++            self.touch_len != 0 and !self.touch_cells and self.touch_last == .scroll)
++        {
++            self.pending_move = .{ .px = px, .py = py, .mods = mods };
++            self.paint_wanted = true;
++            return .scroll;
++        }
++        const r = self.touchHost(t, phase, px, py, mods, reports);
++        self.touch_last = if (phase == .move or phase == .down) r else .cells;
++        if (phase == .up or phase == .cancel) self.wheel_took = false;
++        return r;
++    }
++
++    fn touchHost(self: *Hotty, t: *terminal.Terminal, phase: TouchPhase, px: f64, py: f64, mods: u32, reports: bool) Touch {
+         const h = self.hostReady() orelse return .cells;
+         if (phase == .down) {
+             self.touch_len = 0;
+@@ -2505,9 +2624,9 @@ pub const Hotty = struct {
+         const r = hotty_host_touch(h, name.ptr, @intFromEnum(ph), if (p) |q| q.x else 0, if (p) |q| q.y else 0, mods, &fx);
+         if (phase == .up or p == null) self.touch_len = 0;
+         if (phase == .up and r != 2) hotty_host_end_gesture(h);
+-        if (self.render(t)) self.drew = true;
++        if (phase == .move) self.inputPaint(t, h) else if (self.render(t)) self.drew = true;
+         // A drag that scrolls shows scrollbars, which fade.
+-        self.schedule(t);
++        if (!self.taking) self.schedule(t);
+         return switch (r) {
+             1 => .hold,
+             2 => .taken,
