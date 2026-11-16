@@ -1,0 +1,141 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Sat, 14 Nov 2026 19:30:41 +0100
+Subject: [PATCH 58/62] font: emoji sequences draw from a font that keys them
+ on VS16
+
+OpenMoji's ligatures for emoji sequences (the rainbow flag, heart on
+fire, keycaps) include VS16, where Noto Color Emoji's also match without
+it. The run iterator dropped every presentation selector before shaping,
+so such a font drew the sequence's parts side by side. It now passes VS16
+on to a font that maps it; a font that does not, as Noto Color Emoji,
+gets the same buffer as before.
+
+A keycap's base (0-9, # and *) asked for in emoji presentation now
+matches a colour font even when its own digit glyph is plain, as
+OpenMoji's are: the colour comes from the keycap's ligature. Before, such
+a keycap fell to discovery and drew from the system's emoji font.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/font/Collection.zig      | 11 ++++++-
+ src/font/shaper/harfbuzz.zig | 57 ++++++++++++++++++++++++++++++++++++
+ src/font/shaper/run.zig      |  8 +++--
+ 3 files changed, 73 insertions(+), 3 deletions(-)
+
+diff --git a/src/font/Collection.zig b/src/font/Collection.zig
+index dec64f659..1e239c1af 100644
+--- a/src/font/Collection.zig
++++ b/src/font/Collection.zig
+@@ -821,7 +821,11 @@ pub const Entry = struct {
+                     const index = face.glyphIndex(cp) orelse break :explicit false;
+                     break :explicit switch (p) {
+                         .text => !face.isColorGlyph(index),
+-                        .emoji => face.isColorGlyph(index),
++                        // A keycap's base takes its colour from the
++                        // sequence's ligature: a colour font's own
++                        // digit can be plain (OpenMoji's are).
++                        .emoji => face.isColorGlyph(index) or
++                            (isKeycapBase(cp) and face.hasColor()),
+                     };
+                 },
+             },
+@@ -835,6 +839,11 @@ pub const Entry = struct {
+     }
+ };
+ 
++/// Whether `cp` can start an emoji keycap sequence (0-9, # and *).
++fn isKeycapBase(cp: u32) bool {
++    return (cp >= '0' and cp <= '9') or cp == '#' or cp == '*';
++}
++
+ pub const EntryOrAlias = union(enum) {
+     entry: Entry,
+ 
+diff --git a/src/font/shaper/harfbuzz.zig b/src/font/shaper/harfbuzz.zig
+index f1b0f6199..d2d533577 100644
+--- a/src/font/shaper/harfbuzz.zig
++++ b/src/font/shaper/harfbuzz.zig
+@@ -981,6 +981,63 @@ test "shape variation selector VS16" {
+     try testing.expectEqual(@as(usize, 1), count);
+ }
+ 
++test "shape VS16 sequences in a font that maps VS16" {
++    const testing = std.testing;
++    const alloc = testing.allocator;
++    const io = testing.io;
++
++    // OpenMoji keys its ligatures on VS16, as Noto does not.
++    const lib = try Library.init(alloc);
++    var c = Collection.init();
++    c.load_options = .{ .library = lib };
++    for ([_][:0]const u8{ font.embedded.inconsolata, font.embedded.openmoji_color }) |data| {
++        _ = try c.add(alloc, try .init(lib, data, .{ .size = .{ .points = 12 } }), .{
++            .style = .regular,
++            .fallback = true,
++            .size_adjustment = .none,
++        });
++    }
++    const grid_ptr = try alloc.create(SharedGrid);
++    grid_ptr.* = try .init(alloc, .{ .collection = c });
++    var testdata: TestShaper = .{
++        .alloc = alloc,
++        .shaper = try Shaper.init(alloc, .{}),
++        .grid = grid_ptr,
++        .lib = lib,
++    };
++    defer testdata.deinit();
++
++    // Rainbow flag, heart on fire, keycap 1.
++    for ([_][]const u8{
++        "\u{1F3F3}\u{FE0F}\u{200D}\u{1F308}",
++        "\u{2764}\u{FE0F}\u{200D}\u{1F525}",
++        "1\u{FE0F}\u{20E3}",
++    }) |text| {
++        var t = try terminal.Terminal.init(io, alloc, .{ .cols = 10, .rows = 3 });
++        defer t.deinit(alloc);
++        // As the app runs: without it, the VS16 after a keycap's base is
++        // dropped.
++        t.modes.set(.grapheme_cluster, true);
++        var s = t.vtStream();
++        defer s.deinit();
++        s.nextSlice(text);
++
++        var state: terminal.RenderState = .empty;
++        defer state.deinit(alloc);
++        try state.update(alloc, &t);
++
++        var it = testdata.shaper.runIterator(.{
++            .grid = testdata.grid,
++            .cells = state.row_data.get(0).cells.slice(),
++        });
++        const run = (try it.next(alloc)).?;
++        // One glyph, from OpenMoji: the sequence's ligature.
++        try testing.expect(run.font_index.idx == 1);
++        const cells = try testdata.shaper.shape(run);
++        try testing.expectEqual(@as(usize, 1), cells.len);
++    }
++}
++
+ test "shape with empty cells in between" {
+     const testing = std.testing;
+     const alloc = testing.allocator;
+diff --git a/src/font/shaper/run.zig b/src/font/shaper/run.zig
+index 9f33ba32e..235eee566 100644
+--- a/src/font/shaper/run.zig
++++ b/src/font/shaper/run.zig
+@@ -275,8 +275,12 @@ pub const RunIterator = struct {
+             );
+             if (cell.hasGrapheme()) {
+                 for (graphemes[j]) |cp| {
+-                    // Do not send presentation modifiers
+-                    if (cp == 0xFE0E or cp == 0xFE0F) continue;
++                    // Do not send presentation modifiers, except VS16 to a
++                    // font that maps it: such a font (OpenMoji) keys its
++                    // emoji sequences' ligatures on it.
++                    if (cp == 0xFE0E) continue;
++                    if (cp == 0xFE0F and
++                        !self.opts.grid.hasCodepoint(font_info.idx, cp, null)) continue;
+                     try self.addCodepoint(&hasher, cp, @intCast(cluster));
+                 }
+             }

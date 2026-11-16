@@ -61,7 +61,7 @@ jobs:
         env:
           BEFORE: ${{ github.event.before }}
         run: |
-          inputs='^(ghostty-ref|hotty-blitz-ref|mods/|brand/|notices/|scripts/(brand\.py|fork\.sh|build-macos\.sh|noto-sbix\.py|notices\.py)|\.github/workflows/ci\.yml)'
+          inputs='^(ghostty-ref|hotty-blitz-ref|mods/|brand/|notices/|scripts/(brand\.py|fork\.sh|build-macos\.sh|notices\.py)|\.github/workflows/ci\.yml)'
           if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
             fork=true   # a new branch, or history rewritten: build
           elif git diff --name-only "$BEFORE" "$GITHUB_SHA" | grep -qE "$inputs"; then

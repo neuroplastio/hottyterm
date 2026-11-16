@@ -1,6 +1,6 @@
 ---
 title: "A touchpad's sideways scroll reaches the terminal"
-patch: 0060-hottyterm-a-touchpad-s-sideways-scroll-reaches-the-t.patch
+patch: 0061-hottyterm-a-touchpad-s-sideways-scroll-reaches-the-t.patch
 upstream-fit: no
 ---
 

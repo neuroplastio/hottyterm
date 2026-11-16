@@ -1,6 +1,6 @@
 ---
 title: "Scrolls and a finger's moves paint on the paint thread"
-patch: 0061-hottyterm-scrolls-and-a-finger-s-moves-paint-on-the-.patch
+patch: 0062-hottyterm-scrolls-and-a-finger-s-moves-paint-on-the-.patch
 upstream-fit: no
 ---
 

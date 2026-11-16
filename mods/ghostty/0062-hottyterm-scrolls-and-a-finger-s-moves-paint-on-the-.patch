@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Mon, 16 Nov 2026 01:30:42 +0100
-Subject: [PATCH 61/61] hottyterm: scrolls and a finger's moves paint on the
+Subject: [PATCH 62/62] hottyterm: scrolls and a finger's moves paint on the
  paint thread
 
 A scroll (wheel, touchpad, touch drag) and a touch's move that pans a

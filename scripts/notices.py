@@ -205,15 +205,13 @@ def main():
     if os.path.isfile(plex):
         comps.append({"kind": "bundled", "name": "IBM Plex Sans (in hotty-blitz)", "version": "6.4.0",
                       "license": "OFL-1.1", "source": "https://github.com/IBM/plex", "files": [plex]})
-    # Noto Color Emoji: the cells' (Ghostty's src/font/res, CBDT on Linux,
-    # sbix made from it on macOS) and the surfaces' (hotty-blitz's fonts/,
-    # the same file), and Noto Emoji for text presentation. OFL-1.1, in
-    # NotoColorEmoji-OFL.txt, which escapes LICENSE_NAME.
-    noto = os.path.join(fonts, "NotoColorEmoji-OFL.txt")
-    if os.path.isfile(noto):
-        comps.append({"kind": "bundled", "name": "Noto Color Emoji 2.051 and Noto Emoji 3.005", "version": "",
-                      "license": "OFL-1.1", "source": "https://github.com/googlefonts/noto-emoji",
-                      "files": [noto]})
+    # OpenMoji (0.7.6): CC-BY-SA-4.0, OpenMoji-CC-BY-SA-4.0.txt, which also
+    # escapes LICENSE_NAME; its attribution is at the top of NOTICE.txt.
+    openmoji = os.path.join(fonts, "OpenMoji-CC-BY-SA-4.0.txt")
+    if os.path.isfile(openmoji):
+        comps.append({"kind": "bundled", "name": "OpenMoji Color (in hotty-blitz)", "version": "17.0.0",
+                      "license": "CC-BY-SA-4.0", "source": "https://github.com/hfg-gmuend/openmoji",
+                      "files": [os.path.join(NOTICES, "OpenMoji-attribution.txt"), openmoji]})
     for name, url, d in a.extra:
         comps.append({"kind": "bundled", "name": name, "version": "", "license": "", "source": url,
                       "files": license_files(d)})

@@ -1,6 +1,6 @@
 ---
 title: "Surfaces follow the system's reduced-motion setting"
-patch: 0058-hottyterm-surfaces-follow-the-system-s-reduced-motio.patch
+patch: 0059-hottyterm-surfaces-follow-the-system-s-reduced-motio.patch
 upstream-fit: no
 ---
 
