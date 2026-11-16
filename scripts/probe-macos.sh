@@ -5,6 +5,7 @@
 #   scripts/probe-macos.sh /Applications/hottyterm.app <out dir> regions [baseline.app]
 #   scripts/probe-macos.sh /Applications/hottyterm.app <out dir> latency [baseline.app]
 #   scripts/probe-macos.sh /Applications/hottyterm.app <out dir> latency plx <bundle>
+#   scripts/probe-macos.sh /Applications/hottyterm.app <out dir> emoji        (probe-macos-emoji.sh)
 #
 # `latency` times input through hottyterm's stage stamps (gov R-22,
 # docs/trace.md), there being no screen copies here: in each of
@@ -84,6 +85,10 @@ echo "== cpu: $(sysctl -n machdep.cpu.brand_string 2>/dev/null), $levels perform
 
 if [ "$MODE" = reduced-motion ]; then
     exec "$(dirname "$0")/probe-macos-motion.sh" "$APP" "$OUT"
+fi
+
+if [ "$MODE" = emoji ]; then
+    exec "$(dirname "$0")/probe-macos-emoji.sh" "$APP" "$OUT"
 fi
 
 if [ "$MODE" = regions ]; then

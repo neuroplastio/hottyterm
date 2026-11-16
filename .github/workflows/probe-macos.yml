@@ -37,6 +37,10 @@ on:
         description: Probe the system Reduce Motion setting, including live changes
         type: boolean
         default: false
+      emoji:
+        description: Capture emoji in the cells and in a surface (scripts/probe-macos-emoji.sh)
+        type: boolean
+        default: false
       remap:
         description: Swap Cmd and Ctrl (key-remap) and probe the menu with them
         type: boolean
@@ -103,7 +107,7 @@ jobs:
 
       - name: Probe
         env:
-          MODE: ${{ inputs.reduced_motion && 'reduced-motion' || inputs.latency && 'latency' || inputs.regions && 'regions' || inputs.remap && 'remap' || '' }}
+          MODE: ${{ inputs.reduced_motion && 'reduced-motion' || inputs.emoji && 'emoji' || inputs.latency && 'latency' || inputs.regions && 'regions' || inputs.remap && 'remap' || '' }}
           BASE: ${{ (inputs.baseline || inputs.baseline_run) && format('{0}/base/hottyterm.app', runner.temp) || '' }}
           LATENCY_ROUNDS: ${{ inputs.rounds }}
         run: scripts/probe-macos.sh /Applications/hottyterm.app probe "$MODE" "$BASE"
@@ -119,4 +123,6 @@ jobs:
             probe/latency/
             probe/motion/*.log
             probe/motion/motion-*
+            probe/emoji/emoji.png
+            probe/emoji/app.log
           retention-days: 3
