@@ -3,7 +3,7 @@
 #
 #   scripts/build-macos.sh              # out/hottyterm.app
 #
-# 1. hotty-blitz as a static library;
+# 1. hotty-blitz as a static library, and Noto Color Emoji as sbix;
 # 2. GhosttyKit, the framework the app links (upstream's build; the hotty
 #    code in it calls hotty-blitz's C ABI);
 # 3. the app with Xcode, in the ReleaseLocal configuration, which signs ad
@@ -31,9 +31,20 @@ echo "== hotty-blitz"
 # (mods/ghostty/version-label.md), and the About window, from Info.plist.
 LABEL="$("$HERE/scripts/versions.sh" "$BLITZ" | sed -n 's/^label=//p')"
 
+# CoreText draws no CBDT, so the cells' Noto Color Emoji is the same PNGs as
+# sbix (mods/ghostty/emoji-noto.md), made from the file the fork embeds, with
+# fontTools pinned in a venv of its own.
+echo "== Noto Color Emoji as sbix"
+FONTTOOLS=4.68.0
+VENV="${XDG_CACHE_HOME:-$HOME/.cache}/hotty/fonttools-$FONTTOOLS"
+[ -x "$VENV/bin/python" ] || { python3 -m venv "$VENV" && "$VENV/bin/pip" install -q "fonttools==$FONTTOOLS"; }
+SBIX="$FORK/zig-out/hottyterm/NotoColorEmoji-sbix.ttf"
+mkdir -p "$(dirname "$SBIX")"
+"$VENV/bin/python" -I "$HERE/scripts/noto-sbix.py" "$FORK/src/font/res/NotoColorEmoji.ttf" "$SBIX"
+
 echo "== GhosttyKit"
 cd "$FORK"
-HOTTY_BLITZ_LIB="$LIB" HOTTYTERM_LABEL="$LABEL" "$ZIG" build -Doptimize=ReleaseFast -Dcpu=baseline -Demit-macos-app=false -Dxcframework-target=native
+HOTTY_BLITZ_LIB="$LIB" HOTTYTERM_LABEL="$LABEL" HOTTYTERM_EMOJI_SBIX="$SBIX" "$ZIG" build -Doptimize=ReleaseFast -Dcpu=baseline -Demit-macos-app=false -Dxcframework-target=native
 
 echo "== the app"
 # hotty-blitz goes into the app's own link, not into GhosttyKit's archive:
