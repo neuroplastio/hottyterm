@@ -35,10 +35,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  2 files changed, 150 insertions(+), 3 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 8f3053507..f29d0fbe2 100644
+index 0269df513..4a0f62e5e 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -1492,8 +1492,7 @@ pub const Hotty = struct {
+@@ -1510,8 +1510,7 @@ pub const Hotty = struct {
      /// z under kitty's line for images below the cells' backgrounds
      /// (stackZ). The renderer bleeds it into the window's padding.
      pub fn isBackdrop(image_id: u32, z: i32) bool {
@@ -48,7 +48,7 @@ index 8f3053507..f29d0fbe2 100644
      }
  
      /// The cursor goes to the start of the line below a placement `rows`
-@@ -2357,6 +2356,85 @@ pub const Hotty = struct {
+@@ -2375,6 +2374,85 @@ pub const Hotty = struct {
          return true;
      }
  
@@ -134,7 +134,7 @@ index 8f3053507..f29d0fbe2 100644
      /// Runs a kitty graphics command built in memory on the active screen.
      /// True unless the terminal reported a failure.
      fn exec(self: *Hotty, t: *terminal.Terminal, cmd: *kitty.graphics.Command) bool {
-@@ -4093,3 +4171,72 @@ test "Hotty.keepImage: eviction passes over a placed surface's image" {
+@@ -4111,3 +4189,72 @@ test "Hotty.keepImage: eviction passes over a placed surface's image" {
      try t.expect(!storage.images.contains(id_base));
      try t.expectEqual(Hotty.Fate.gone, Hotty.fate(&term, p));
  }

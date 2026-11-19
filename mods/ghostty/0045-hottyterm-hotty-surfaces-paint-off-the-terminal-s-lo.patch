@@ -105,10 +105,10 @@ index 3a7c1f62a..17f31be4f 100644
                  &self.terminal,
                  buf[i .. i + 1],
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 5bf3a008a..1785abc8f 100644
+index 7d8f84e03..1bf80747f 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -989,6 +989,36 @@ pub const Hotty = struct {
+@@ -1007,6 +1007,36 @@ pub const Hotty = struct {
      paste_held: [64]HeldKey = undefined,
      paste_held_len: usize = 0,
  
@@ -145,7 +145,7 @@ index 5bf3a008a..1785abc8f 100644
      const HeldKey = struct {
          event: input.KeyEvent,
          text: [32]u8,
-@@ -1010,6 +1040,7 @@ pub const Hotty = struct {
+@@ -1028,6 +1058,7 @@ pub const Hotty = struct {
      };
  
      pub fn deinit(self: *Hotty) void {
@@ -153,7 +153,7 @@ index 5bf3a008a..1785abc8f 100644
          if (self.timer) |*t| t.deinit();
          self.timer = null;
          // The host first: once it is freed, no fetching thread calls `wake`.
-@@ -1053,6 +1084,31 @@ pub const Hotty = struct {
+@@ -1071,6 +1102,31 @@ pub const Hotty = struct {
          return .{ .ctx = self, .reply = onReply, .place = onPlace, .remove = onRemove, .hide = onHide, .clipboard = onClipboard, .paste = onPaste, .edit = onEdit, .menu = onMenu };
      }
  
@@ -185,7 +185,7 @@ index 5bf3a008a..1785abc8f 100644
      /// `a=edit` (SPEC §10.6): what the program takes on the screen it is
      /// on, in place of what it took there before.
      fn onEdit(ctx: ?*anyopaque, names: [*]const u8, len: usize) callconv(.c) void {
-@@ -1089,7 +1145,7 @@ pub const Hotty = struct {
+@@ -1107,7 +1163,7 @@ pub const Hotty = struct {
          if (now == self.screen) return;
          if (self.screen == .alternate) self.taken[1] = 0;
          self.screen = now;
@@ -194,7 +194,7 @@ index 5bf3a008a..1785abc8f 100644
      }
  
      /// Whether the program took the edit command `name` on its screen.
-@@ -1177,7 +1233,7 @@ pub const Hotty = struct {
+@@ -1195,7 +1251,7 @@ pub const Hotty = struct {
      }
  
      fn ensureHost(self: *Hotty, t: *terminal.Terminal) ?*Host {
@@ -203,7 +203,7 @@ index 5bf3a008a..1785abc8f 100644
          const cfg = self.config(t);
          self.host = hotty_host_new(&cfg);
          if (self.host) |h| {
-@@ -1192,6 +1248,11 @@ pub const Hotty = struct {
+@@ -1210,6 +1266,11 @@ pub const Hotty = struct {
              // The screen it is told first (SPEC §10.7).
              self.screen = t.screens.active_key;
              hotty_host_set_screen(h, self.screen == .alternate);
@@ -215,7 +215,7 @@ index 5bf3a008a..1785abc8f 100644
          } else log.warn("hotty-blitz failed to start", .{});
          return self.host;
      }
-@@ -1201,7 +1262,7 @@ pub const Hotty = struct {
+@@ -1219,7 +1280,7 @@ pub const Hotty = struct {
      /// that asked hears what changed (`caps`, SPEC §9).
      pub fn configure(self: *Hotty, settings: Settings) void {
          self.settings = settings;
@@ -224,7 +224,7 @@ index 5bf3a008a..1785abc8f 100644
              hotty_host_set_network(h, settings.net.ptr);
              self.setKeys(h);
              self.sendReplies();
-@@ -1243,7 +1304,8 @@ pub const Hotty = struct {
+@@ -1261,7 +1322,8 @@ pub const Hotty = struct {
          // second would draw the same frame again, and GTK would give it
          // a refresh of its own. Only a send can let go of the lock early
          // (the mailbox was full), so a draw may run in between: then the
@@ -234,7 +234,7 @@ index 5bf3a008a..1785abc8f 100644
          if (self.replies.items.len > 0) {
              defer self.replies.clearRetainingCapacity();
              // What the handler's (private) messageWriter does.
-@@ -1254,12 +1316,17 @@ pub const Hotty = struct {
+@@ -1272,12 +1334,17 @@ pub const Hotty = struct {
      }
  
      /// Full reset (RIS): every surface goes (SPEC §5.4). The terminal has
@@ -256,7 +256,7 @@ index 5bf3a008a..1785abc8f 100644
          self.placed.clearRetainingCapacity();
          self.hover_len = 0;
          self.capture_len = 0;
-@@ -1300,9 +1367,9 @@ pub const Hotty = struct {
+@@ -1318,9 +1385,9 @@ pub const Hotty = struct {
              p.shown = self.show(t, p.*);
              if (p.shown) continue;
              pending = true;
@@ -268,7 +268,7 @@ index 5bf3a008a..1785abc8f 100644
          self.clearPlaces();
      }
  
-@@ -1410,19 +1477,153 @@ pub const Hotty = struct {
+@@ -1428,19 +1495,153 @@ pub const Hotty = struct {
          t.carriageReturn();
      }
  
@@ -428,7 +428,7 @@ index 5bf3a008a..1785abc8f 100644
      /// Sends what is collected for the program (a `fit` a render found)
      /// from the IO thread, as `osc` does. Termio wakes the mailbox after a
      /// batch of output or a message; `onTimer` wakes it itself.
-@@ -1483,7 +1684,7 @@ pub const Hotty = struct {
+@@ -1501,7 +1702,7 @@ pub const Hotty = struct {
      /// edits the loop's timer heap at once, and every backend takes a new
      /// timer only on the loop's next turn.
      fn schedule(self: *Hotty, t: *terminal.Terminal) void {
@@ -437,7 +437,7 @@ index 5bf3a008a..1785abc8f 100644
          const loop = self.loop orelse return;
          const timer = self.timer orelse return;
          var ms = hotty_host_next_frame(h);
-@@ -1514,23 +1715,30 @@ pub const Hotty = struct {
+@@ -1532,23 +1733,30 @@ pub const Hotty = struct {
          return .disarm;
      }
  
@@ -475,7 +475,7 @@ index 5bf3a008a..1785abc8f 100644
          self.schedule(t);
      }
  
-@@ -1565,7 +1773,7 @@ pub const Hotty = struct {
+@@ -1583,7 +1791,7 @@ pub const Hotty = struct {
  
      /// Deletes a surface's document, as the program's `a=del:s=` would.
      fn deleteSurface(self: *Hotty, name: []const u8) void {
@@ -484,7 +484,7 @@ index 5bf3a008a..1785abc8f 100644
          var buf: [128]u8 = undefined;
          const body = std.fmt.bufPrint(&buf, "a=del:s={s}", .{name}) catch return;
          const fx = self.effects();
-@@ -1575,13 +1783,14 @@ pub const Hotty = struct {
+@@ -1593,13 +1801,14 @@ pub const Hotty = struct {
      }
  
      /// The cell size (font size, zoom) changed: every surface re-renders at
@@ -502,7 +502,7 @@ index 5bf3a008a..1785abc8f 100644
          // `caps`, with the new `cellcss`, and `fit` (SPEC §4, §5.2) go out
          // now: a resize runs from the IO thread's coalescing timer, not
          // from output, which wakes the mailbox after it.
-@@ -1601,7 +1810,7 @@ pub const Hotty = struct {
+@@ -1619,7 +1828,7 @@ pub const Hotty = struct {
      /// Renders the dirty surfaces into their images. True if a frame went
      /// out, for the renderer to draw.
      fn render(self: *Hotty, t: *terminal.Terminal) bool {
@@ -511,7 +511,7 @@ index 5bf3a008a..1785abc8f 100644
          const t0 = trace.now();
          defer trace.span("term.render", t0);
          var ctx: RenderCtx = .{ .self = self, .t = t };
-@@ -1614,9 +1823,315 @@ pub const Hotty = struct {
+@@ -1632,9 +1841,315 @@ pub const Hotty = struct {
          return ctx.drew;
      }
  
@@ -827,7 +827,7 @@ index 5bf3a008a..1785abc8f 100644
          var i: usize = 0;
          while (i < self.removes.items.len) {
              const name = self.removes.items[i];
-@@ -1633,9 +2148,6 @@ pub const Hotty = struct {
+@@ -1651,9 +2166,6 @@ pub const Hotty = struct {
              self.alloc.free(name);
              _ = self.removes.swapRemove(i);
          }
@@ -837,7 +837,7 @@ index 5bf3a008a..1785abc8f 100644
      }
  
      /// Places the menu at the bottom right of the screen, over the cells,
-@@ -1916,7 +2428,7 @@ pub const Hotty = struct {
+@@ -1934,7 +2446,7 @@ pub const Hotty = struct {
      /// the active screen's kitty placements.
      fn hit(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64) ?Target {
          if (self.cell_w == 0 or self.cell_h == 0) return null;
@@ -846,7 +846,7 @@ index 5bf3a008a..1785abc8f 100644
          // From the top down, the first window under the pointer that takes
          // it there: where a surface's elements have `pointer-events: none`
          // the pointer passes through to what is below, a window or the
-@@ -1988,7 +2500,7 @@ pub const Hotty = struct {
+@@ -2006,7 +2518,7 @@ pub const Hotty = struct {
      fn pointer(self: *Hotty, t: *terminal.Terminal, kind: PointerKind, px: f64, py: f64, mods: u32, count: u32) bool {
          self.shape = null;
          self.setLink(null);
@@ -855,7 +855,7 @@ index 5bf3a008a..1785abc8f 100644
          if (self.placed.count() == 0) {
              self.capture_len = 0;
              return false;
-@@ -2071,7 +2583,7 @@ pub const Hotty = struct {
+@@ -2089,7 +2601,7 @@ pub const Hotty = struct {
      /// goes on reporting its moves and its release.
      fn leaveWindow(self: *Hotty, t: *terminal.Terminal, mods: u32) void {
          if (self.capture_len > 0 or self.hover_len == 0) return;
@@ -864,7 +864,7 @@ index 5bf3a008a..1785abc8f 100644
          const fx = self.effects();
          var buf: [73]u8 = undefined;
          const old = std.mem.printSentinel(&buf, "{s}", .{self.hover[0..self.hover_len]}, 0) catch "";
-@@ -2085,7 +2597,7 @@ pub const Hotty = struct {
+@@ -2103,7 +2615,7 @@ pub const Hotty = struct {
      /// A key for the surface holding the keyboard as the user pressed it,
      /// by its name (SPEC §10.4). True if it used it.
      fn keyPressed(self: *Hotty, t: *terminal.Terminal, p: *const Press) bool {
@@ -873,7 +873,7 @@ index 5bf3a008a..1785abc8f 100644
          const fx = self.effects();
          const consumed = hotty_host_key_pressed(h, namePtr(p.physical), p.physical.len, namePtr(p.character), p.character.len, &fx);
          if (self.render(t)) self.drew = true;
-@@ -2098,7 +2610,7 @@ pub const Hotty = struct {
+@@ -2116,7 +2628,7 @@ pub const Hotty = struct {
      /// would read for them (SPEC §10.4). True if it used any; the others
      /// then reach the program as replies, in order.
      fn keyBytes(self: *Hotty, t: *terminal.Terminal, bytes: []const u8) bool {
@@ -882,7 +882,7 @@ index 5bf3a008a..1785abc8f 100644
          if (bytes.len == 0) return false;
          const fx = self.effects();
          const consumed = hotty_host_key_bytes(h, bytes.ptr, bytes.len, &fx);
-@@ -2115,7 +2627,7 @@ pub const Hotty = struct {
+@@ -2133,7 +2645,7 @@ pub const Hotty = struct {
      /// or while the program holds the pointer, the gesture is the
      /// terminal's, even where it goes on over a surface.
      fn wheel(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64, dx: f64, dy: f64, mods: u32) bool {
@@ -891,7 +891,7 @@ index 5bf3a008a..1785abc8f 100644
          const fx = self.effects();
          const target: ?Target = if (self.program_hold) null else self.hit(t, px, py);
          var name_buf: [73]u8 = undefined;
-@@ -2141,7 +2653,7 @@ pub const Hotty = struct {
+@@ -2159,7 +2671,7 @@ pub const Hotty = struct {
      /// the pointer, is the terminal's. A touch hovers nothing.
      fn touch(self: *Hotty, t: *terminal.Terminal, phase: TouchPhase, px: f64, py: f64, mods: u32, reports: bool) Touch {
          self.mouse_len = 0;
@@ -900,7 +900,7 @@ index 5bf3a008a..1785abc8f 100644
          if (phase == .down) {
              self.touch_len = 0;
              self.touch_cells = false;
-@@ -2238,7 +2750,7 @@ pub const Hotty = struct {
+@@ -2256,7 +2768,7 @@ pub const Hotty = struct {
      }
  
      fn hasKeyboard(self: *Hotty) bool {
@@ -909,7 +909,7 @@ index 5bf3a008a..1785abc8f 100644
          return hotty_host_focused(h) != null;
      }
  };
-@@ -2341,7 +2853,7 @@ fn copyOnSelect(s: *Surface) void {
+@@ -2359,7 +2871,7 @@ fn copyOnSelect(s: *Surface) void {
          .clipboard => &.{.standard},
          .both => &.{ .standard, .selection },
      };
@@ -918,7 +918,7 @@ index 5bf3a008a..1785abc8f 100644
      const text = hotty_host_selected_text(h) orelse return;
      setClipboards(s, clipboards, std.mem.span(text));
  }
-@@ -2356,7 +2868,7 @@ pub fn copySelection(s: *Surface) bool {
+@@ -2374,7 +2886,7 @@ pub fn copySelection(s: *Surface) bool {
          hs.copy_denied = false;
          return false;
      }
@@ -927,7 +927,7 @@ index 5bf3a008a..1785abc8f 100644
      const text = hotty_host_selected_text(h) orelse return false;
      setClipboards(s, &.{.standard}, std.mem.span(text));
      return true;
-@@ -2393,7 +2905,7 @@ pub fn pasteInto(s: *Surface, data: []const u8) bool {
+@@ -2411,7 +2923,7 @@ pub fn pasteInto(s: *Surface, data: []const u8) bool {
          lockState(s, @src());
          defer s.renderer_state.mutex.unlock(global.io());
          const hs = &s.io.terminal_stream.handler.hotty;
@@ -936,7 +936,7 @@ index 5bf3a008a..1785abc8f 100644
          const fx = hs.effects();
          const took = hotty_host_paste(h, data.ptr, data.len, &fx);
          if (hs.render(&s.io.terminal)) hs.drew = true;
-@@ -2436,7 +2948,7 @@ fn cellsSelect(s: *Surface) bool {
+@@ -2454,7 +2966,7 @@ fn cellsSelect(s: *Surface) bool {
  fn surfaceSelects(s: *Surface) bool {
      lockState(s, @src());
      defer s.renderer_state.mutex.unlock(global.io());
@@ -945,7 +945,7 @@ index 5bf3a008a..1785abc8f 100644
      return hotty_host_selected_text(h) != null;
  }
  
-@@ -2456,7 +2968,7 @@ fn selectionCopy(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+@@ -2474,7 +2986,7 @@ fn selectionCopy(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
      lockState(s, @src());
      defer s.renderer_state.mutex.unlock(global.io());
      const hs = &s.io.terminal_stream.handler.hotty;
@@ -954,7 +954,7 @@ index 5bf3a008a..1785abc8f 100644
      var text: ?[*:0]const u8 = null;
      if (hotty_host_copy_key(h, namePtr(p.physical), p.physical.len, namePtr(p.character), p.character.len, &text) != 1) return false;
      setClipboards(s, &.{.standard}, std.mem.span(text orelse return false));
-@@ -2913,7 +3425,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+@@ -2931,7 +3443,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
      const command = command: {
          lockState(s, @src());
          defer s.renderer_state.mutex.unlock(global.io());
@@ -963,7 +963,7 @@ index 5bf3a008a..1785abc8f 100644
          const c = hotty_host_edit_command(h, namePtr(p.physical), p.physical.len, namePtr(p.character), p.character.len) orelse return false;
          if (!hs.takes(&s.io.terminal, std.mem.span(c))) return false;
          hs.held_keys.insert(event.key);
-@@ -3044,7 +3556,7 @@ fn cellsKey(s: *Surface, event: input.KeyEvent) void {
+@@ -3062,7 +3574,7 @@ fn cellsKey(s: *Surface, event: input.KeyEvent) void {
      defer s.renderer_state.mutex.unlock(global.io());
      const hs = &s.io.terminal_stream.handler.hotty;
      if (!hs.menu_shown or hs.hasKeyboard()) return;
@@ -972,7 +972,7 @@ index 5bf3a008a..1785abc8f 100644
      hotty_host_cells_key(h, namePtr(press.physical), press.physical.len, namePtr(press.character), press.character.len);
      if (hotty_host_has_dirty(h) and hs.render(&s.io.terminal)) hs.drew = true;
  }
-@@ -3068,7 +3580,7 @@ fn takesCommand(s: *Surface, p: *const Press) bool {
+@@ -3086,7 +3598,7 @@ fn takesCommand(s: *Surface, p: *const Press) bool {
      lockState(s, @src());
      defer s.renderer_state.mutex.unlock(global.io());
      const hs = &s.io.terminal_stream.handler.hotty;

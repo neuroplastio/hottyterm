@@ -20,10 +20,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 8 insertions(+), 1 deletion(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 3a2a229d0..5bf3a008a 100644
+index 04d18e06b..7d8f84e03 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -1237,13 +1237,20 @@ pub const Hotty = struct {
+@@ -1255,13 +1255,20 @@ pub const Hotty = struct {
          const fx = self.effects();
          hotty_host_osc(h, body.ptr, body.len, &fx);
          self.apply(t);

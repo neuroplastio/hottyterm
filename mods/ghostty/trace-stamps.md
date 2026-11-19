@@ -19,9 +19,11 @@ process of neuroplastio's rig shares. It stamps:
 A stamp makes no write and takes no lock: it puts its line into a
 lock-free ring of about 8 MB. The `hotty-trace` thread writes the ring out
 every 50 ms, at exit and on SIGTERM, so a disk that stalls holds up that
-thread alone, never one that holds the terminal's lock. Exit and SIGTERM
-wait for it 1 s at most, and a second SIGTERM not at all. A full ring
-drops lines and says how many (`trace.dropped`). Without the variable, a stamp is one atomic load and a
+thread alone, never one that holds the terminal's lock. Exit waits for it
+1 s at most, and so does SIGTERM on a FIFO whose reader is slow or gone;
+on a stalled disk SIGTERM waits for the write in progress, and a second
+SIGTERM doesn't wait. A full ring drops lines and says how many
+(`trace.dropped`). Without the variable, a stamp is one atomic load and a
 branch, with no thread. The code is in `hotty.zig`. Upstream files get
 hooks: the input callbacks' lock sites in `Surface.zig` go through one
 function (19 lines), and a few lines each in `termio/Exec.zig`,

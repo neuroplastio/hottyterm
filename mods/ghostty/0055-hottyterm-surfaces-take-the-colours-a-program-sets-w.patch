@@ -21,10 +21,10 @@ Adds no lines to upstream's files: all in src/termio/hotty.zig.
  1 file changed, 31 insertions(+)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 491a6f15b..236b35912 100644
+index c7faf96f1..b57af1d22 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -871,6 +871,11 @@ pub const Hotty = struct {
+@@ -889,6 +889,11 @@ pub const Hotty = struct {
      next_id: u32 = id_base,
      cell_w: u32 = 0,
      cell_h: u32 = 0,
@@ -36,7 +36,7 @@ index 491a6f15b..236b35912 100644
      /// The size Ghostty loads the terminal's font at: points, and the DPI
      /// that holds the display's content scale (Surface.font_size). The
      /// Surface sets it (`surfaceFont`); a resize follows every change.
-@@ -1214,7 +1219,32 @@ pub const Hotty = struct {
+@@ -1232,7 +1237,32 @@ pub const Hotty = struct {
          return (@as(u32, v.r) << 16) | (@as(u32, v.g) << 8) | v.b;
      }
  
@@ -69,7 +69,7 @@ index 491a6f15b..236b35912 100644
          const cell_w: u32 = if (t.cols > 0) t.width_px / t.cols else 10;
          const cell_h: u32 = if (t.rows > 0) t.height_px / t.rows else 21;
          self.cell_w = cell_w;
-@@ -1512,6 +1542,7 @@ pub const Hotty = struct {
+@@ -1530,6 +1560,7 @@ pub const Hotty = struct {
      /// parsing meanwhile (gov R-22, S1).
      pub fn flush(self: *Hotty, t: *terminal.Terminal) void {
          if (self.host == null) return;
