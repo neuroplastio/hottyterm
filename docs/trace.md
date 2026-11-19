@@ -56,6 +56,16 @@ Each line after the header is one event, a JSON object:
   100 ms. Also flush at exit and on SIGTERM. The rig stops a run with
   SIGTERM after it has been quiet for 300 ms or more, and sends SIGKILL
   2 s later.
+- **Never write on the thread you stamp.** A stamp is often taken inside
+  the work it times, with a lock held. A write to a busy disk can wait for
+  most of a second, and every thread queued behind that lock waits with
+  it. On 2026-11-19 that made a trace show 100–830 ms stalls that the
+  untraced terminal didn't have. hottyterm's stamps go into a lock-free
+  ring of about 8 MB, and its `hotty-trace` thread writes it out every
+  50 ms, at exit and on SIGTERM.
+- **A full buffer drops lines rather than wait,** and says so with a
+  `trace.dropped` line: a counter sample, `c.lines` lines lost since the
+  last one.
 
 ## Names
 
@@ -89,6 +99,7 @@ Each line after the header is one event, a JSON object:
 | `term.vsync` | instant | macOS: the display link's tick, on CoreVideo's thread. While the link runs, the renderer draws only on a tick |
 | `term.present` | instant | macOS: the GPU finished a frame, and its IOSurface goes to the main thread |
 | `term.contents` | instant | macOS: the main thread sets the layer's `contents` to it (`a.sync`: a draw on the main thread itself, during a resize; `a.discard`: the frame was the wrong size and is dropped) |
+| `trace.dropped` | counter | on `hotty-trace`: `c.lines` stamps dropped since the last, because its ring was full while the disk held up the writes |
 
 The frame's presentation is the rig's `rig.pixels` on Linux. In the feel
 sway, `term.presented` comes 1.3–2.6 ms (median 1.7) after `rig.pixels` for

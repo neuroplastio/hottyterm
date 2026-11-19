@@ -41,10 +41,10 @@ index 1d883f837..7eb073741 100644
                  .{ .surface = self },
                  .mouse_shape,
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 78b009b27..4723b9c44 100644
+index b56472473..fecad8831 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -2637,6 +2637,17 @@ fn sameCell(s: *Surface, a: apprt.CursorPos, b: apprt.CursorPos) bool {
+@@ -2878,6 +2878,17 @@ fn sameCell(s: *Surface, a: apprt.CursorPos, b: apprt.CursorPos) bool {
      return @floor(ta.x / w) == @floor(tb.x / w) and @floor(ta.y / h) == @floor(tb.y / h);
  }
  

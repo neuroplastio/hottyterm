@@ -20,10 +20,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 24 insertions(+), 13 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index abc8166f9..fb8b7a4bd 100644
+index 2a361815e..c3e33266b 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -915,10 +915,9 @@ pub const Hotty = struct {
+@@ -1156,10 +1156,9 @@ pub const Hotty = struct {
          // (the mailbox was full), so a draw may run in between: then the
          // rest of the parse needs another. (A wait for a paint lets it go
          // too: `hostReady` queues that one.)
@@ -36,7 +36,7 @@ index abc8166f9..fb8b7a4bd 100644
              handler.termio_messaged = true;
              try handler.queueRender();
          }
-@@ -1249,14 +1248,24 @@ pub const Hotty = struct {
+@@ -1490,14 +1489,24 @@ pub const Hotty = struct {
          self.streamHandler().renderer_state.hotty_hold = false;
      }
  
@@ -64,7 +64,7 @@ index abc8166f9..fb8b7a4bd 100644
          handler.termio_mailbox.send(msg, handler.renderer_state.mutex);
          handler.termio_messaged = true;
      }
-@@ -2593,14 +2602,16 @@ fn hostMods(mods: input.Mods) u32 {
+@@ -2834,14 +2843,16 @@ fn hostMods(mods: input.Mods) u32 {
  /// surface took the event or drew a frame.
  fn deliver(s: *Surface, redraw: bool) void {
      const hs = &s.io.terminal_stream.handler.hotty;

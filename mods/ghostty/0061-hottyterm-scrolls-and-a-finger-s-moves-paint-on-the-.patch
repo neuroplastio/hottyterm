@@ -27,10 +27,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 131 insertions(+), 12 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index b4ee7bb5c..289e6bca3 100644
+index 8be1f9e8f..a0d62a7c1 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -487,6 +487,20 @@ pub const Hotty = struct {
+@@ -728,6 +728,20 @@ pub const Hotty = struct {
      /// (`a=touch`, SPEC §9.6): hotty-blitz has every phase of it
      /// (`cellsTouch`), until it lifts.
      touch_cells: bool = false,
@@ -51,7 +51,7 @@ index b4ee7bb5c..289e6bca3 100644
      /// The reports of the mouse the last phase of a touch made, for
      /// `touchMouse`.
      mouse: [mouse_max]Mouse = undefined,
-@@ -584,6 +598,12 @@ pub const Hotty = struct {
+@@ -825,6 +839,12 @@ pub const Hotty = struct {
      /// repaint what is dirty, or stop.
      paint_thread: ?std.Thread = null,
      paint_wanted: bool = false,
@@ -64,7 +64,7 @@ index b4ee7bb5c..289e6bca3 100644
      paint_quit: bool = false,
      /// Threads waiting in `hostReady`: they have the host before the paint
      /// thread paints again.
-@@ -684,6 +704,7 @@ pub const Hotty = struct {
+@@ -925,6 +945,7 @@ pub const Hotty = struct {
              self.host_waiters -= 1;
              if (self.host_waiters == 0) self.host_cond.broadcast(io);
              trace.span("term.host.wait", t0);
@@ -72,7 +72,7 @@ index b4ee7bb5c..289e6bca3 100644
              // The lock went while this waited, as it goes for a full
              // mailbox's send (`osc`): the renderer may have drawn
              // meanwhile, and whatever is parsed after needs another draw.
-@@ -982,7 +1003,7 @@ pub const Hotty = struct {
+@@ -1223,7 +1244,7 @@ pub const Hotty = struct {
              pending = true;
              if (self.hostReady()) |h| hotty_host_redeliver(h, p.surface.ptr);
          }
@@ -81,7 +81,7 @@ index b4ee7bb5c..289e6bca3 100644
          self.clearPlaces();
      }
  
-@@ -1190,6 +1211,7 @@ pub const Hotty = struct {
+@@ -1431,6 +1452,7 @@ pub const Hotty = struct {
          }
          self.holdRenderer(false);
          self.paint_wanted = true;
@@ -89,7 +89,7 @@ index b4ee7bb5c..289e6bca3 100644
          self.host_cond.broadcast(global.io());
      }
  
-@@ -1210,12 +1232,16 @@ pub const Hotty = struct {
+@@ -1451,12 +1473,16 @@ pub const Hotty = struct {
              // This paint covers every update ended so far.
              self.hold_wanted = false;
              const t = sh.terminal;
@@ -107,7 +107,7 @@ index b4ee7bb5c..289e6bca3 100644
                      break :paint;
                  }
                  // What a resize told the program (`caps`), with nothing to draw.
-@@ -1223,8 +1249,9 @@ pub const Hotty = struct {
+@@ -1464,8 +1490,9 @@ pub const Hotty = struct {
                  hotty_host_events(h, &fx);
              }
              // The surfaces are in: the renderer shows them, unless an
@@ -119,7 +119,7 @@ index b4ee7bb5c..289e6bca3 100644
              if (drew) sh.queueRender() catch {};
              // The IO thread sends the replies (`tick`): a full mailbox
              // would block this thread, and the loop may have stopped.
-@@ -1552,7 +1579,7 @@ pub const Hotty = struct {
+@@ -1793,7 +1820,7 @@ pub const Hotty = struct {
      /// lock and has the host (`hostReady`), and has both back after.
      /// Meanwhile another thread may change the terminal, but it waits for
      /// the host, so no frame of the host's lands between this paint's.
@@ -128,7 +128,7 @@ index b4ee7bb5c..289e6bca3 100644
          const h = self.hostReady() orelse return false;
          // Without a paint thread nothing holds the renderer (`batchEnded`).
          if (self.paint_thread == null) return self.render(t);
-@@ -1563,8 +1590,9 @@ pub const Hotty = struct {
+@@ -1804,8 +1831,9 @@ pub const Hotty = struct {
          var paint: Paint = .{ .alloc = self.alloc };
          defer paint.deinit();
          const menu = self.menu_place != null;
@@ -140,7 +140,7 @@ index b4ee7bb5c..289e6bca3 100644
          self.painting = true;
          mutex.unlock(io);
          const fx = paint.effects();
-@@ -1591,7 +1619,8 @@ pub const Hotty = struct {
+@@ -1832,7 +1860,8 @@ pub const Hotty = struct {
              again = true;
          }
          if (again and self.render(t)) ctx.drew = true;
@@ -150,7 +150,7 @@ index b4ee7bb5c..289e6bca3 100644
          return ctx.drew;
      }
  
-@@ -2305,6 +2334,8 @@ pub const Hotty = struct {
+@@ -2546,6 +2575,8 @@ pub const Hotty = struct {
      /// the `count`th of its run of clicks (0 for another). True if a
      /// surface took it; replies for the program stay in `replies`.
      fn pointer(self: *Hotty, t: *terminal.Terminal, kind: PointerKind, px: f64, py: f64, mods: u32, count: u32) bool {
@@ -159,7 +159,7 @@ index b4ee7bb5c..289e6bca3 100644
          self.shape = null;
          self.setLink(null);
          const h = self.hostReady() orelse return false;
-@@ -2434,6 +2465,22 @@ pub const Hotty = struct {
+@@ -2675,6 +2706,22 @@ pub const Hotty = struct {
      /// or while the program holds the pointer, the gesture is the
      /// terminal's, even where it goes on over a surface.
      fn wheel(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64, dx: f64, dy: f64, mods: u32) bool {
@@ -182,7 +182,7 @@ index b4ee7bb5c..289e6bca3 100644
          const h = self.hostReady() orelse return false;
          const fx = self.effects();
          const target: ?Target = if (self.program_hold) null else self.hit(t, px, py);
-@@ -2445,12 +2492,68 @@ pub const Hotty = struct {
+@@ -2686,12 +2733,68 @@ pub const Hotty = struct {
          const x: f32 = if (target) |tg| tg.x else 0;
          const y: f32 = if (target) |tg| tg.y else 0;
          const took = hotty_host_wheel(h, name, x, y, @floatCast(dx), @floatCast(dy), mods, &fx);
@@ -253,7 +253,7 @@ index b4ee7bb5c..289e6bca3 100644
      /// A secondary press at viewport pixel (`px`, `py`) (SPEC §9): true if
      /// a surface took it. Not while the program holds the pointer, nor over
      /// the cells.
-@@ -2476,6 +2579,22 @@ pub const Hotty = struct {
+@@ -2717,6 +2820,22 @@ pub const Hotty = struct {
      /// the pointer, is the terminal's. A touch hovers nothing.
      fn touch(self: *Hotty, t: *terminal.Terminal, phase: TouchPhase, px: f64, py: f64, mods: u32, reports: bool) Touch {
          self.mouse_len = 0;
@@ -276,7 +276,7 @@ index b4ee7bb5c..289e6bca3 100644
          const h = self.hostReady() orelse return .cells;
          if (phase == .down) {
              self.touch_len = 0;
-@@ -2505,9 +2624,9 @@ pub const Hotty = struct {
+@@ -2746,9 +2865,9 @@ pub const Hotty = struct {
          const r = hotty_host_touch(h, name.ptr, @intFromEnum(ph), if (p) |q| q.x else 0, if (p) |q| q.y else 0, mods, &fx);
          if (phase == .up or p == null) self.touch_len = 0;
          if (phase == .up and r != 2) hotty_host_end_gesture(h);
