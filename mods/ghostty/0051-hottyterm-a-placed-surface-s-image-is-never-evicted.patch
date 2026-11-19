@@ -35,10 +35,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 69 insertions(+), 2 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 9fb37395d..1ad6f5c08 100644
+index 60ec5d08c..8f3053507 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -1172,6 +1172,7 @@ pub const Hotty = struct {
+@@ -1367,6 +1367,7 @@ pub const Hotty = struct {
              if (self.placed.getPtr(name)) |p| {
                  self.deletePlacement(t, p.*);
                  p.hidden = true;
@@ -46,7 +46,7 @@ index 9fb37395d..1ad6f5c08 100644
              }
          }
          self.clearHides();
-@@ -1216,6 +1217,7 @@ pub const Hotty = struct {
+@@ -1411,6 +1412,7 @@ pub const Hotty = struct {
          e.created = p.created;
          e.backdrop = p.backdrop;
          e.hidden = false;
@@ -54,7 +54,7 @@ index 9fb37395d..1ad6f5c08 100644
          if (p.move_cursor) moveCursor(t, p.win.h);
          return true;
      }
-@@ -1603,6 +1605,22 @@ pub const Hotty = struct {
+@@ -1798,6 +1800,22 @@ pub const Hotty = struct {
          };
      }
  
@@ -77,7 +77,7 @@ index 9fb37395d..1ad6f5c08 100644
      /// Follows what the terminal did to placements on its own (SPEC §5.4,
      /// `fate`). One whose line left the scrollback is hidden, its image
      /// kept, so placing it again sends no pixels. One whose image is gone
-@@ -1631,6 +1649,7 @@ pub const Hotty = struct {
+@@ -1826,6 +1844,7 @@ pub const Hotty = struct {
                  const p = self.placed.getPtr(g.name) orelse continue;
                  self.deletePlacement(t, p.*);
                  p.hidden = true;
@@ -85,7 +85,7 @@ index 9fb37395d..1ad6f5c08 100644
                  self.unplaced(g.name);
                  told = true;
              },
-@@ -2279,7 +2298,7 @@ pub const Hotty = struct {
+@@ -2474,7 +2493,7 @@ pub const Hotty = struct {
          if (!self.exec(t, &cmd)) return error.PlaceFailed;
          const owned = try self.alloc.dupe(u8, name);
          errdefer self.alloc.free(owned);
@@ -94,7 +94,7 @@ index 9fb37395d..1ad6f5c08 100644
              .image_id = id,
              .cols = p.cols,
              .rows = p.rows,
-@@ -2288,7 +2307,9 @@ pub const Hotty = struct {
+@@ -2483,7 +2502,9 @@ pub const Hotty = struct {
              .created = p.created,
              .backdrop = p.backdrop,
              .screen = t.screens.active_key,
@@ -105,7 +105,7 @@ index 9fb37395d..1ad6f5c08 100644
          if (p.move_cursor) moveCursor(t, p.win.h);
      }
  
-@@ -3831,3 +3852,49 @@ test "Hotty.fate: a backdrop's placement the terminal removed" {
+@@ -4026,3 +4047,49 @@ test "Hotty.fate: a backdrop's placement the terminal removed" {
      p.screen = .alternate;
      try t.expectEqual(Hotty.Fate.left_alt, Hotty.fate(&term, p));
  }

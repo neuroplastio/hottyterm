@@ -48,10 +48,10 @@ index 7eb073741..100964bcb 100644
  }
  
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 506b0890f..8be1f9e8f 100644
+index 7e0954976..b9a969490 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -3350,6 +3350,53 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
+@@ -3545,6 +3545,53 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
      return took;
  }
  

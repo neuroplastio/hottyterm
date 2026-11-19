@@ -357,10 +357,10 @@ index 8b21eb06e..621d92b1c 100644
 +    for (State.bleedQuads(padded, inner)) |q| try testing.expect(q == null);
 +}
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 7eb26e9b0..12061dac3 100644
+index 692aae180..5dba4acab 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -1290,6 +1290,14 @@ pub const Hotty = struct {
+@@ -1485,6 +1485,14 @@ pub const Hotty = struct {
          return (band << 20) | @as(i32, @intCast(created & 0xFFFFF));
      }
  
@@ -375,7 +375,7 @@ index 7eb26e9b0..12061dac3 100644
      /// The cursor goes to the start of the line below a placement `rows`
      /// tall, scrolling as needed (the polyfill does the same).
      fn moveCursor(t: *terminal.Terminal, rows: u16) void {
-@@ -3691,3 +3699,20 @@ test "Hotty.stackZ backdrops" {
+@@ -3886,3 +3894,20 @@ test "Hotty.stackZ backdrops" {
      try t.expect(Hotty.stackZ(-1, 5, true) < Hotty.stackZ(0, 0, true));
      try t.expect(Hotty.stackZ(0, 4, true) < Hotty.stackZ(0, 5, true));
  }

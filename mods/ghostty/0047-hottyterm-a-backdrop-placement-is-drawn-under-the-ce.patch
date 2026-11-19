@@ -24,10 +24,10 @@ Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
  1 file changed, 45 insertions(+), 10 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index fecad8831..7eb26e9b0 100644
+index 9c1fdcc5f..692aae180 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -436,8 +436,9 @@ pub const Config = extern struct {
+@@ -631,8 +631,9 @@ pub const Config = extern struct {
  pub const Effects = extern struct {
      ctx: ?*anyopaque,
      reply: ?*const fn (?*anyopaque, [*]const u8, usize) callconv(.c) void,
@@ -39,7 +39,7 @@ index fecad8831..7eb26e9b0 100644
      remove: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) void,
      hide: ?*const fn (?*anyopaque, [*:0]const u8) callconv(.c) void,
      /// A text field's cut, for the clipboard (SPEC §10.2).
-@@ -491,6 +492,7 @@ extern fn hotty_host_hyperlink(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
+@@ -686,6 +687,7 @@ extern fn hotty_host_hyperlink(h: *Host, surface: [*:0]const u8) ?[*:0]const u8;
  extern fn hotty_host_takes_pointer(h: *Host, surface: [*:0]const u8, x: f32, y: f32) bool;
  extern fn hotty_host_set_passthrough(h: *Host, on: bool) void;
  extern fn hotty_host_set_counts(h: *Host, on: bool) void;
@@ -47,7 +47,7 @@ index fecad8831..7eb26e9b0 100644
  extern fn hotty_host_selected_text(h: *Host) ?[*:0]const u8;
  extern fn hotty_host_clear_selection(h: *Host) void;
  extern fn hotty_host_paste(h: *Host, text: [*]const u8, len: usize, fx: *const Effects) bool;
-@@ -657,6 +659,8 @@ const Placed = struct {
+@@ -852,6 +854,8 @@ const Placed = struct {
      created: u32,
      /// Hidden (SPEC §5.4): no placement, and the image kept to show again.
      hidden: bool = false,
@@ -56,7 +56,7 @@ index fecad8831..7eb26e9b0 100644
      /// The screen whose image storage holds it.
      screen: terminal.ScreenSet.Key,
  };
-@@ -840,6 +844,8 @@ pub const Hotty = struct {
+@@ -1035,6 +1039,8 @@ pub const Hotty = struct {
          z: i32,
          created: u32,
          move_cursor: bool,
@@ -65,7 +65,7 @@ index fecad8831..7eb26e9b0 100644
          /// Shown at once from the image the terminal has: no frame needed.
          shown: bool = false,
      };
-@@ -976,7 +982,7 @@ pub const Hotty = struct {
+@@ -1171,7 +1177,7 @@ pub const Hotty = struct {
              log.warn("hotty: reply dropped, out of memory", .{});
      }
  
@@ -74,7 +74,7 @@ index fecad8831..7eb26e9b0 100644
          const self: *Hotty = @ptrCast(@alignCast(ctx.?));
          const name = self.alloc.dupeSentinel(u8, std.mem.span(surface), 0) catch return;
          self.places.append(self.alloc, .{
-@@ -987,6 +993,7 @@ pub const Hotty = struct {
+@@ -1182,6 +1188,7 @@ pub const Hotty = struct {
              .z = z,
              .created = created,
              .move_cursor = move_cursor,
@@ -82,7 +82,7 @@ index fecad8831..7eb26e9b0 100644
          }) catch self.alloc.free(name);
      }
  
-@@ -1047,6 +1054,9 @@ pub const Hotty = struct {
+@@ -1242,6 +1249,9 @@ pub const Hotty = struct {
              hotty_host_set_passthrough(h, true);
              // Clicks carry the platform's count (SPEC §9): `clickCount`.
              hotty_host_set_counts(h, true);
@@ -92,7 +92,7 @@ index fecad8831..7eb26e9b0 100644
              hotty_host_set_network(h, self.settings.net.ptr);
              if (self.wakeup != null) hotty_host_set_waker(h, wake, self);
              self.setKeys(h);
-@@ -1203,6 +1213,7 @@ pub const Hotty = struct {
+@@ -1398,6 +1408,7 @@ pub const Hotty = struct {
          e.win = p.win;
          e.z = p.z;
          e.created = p.created;
@@ -100,7 +100,7 @@ index fecad8831..7eb26e9b0 100644
          e.hidden = false;
          if (p.move_cursor) moveCursor(t, p.win.h);
          return true;
-@@ -1251,7 +1262,7 @@ pub const Hotty = struct {
+@@ -1446,7 +1457,7 @@ pub const Hotty = struct {
              .height = r.h,
              .columns = p.win.w,
              .rows = p.win.h,
@@ -109,7 +109,7 @@ index fecad8831..7eb26e9b0 100644
              .cursor_movement = .none,
          };
      }
-@@ -1269,8 +1280,13 @@ pub const Hotty = struct {
+@@ -1464,8 +1475,13 @@ pub const Hotty = struct {
      /// The kitty z of a placement (SPEC §5.2): its z, from -1000 to 1000,
      /// then the order its surface was created in, all above the text (a
      /// kitty z of 0 or more). Creation wraps after a million surfaces.
@@ -124,7 +124,7 @@ index fecad8831..7eb26e9b0 100644
          return (band << 20) | @as(i32, @intCast(created & 0xFFFFF));
      }
  
-@@ -1710,7 +1726,7 @@ pub const Hotty = struct {
+@@ -1905,7 +1921,7 @@ pub const Hotty = struct {
  
          const Effect = union(enum) {
              reply: []u8,
@@ -133,7 +133,7 @@ index fecad8831..7eb26e9b0 100644
              remove: [:0]u8,
              hide: [:0]u8,
              clipboard: []u8,
-@@ -1749,7 +1765,7 @@ pub const Hotty = struct {
+@@ -1944,7 +1960,7 @@ pub const Hotty = struct {
          fn replay(self: *Paint, hotty: *Hotty) void {
              for (self.effects_.items) |e| switch (e) {
                  .reply => |b| Hotty.onReply(hotty, b.ptr, b.len),
@@ -142,7 +142,7 @@ index fecad8831..7eb26e9b0 100644
                  .remove => |n| Hotty.onRemove(hotty, n.ptr),
                  .hide => |n| Hotty.onHide(hotty, n.ptr),
                  .clipboard => |b| Hotty.onClipboard(hotty, b.ptr, b.len),
-@@ -1775,10 +1791,10 @@ pub const Hotty = struct {
+@@ -1970,10 +1986,10 @@ pub const Hotty = struct {
              self.add(.{ .reply = self.alloc.dupe(u8, data[0..len]) catch return });
          }
  
@@ -155,7 +155,7 @@ index fecad8831..7eb26e9b0 100644
          }
  
          fn onRemove(ctx: ?*anyopaque, surface: [*:0]const u8) callconv(.c) void {
-@@ -2193,6 +2209,7 @@ pub const Hotty = struct {
+@@ -2388,6 +2404,7 @@ pub const Hotty = struct {
              .win = p.win,
              .z = p.z,
              .created = p.created,
@@ -163,7 +163,7 @@ index fecad8831..7eb26e9b0 100644
              .screen = t.screens.active_key,
          });
          if (p.move_cursor) moveCursor(t, p.win.h);
-@@ -2245,8 +2262,10 @@ pub const Hotty = struct {
+@@ -2440,8 +2457,10 @@ pub const Hotty = struct {
              var it = self.placed.iterator();
              while (it.next()) |e| {
                  const p = e.value_ptr.*;
@@ -175,7 +175,7 @@ index fecad8831..7eb26e9b0 100644
                  if (z >= below) continue;
                  if (px >= b.x0 and px < b.x0 + b.w and py >= b.y0 and py < b.y0 + b.h and (top == null or z > top_z)) {
                      // The placement shows the window; the surface's pixel is
-@@ -3656,3 +3675,19 @@ fn encodeKey(s: *Surface, event: input.KeyEvent, buf: []u8) []const u8 {
+@@ -3851,3 +3870,19 @@ fn encodeKey(s: *Surface, event: input.KeyEvent, buf: []u8) []const u8 {
      input.key_encode.encode(&w, event, s.encodeKeyOpts()) catch return "";
      return w.buffered();
  }

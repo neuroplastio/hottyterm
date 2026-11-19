@@ -74,10 +74,10 @@ index 7c13e75de..99f87da36 100644
  
    [overlay]
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index e80e1c4b2..55d90462d 100644
+index 710e7ad3e..491a6f15b 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
-@@ -618,8 +618,8 @@ pub const PointerKind = enum(u32) { move = 0, down = 1, up = 2, leave = 3 };
+@@ -813,8 +813,8 @@ pub const PointerKind = enum(u32) { move = 0, down = 1, up = 2, leave = 3 };
  
  /// A finger's phase, as hotty_host_touch takes it: down when the first
  /// finger touches; cancel when a second one does or the platform cancelled
@@ -88,7 +88,7 @@ index e80e1c4b2..55d90462d 100644
  
  /// Whose a touch is after one of its phases (SPEC §9.1, §9.6), for the
  /// apprt.
-@@ -2683,6 +2683,8 @@ pub const Hotty = struct {
+@@ -2878,6 +2878,8 @@ pub const Hotty = struct {
              @memcpy(self.touch_surface[0..tg.name.len], tg.name);
              self.touch_len = tg.name.len;
          }
@@ -97,7 +97,7 @@ index e80e1c4b2..55d90462d 100644
          if (self.touch_cells) return self.cellsTouch(t, h, phase, px, py, mods, reports);
          if (self.touch_len == 0) {
              // The lift ends the wheel gesture the touch scrolled with.
-@@ -3285,6 +3287,13 @@ fn secondaryButton(s: *Surface, action: input.MouseButtonState, pos: apprt.Curso
+@@ -3480,6 +3482,13 @@ fn secondaryButton(s: *Surface, action: input.MouseButtonState, pos: apprt.Curso
      return took;
  }
  

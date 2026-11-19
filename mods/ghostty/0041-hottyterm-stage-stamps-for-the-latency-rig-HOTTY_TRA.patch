@@ -22,14 +22,14 @@ the frame clock's in apprt/gtk/class/render_surface.zig.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
- src/Surface.zig                        |  42 +--
- src/apprt/gtk/class/render_surface.zig |  47 +++
+ src/Surface.zig                        |  42 +-
+ src/apprt/gtk/class/render_surface.zig |  47 ++
  src/apprt/gtk/class/surface.zig        |   1 +
  src/renderer/generic.zig               |   8 +
  src/renderer/metal/IOSurfaceLayer.zig  |   5 +
  src/termio/Exec.zig                    |   6 +-
- src/termio/hotty.zig                   | 430 +++++++++++++++++++++++--
- 7 files changed, 490 insertions(+), 49 deletions(-)
+ src/termio/hotty.zig                   | 625 +++++++++++++++++++++++--
+ 7 files changed, 685 insertions(+), 49 deletions(-)
 
 diff --git a/src/Surface.zig b/src/Surface.zig
 index 7d8986e68..faa8b4cae 100644
@@ -463,7 +463,7 @@ index df57e0f4f..238c20cb0 100644
                  total += n;
  
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index b394c77c6..d3f514a96 100644
+index b394c77c6..3a2a229d0 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -46,6 +46,7 @@ const font = @import("../font/main.zig");
@@ -474,7 +474,7 @@ index b394c77c6..d3f514a96 100644
  
  const log = std.log.scoped(.hotty);
  
-@@ -59,6 +60,362 @@ pub const version_label: [:0]const u8 = if (build_options.hottyterm_label.len >
+@@ -59,6 +60,557 @@ pub const version_label: [:0]const u8 = if (build_options.hottyterm_label.len >
  else
      build_config.version_string;
  
@@ -486,13 +486,15 @@ index b394c77c6..d3f514a96 100644
 +/// is no thread and no buffer. hotty-blitz stamps its own stages into a file
 +/// of its own.
 +///
-+/// A stamp never makes a syscall: its line goes into a ring of about 8 MB
-+/// (`push`, lock-free), and the `hotty-trace` thread writes the ring out
-+/// every `interval_ms`, at exit and on SIGTERM. A stamp is often taken with
-+/// the terminal's lock held, and a write to a busy disk can wait for most of
-+/// a second: written on the stamping thread, it stalled every thread queued
-+/// behind that lock. With the ring full, a line is dropped and counted, and
-+/// the writer reports the count as `trace.dropped`.
++/// A stamp makes no write and takes no lock: its line goes into a ring of
++/// about 8 MB (`push`, lock-free), and the `hotty-trace` thread writes the
++/// ring out every `interval_ms`, at exit and on SIGTERM. A stamp is often
++/// taken with the terminal's lock held, and a write to a busy disk can wait
++/// for most of a second: written on the stamping thread, it stalled every
++/// thread queued behind that lock. With the ring full, a line is dropped and
++/// counted, and the writer reports the count as `trace.dropped`. Exit and
++/// SIGTERM wait for the last write `exit_wait_ms` at most; a second SIGTERM
++/// doesn't wait.
 +pub const trace = struct {
 +    const Status = enum(u8) { unknown, starting, on, off };
 +    var status: std.atomic.Value(Status) = .init(.unknown);
@@ -501,14 +503,16 @@ index b394c77c6..d3f514a96 100644
 +    extern "c" fn pthread_threadid_np(thread: ?std.c.pthread_t, id: *u64) c_int;
 +    extern "c" fn atexit(f: *const fn () callconv(.c) void) c_int;
 +
-+    /// The longest line; a longer stamp is not written.
++    /// The longest line; a longer stamp is dropped and counted.
 +    const line_max = 512;
 +    /// About 8 MB of lines waiting for the writer.
 +    const slots = 16 * 1024;
 +    /// How often the writer writes the ring out.
 +    const interval_ms = 50;
-+    /// How long exit waits for the writer's last write.
++    /// How long exit and SIGTERM wait for the writer's last write.
 +    const exit_wait_ms = 1000;
++    /// How long a stamp racing the first one waits for the writer to start.
++    const start_wait_ms = 100;
 +
 +    /// A bounded MPSC queue (Vyukov's): a slot is free for the stamp at
 +    /// position `pos` when its `seq` is `pos`, and holds that stamp's line
@@ -530,7 +534,14 @@ index b394c77c6..d3f514a96 100644
 +    var done: [2]std.posix.fd_t = .{ -1, -1 };
 +    var quit: std.atomic.Value(bool) = .init(false);
 +    var terminated: std.atomic.Value(bool) = .init(false);
++    /// SIGTERM is ours (`onTerm`) and `old_term` is what it was.
++    var term_hooked: bool = false;
 +    var old_term: std.posix.Sigaction = undefined;
++    /// The writer's: when it gives up writing, once exit or SIGTERM came
++    /// (`clock`); 0 while neither has.
++    var give_up_at: u64 = 0;
++    /// The stamping thread's id, looked up once per thread.
++    threadlocal var tid_cache: u64 = 0;
 +
 +    fn enabled() bool {
 +        return switch (status.load(.acquire)) {
@@ -541,17 +552,26 @@ index b394c77c6..d3f514a96 100644
 +    }
 +
 +    /// The first stamp: looks up `HOTTY_TRACE` and starts the writer. A
-+    /// thread racing it waits for the outcome, which is quick: the file is
-+    /// opened on the writer, not here.
++    /// thread racing it waits `start_wait_ms` at most for the outcome; the
++    /// file is opened on the writer, not here.
 +    fn start() bool {
 +        if (status.cmpxchgStrong(.unknown, .starting, .acq_rel, .acquire)) |cur| {
 +            var s = cur;
-+            while (s == .starting) : (s = status.load(.acquire)) std.atomic.spinLoopHint();
++            const t0 = clock();
++            while (s == .starting) : (s = status.load(.acquire)) {
++                if (clock() -| t0 > start_wait_ms * std.time.ns_per_ms) return false;
++                std.atomic.spinLoopHint();
++            }
 +            return s == .on;
 +        }
-+        const ok = setUp();
-+        status.store(if (ok) .on else .off, .release);
-+        return ok;
++        return settle(setUp());
++    }
++
++    /// The outcome of `setUp`, unless the writer has already said `.off`
++    /// (its file would not open): that stands.
++    fn settle(ok: bool) bool {
++        _ = status.cmpxchgStrong(.starting, if (ok) .on else .off, .acq_rel, .acquire);
++        return status.load(.acquire) == .on;
 +    }
 +
 +    fn setUp() bool {
@@ -559,77 +579,155 @@ index b394c77c6..d3f514a96 100644
 +        if (std.mem.span(dir).len == 0) return false;
 +        ring = std.heap.page_allocator.alloc(Slot, slots) catch return false;
 +        for (ring, 0..) |*s, i| s.seq = .init(i);
-+        wake = compat_fd.pipe2(.{ .CLOEXEC = true, .NONBLOCK = true }) catch return false;
-+        done = compat_fd.pipe2(.{ .CLOEXEC = true, .NONBLOCK = true }) catch return false;
-+        // SIGTERM (the rig's stop) flushes first, then terminates as it
-+        // did: the writer puts back what was there and raises it again.
-+        const sa: std.posix.Sigaction = .{
-+            .handler = .{ .handler = onTerm },
-+            .mask = std.posix.sigemptyset(),
-+            .flags = std.posix.SA.RESTART,
-+        };
-+        std.posix.sigaction(std.posix.SIG.TERM, &sa, &old_term);
++        wake = compat_fd.pipe2(.{ .CLOEXEC = true, .NONBLOCK = true }) catch return unwind(false);
++        done = compat_fd.pipe2(.{ .CLOEXEC = true, .NONBLOCK = true }) catch return unwind(false);
++        hookTerm();
 +        const th = std.Thread.spawn(.{}, writer, .{}) catch {
-+            std.posix.sigaction(std.posix.SIG.TERM, &old_term, null);
-+            return false;
++            unhookTerm();
++            return unwind(false);
 +        };
 +        th.detach();
 +        _ = atexit(atExit);
 +        return true;
 +    }
 +
-+    fn open() c_int {
-+        const dir = std.posix.system.getenv("HOTTY_TRACE") orelse return -1;
++    /// Gives back what a failed `setUp` took.
++    fn unwind(ok: bool) bool {
++        for ([_]*[2]std.posix.fd_t{ &wake, &done }) |p| {
++            for (p) |*fd| if (fd.* >= 0) {
++                compat_fd.close(fd.*);
++                fd.* = -1;
++            };
++        }
++        std.heap.page_allocator.free(ring);
++        ring = &.{};
++        return ok;
++    }
++
++    /// SIGTERM (the rig's stop) flushes first, then terminates as it did:
++    /// the writer puts back what was there and sends it again. Not over a
++    /// SIGTERM the process inherited as ignored: that stays ignored, and
++    /// exit still flushes.
++    fn hookTerm() void {
++        std.posix.sigaction(std.posix.SIG.TERM, null, &old_term);
++        if (old_term.handler.handler == std.posix.SIG.IGN) return;
++        const sa: std.posix.Sigaction = .{
++            .handler = .{ .handler = onTerm },
++            .mask = std.posix.sigemptyset(),
++            .flags = std.posix.SA.RESTART,
++        };
++        std.posix.sigaction(std.posix.SIG.TERM, &sa, &old_term);
++        term_hooked = true;
++    }
++
++    fn unhookTerm() void {
++        if (!term_hooked) return;
++        std.posix.sigaction(std.posix.SIG.TERM, &old_term, null);
++        term_hooked = false;
++    }
++
++    /// SIGTERM back to what it was, and sent again to the process, not to
++    /// this thread: any thread that doesn't block it takes it.
++    fn reraise() void {
++        unhookTerm();
++        _ = std.c.kill(std.c.getpid(), std.posix.SIG.TERM);
++    }
++
++    /// The file, opened without blocking: a FIFO with no reader yet is
++    /// `null` for now, and opened on a later tick. `error.Failed` for good.
++    fn open() error{Failed}!?c_int {
++        const dir = std.posix.system.getenv("HOTTY_TRACE") orelse return error.Failed;
 +        const d = std.mem.span(dir);
 +        var buf: [std.fs.max_path_bytes]u8 = undefined;
-+        const path = std.mem.printSentinel(&buf, "{s}/hottyterm-{d}.jsonl", .{ d, std.c.getpid() }, 0) catch return -1;
-+        const f = std.c.open(path.ptr, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true, .CLOEXEC = true }, @as(c_uint, 0o644));
-+        return if (f < 0) -1 else f;
++        const path = std.mem.printSentinel(&buf, "{s}/hottyterm-{d}.jsonl", .{ d, std.c.getpid() }, 0) catch return error.Failed;
++        const f = std.c.open(path.ptr, .{ .ACCMODE = .WRONLY, .CREAT = true, .APPEND = true, .CLOEXEC = true, .NONBLOCK = true }, @as(c_uint, 0o644));
++        if (f >= 0) return f;
++        return switch (std.posix.errno(f)) {
++            .NXIO, .INTR, .AGAIN => null,
++            else => error.Failed,
++        };
++    }
++
++    /// Exit or SIGTERM came: from now on the writer gives up after
++    /// `exit_wait_ms`. False while neither has.
++    fn stopping() bool {
++        if (!quit.load(.acquire) and !terminated.load(.acquire)) return false;
++        if (give_up_at == 0) give_up_at = clock() + exit_wait_ms * std.time.ns_per_ms;
++        return true;
++    }
++
++    fn givenUp() bool {
++        return stopping() and clock() >= give_up_at;
++    }
++
++    /// Waits for `fd` to take writes (`fd` < 0: only the tick), the wake
++    /// pipe, or the tick, whichever is first.
++    fn waitTick(fd: c_int) void {
++        var p = [2]std.posix.pollfd{
++            .{ .fd = wake[0], .events = std.posix.POLL.IN, .revents = 0 },
++            .{ .fd = fd, .events = std.posix.POLL.OUT, .revents = 0 },
++        };
++        _ = std.posix.poll(p[0..if (fd >= 0) 2 else 1], interval_ms) catch 0;
++        var b: [64]u8 = undefined;
++        while (std.c.read(wake[0], &b, b.len) > 0) {}
 +    }
 +
 +    /// The `hotty-trace` thread: opens the file, then writes the ring out
-+    /// every `interval_ms` until exit or SIGTERM. A disk that stalls stalls
-+    /// only this thread; the stamps fill the ring meanwhile.
++    /// every `interval_ms` until exit or SIGTERM. A disk or a reader that
++    /// stalls stalls only this thread; the stamps fill the ring meanwhile.
 +    fn writer() void {
 +        if (comptime builtin.os.tag.isDarwin()) {
 +            _ = std.c.pthread_setname_np("hotty-trace");
 +        } else if (comptime builtin.os.tag == .linux) {
 +            _ = std.c.pthread_setname_np(std.c.pthread_self(), "hotty-trace");
 +        }
-+        const fd = open();
-+        if (fd < 0) {
-+            log.warn("HOTTY_TRACE: cannot open the trace file, no stamps are written", .{});
-+            status.store(.off, .release);
-+        } else {
++        // The thread that stamped first may block SIGTERM; this one mustn't
++        // hold up the process's.
++        var set = std.posix.sigemptyset();
++        std.posix.sigaddset(&set, std.posix.SIG.TERM);
++        var old: std.posix.sigset_t = undefined;
++        _ = std.c.pthread_sigmask(std.posix.SIG.UNBLOCK, &set, &old);
++
++        var out: [64 * 1024]u8 = undefined;
++        const fd: c_int = while (true) {
++            if (open()) |f| {
++                if (f) |ok| break ok;
++            } else |_| {
++                log.warn("HOTTY_TRACE: cannot open the trace file, no stamps are written", .{});
++                break -1;
++            }
++            if (givenUp()) break -1;
++            waitTick(-1);
++        };
++        if (fd >= 0) {
 +            var buf: [160]u8 = undefined;
 +            if (std.fmt.bufPrint(&buf, "{{\"trace\":\"hotty/1\",\"proc\":\"hottyterm\",\"pid\":{d},\"clock\":\"{s}\"}}\n", .{
 +                std.c.getpid(),
 +                if (builtin.os.tag.isDarwin()) "uptime-raw" else "monotonic",
 +            })) |head_line| writeAll(fd, head_line) else |_| {}
-+            var out: [64 * 1024]u8 = undefined;
 +            while (true) {
 +                // Looked at before the last drain, so nothing stamped
 +                // before the stop is left behind.
-+                const stop = quit.load(.acquire) or terminated.load(.acquire);
++                const stop = stopping();
 +                drain(fd, &out);
-+                if (stop) break;
-+                var p = [1]std.posix.pollfd{.{ .fd = wake[0], .events = std.posix.POLL.IN, .revents = 0 }};
-+                _ = std.posix.poll(&p, interval_ms) catch 0;
-+                var b: [64]u8 = undefined;
-+                while (std.c.read(wake[0], &b, b.len) > 0) {}
++                if (stop or givenUp()) break;
++                waitTick(-1);
 +            }
 +        }
-+        // SIGTERM goes back to what it was, and what came is raised again.
-+        std.posix.sigaction(std.posix.SIG.TERM, &old_term, null);
++        // No writer from here: stamps stop.
++        status.store(.off, .release);
 +        _ = std.c.write(done[1], "d", 1);
-+        if (terminated.load(.acquire)) _ = std.c.raise(std.posix.SIG.TERM);
++        if (terminated.load(.acquire)) reraise() else unhookTerm();
 +    }
 +
-+    /// Writes out every line stamped so far, in as few writes as `out`
-+    /// allows, then the count of the lines dropped since the last time.
++    /// Writes out every line stamped before it began, in as few writes as
++    /// `out` allows, then the count of the lines dropped since the last
++    /// time. It stops where `head` was when it began: under a steady flood
++    /// a drain would otherwise never end.
 +    fn drain(fd: c_int, out: []u8) void {
++        const end = head.load(.acquire);
 +        var n: usize = 0;
-+        while (true) {
++        while (tail != end) {
 +            const s = &ring[tail % slots];
 +            if (s.seq.load(.acquire) != tail + 1) break;
 +            const len = s.len;
@@ -654,17 +752,26 @@ index b394c77c6..d3f514a96 100644
 +        writeAll(fd, out[0..n]);
 +    }
 +
-+    /// The whole of `data`, through short writes and signals; what an error
-+    /// leaves unwritten (a full disk, a FIFO's reader gone) is lost.
++    /// The whole of `data`, through short writes, signals and a reader that
++    /// is slow (the file is non-blocking). Once exit or SIGTERM came it
++    /// gives up after `exit_wait_ms`, and what an error leaves unwritten (a
++    /// full disk, a FIFO's reader gone) is lost.
 +    fn writeAll(fd: c_int, data: []const u8) void {
 +        var rest = data;
 +        while (rest.len > 0) {
 +            const r = std.c.write(fd, rest.ptr, rest.len);
 +            if (r > 0) {
 +                rest = rest[@intCast(r)..];
-+            } else if (r < 0 and std.posix.errno(r) == .INTR) {
 +                continue;
-+            } else return;
++            }
++            switch (if (r < 0) std.posix.errno(r) else .AGAIN) {
++                .INTR => continue,
++                .AGAIN => {
++                    if (givenUp()) return;
++                    waitTick(fd);
++                },
++                else => return,
++            }
 +        }
 +    }
 +
@@ -689,19 +796,26 @@ index b394c77c6..d3f514a96 100644
 +        s.seq.store(pos + 1, .release);
 +    }
 +
-+    /// Exit waits for the writer's last write, for `exit_wait_ms` at most:
-+    /// a stalled disk doesn't hold the process.
++    /// Exit waits for the writer's last write, for `exit_wait_ms` at most
++    /// (the writer gives up then too): a stalled disk doesn't hold the
++    /// process.
 +    fn atExit() callconv(.c) void {
 +        if (status.load(.acquire) != .on) return;
 +        quit.store(true, .release);
 +        _ = std.c.write(wake[1], "q", 1);
 +        var p = [1]std.posix.pollfd{.{ .fd = done[0], .events = std.posix.POLL.IN, .revents = 0 }};
-+        _ = std.posix.poll(&p, exit_wait_ms) catch 0;
++        _ = std.posix.poll(&p, exit_wait_ms + interval_ms) catch 0;
 +    }
 +
-+    /// SIGTERM: async-signal-safe, a flag and a byte.
++    /// SIGTERM: async-signal-safe, a flag and a byte. A second one doesn't
++    /// wait for the writer: SIGTERM goes back to what it was, and is sent
++    /// again.
 +    fn onTerm(_: std.posix.SIG) callconv(.c) void {
-+        terminated.store(true, .release);
++        if (terminated.swap(true, .acq_rel)) {
++            std.posix.sigaction(std.posix.SIG.TERM, &old_term, null);
++            _ = std.c.kill(std.c.getpid(), std.posix.SIG.TERM);
++            return;
++        }
 +        _ = std.c.write(wake[1], "t", 1);
 +    }
 +
@@ -723,6 +837,11 @@ index b394c77c6..d3f514a96 100644
 +    }
 +
 +    fn tid() u64 {
++        if (tid_cache == 0) tid_cache = tidNow();
++        return tid_cache;
++    }
++
++    fn tidNow() u64 {
 +        if (comptime builtin.os.tag == .linux) return @intCast(std.os.linux.gettid());
 +        if (comptime builtin.os.tag.isDarwin()) {
 +            var id: u64 = 0;
@@ -739,12 +858,20 @@ index b394c77c6..d3f514a96 100644
 +        if (!enabled()) return;
 +        var buf: [line_max]u8 = undefined;
 +        var w: std.Io.Writer = .fixed(&buf);
-+        w.print("{{\"t\":{d},\"n\":\"{s}\"", .{ t, name }) catch return;
-+        if (dur) |d| w.print(",\"dur\":{d}", .{d}) catch return;
-+        w.print(",\"tr\":{d}", .{tid()}) catch return;
-+        if (a.len > 0) w.print(",\"a\":{{" ++ a ++ "}}", args) catch return;
-+        w.writeAll("}\n") catch return;
++        formatLine(&w, name, t, dur, a, args) catch {
++            // Longer than `line_max`: counted, as a full ring's are.
++            _ = dropped.fetchAdd(1, .monotonic);
++            return;
++        };
 +        push(w.buffered());
++    }
++
++    fn formatLine(w: *std.Io.Writer, name: []const u8, t: u64, dur: ?u64, comptime a: []const u8, args: anytype) std.Io.Writer.Error!void {
++        try w.print("{{\"t\":{d},\"n\":\"{s}\"", .{ t, name });
++        if (dur) |d| try w.print(",\"dur\":{d}", .{d});
++        try w.print(",\"tr\":{d}", .{tid()});
++        if (a.len > 0) try w.print(",\"a\":{{" ++ a ++ "}}", args);
++        try w.writeAll("}\n");
 +    }
 +
 +    /// An instant, now.
@@ -834,10 +961,78 @@ index b394c77c6..d3f514a96 100644
 +    try std.testing.expectEqual(@as(u64, 0), tr.dropped.load(.monotonic));
 +}
 +
++test "Hotty.trace: a writer that failed to open stays off" {
++    const tr = trace;
++    defer tr.status.store(.unknown, .release);
++    // setUp succeeded, but the writer found no file first.
++    tr.status.store(.starting, .release);
++    tr.status.store(.off, .release);
++    try std.testing.expect(!tr.settle(true));
++    try std.testing.expectEqual(tr.Status.off, tr.status.load(.acquire));
++    // Without it, setUp's outcome stands.
++    tr.status.store(.starting, .release);
++    try std.testing.expect(tr.settle(true));
++    tr.status.store(.starting, .release);
++    try std.testing.expect(!tr.settle(false));
++}
++
++test "Hotty.trace: once stopping, a write to a reader that never reads gives up" {
++    const tr = trace;
++    const fds = try compat_fd.pipe2(.{ .CLOEXEC = true, .NONBLOCK = true });
++    defer for (fds) |fd| compat_fd.close(fd);
++    // The reader never reads: fill the pipe.
++    const chunk: [4096]u8 = @splat('x');
++    while (std.c.write(fds[1], &chunk, chunk.len) > 0) {}
++    defer {
++        tr.quit.store(false, .release);
++        tr.give_up_at = 0;
++    }
++    tr.quit.store(true, .release);
++    const t0 = tr.clock();
++    tr.writeAll(fds[1], &chunk);
++    const waited_ms = (tr.clock() - t0) / std.time.ns_per_ms;
++    try std.testing.expect(waited_ms >= tr.exit_wait_ms - tr.interval_ms);
++    try std.testing.expect(waited_ms <= tr.exit_wait_ms + 4 * tr.interval_ms);
++}
++
++test "Hotty.trace: SIGTERM is sent again to the process, past a thread that blocks it" {
++    if (comptime builtin.os.tag != .linux and !builtin.os.tag.isDarwin()) return error.SkipZigTest;
++    const pid = std.c.fork();
++    try std.testing.expect(pid >= 0);
++    if (pid == 0) {
++        // The child: SIGTERM as it was (the default), and a thread that
++        // blocks it does the sending, as `hotty-trace` would if it took
++        // the first stamper's mask. The child must die of it.
++        const tr = trace;
++        std.posix.sigaction(std.posix.SIG.TERM, null, &tr.old_term);
++        tr.old_term.handler = .{ .handler = std.posix.SIG.DFL };
++        tr.term_hooked = true;
++        const Blocked = struct {
++            fn run() void {
++                var set = std.posix.sigemptyset();
++                std.posix.sigaddset(&set, std.posix.SIG.TERM);
++                var old: std.posix.sigset_t = undefined;
++                _ = std.c.pthread_sigmask(std.posix.SIG.BLOCK, &set, &old);
++                trace.reraise();
++            }
++        };
++        const th = std.Thread.spawn(.{}, Blocked.run, .{}) catch std.c._exit(3);
++        th.join();
++        var ts: std.c.timespec = .{ .sec = 2, .nsec = 0 };
++        _ = std.c.nanosleep(&ts, null);
++        std.c._exit(0);
++    }
++    var status: c_int = 0;
++    _ = std.c.waitpid(pid, &status, 0);
++    const st: u32 = @bitCast(status);
++    try std.testing.expect(std.c.W.IFSIGNALED(st));
++    try std.testing.expectEqual(std.posix.SIG.TERM, std.c.W.TERMSIG(st));
++}
++
  // --- hotty-blitz C ABI -----------------------------------------------------
  
  pub const Host = opaque {};
-@@ -671,6 +1028,8 @@ pub const Hotty = struct {
+@@ -671,6 +1223,8 @@ pub const Hotty = struct {
      /// StreamHandler (anytype, because it imports this file).
      pub fn osc(self: *Hotty, handler: anytype, value: terminal.osc.Command.Unknown) !void {
          if (!std.mem.startsWith(u8, value.content, osc_prefix)) return;
@@ -846,7 +1041,7 @@ index b394c77c6..d3f514a96 100644
          if (value.truncated) {
              log.warn("HOTTY command over {} bytes dropped", .{max_osc_bytes});
              return;
-@@ -1041,6 +1400,8 @@ pub const Hotty = struct {
+@@ -1041,6 +1595,8 @@ pub const Hotty = struct {
      /// out, for the renderer to draw.
      fn render(self: *Hotty, t: *terminal.Terminal) bool {
          const h = self.host orelse return false;
@@ -855,7 +1050,7 @@ index b394c77c6..d3f514a96 100644
          var ctx: RenderCtx = .{ .self = self, .t = t };
          hotty_host_render(h, &ctx, onFrame);
          // What drawing told the program (`fit`, SPEC §5.2): with the
-@@ -1682,6 +2043,17 @@ pub const Hotty = struct {
+@@ -1682,6 +2238,17 @@ pub const Hotty = struct {
  
  // --- from Surface ------------------------------------------------------------
  
@@ -873,7 +1068,7 @@ index b394c77c6..d3f514a96 100644
  fn hostMods(mods: input.Mods) u32 {
      var m: u32 = 0;
      if (mods.shift) m |= 1;
-@@ -1718,7 +2090,7 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M
+@@ -1718,7 +2285,7 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M
      defer if (open) |u| s.alloc.free(u);
      var drew = false;
      const took = took: {
@@ -882,7 +1077,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const hs = &s.io.terminal_stream.handler.hotty;
          // A hyperlink (SPEC §9) is the terminal's: with the OSC 8 gesture,
-@@ -1794,7 +2166,7 @@ pub fn copySelection(s: *Surface) bool {
+@@ -1794,7 +2361,7 @@ pub fn copySelection(s: *Surface) bool {
  fn clipboard(s: *Surface) void {
      const hs = &s.io.terminal_stream.handler.hotty;
      const cut, const paste = taken: {
@@ -891,7 +1086,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          defer hs.cut = null;
          defer hs.paste_wanted = false;
-@@ -1816,7 +2188,7 @@ pub fn pasteInto(s: *Surface, data: []const u8) bool {
+@@ -1816,7 +2383,7 @@ pub fn pasteInto(s: *Surface, data: []const u8) bool {
      if (s.readonly or !holdsKeyboard(s)) return false;
      var drew = false;
      const took = took: {
@@ -900,7 +1095,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const hs = &s.io.terminal_stream.handler.hotty;
          const h = hs.host orelse break :took false;
-@@ -1837,7 +2209,7 @@ pub fn pasteInto(s: *Surface, data: []const u8) bool {
+@@ -1837,7 +2404,7 @@ pub fn pasteInto(s: *Surface, data: []const u8) bool {
  pub fn pastesText(s: *Surface) bool {
      if (holdsKeyboard(s)) return true;
      // A paste command (SPEC §10.6) reads the text too.
@@ -909,7 +1104,7 @@ index b394c77c6..d3f514a96 100644
      defer s.renderer_state.mutex.unlock(global.io());
      return s.io.terminal_stream.handler.hotty.paste_pending;
  }
-@@ -1853,14 +2225,14 @@ fn setClipboards(s: *Surface, clipboards: []const apprt.Clipboard, text: [:0]con
+@@ -1853,14 +2420,14 @@ fn setClipboards(s: *Surface, clipboards: []const apprt.Clipboard, text: [:0]con
  /// its own, as without HOTTY, kept from the surface holding the keyboard
  /// (SPEC §11).
  fn cellsSelect(s: *Surface) bool {
@@ -926,7 +1121,7 @@ index b394c77c6..d3f514a96 100644
      defer s.renderer_state.mutex.unlock(global.io());
      const h = s.io.terminal_stream.handler.hotty.host orelse return false;
      return hotty_host_selected_text(h) != null;
-@@ -1879,7 +2251,7 @@ fn keymapCopyKey(p: *const Press) bool {
+@@ -1879,7 +2446,7 @@ fn keymapCopyKey(p: *const Press) bool {
  /// shortcuts, keyboard or not (SPEC §11): true if its keymap copies with
  /// it, and the key goes no further.
  fn selectionCopy(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
@@ -935,7 +1130,7 @@ index b394c77c6..d3f514a96 100644
      defer s.renderer_state.mutex.unlock(global.io());
      const hs = &s.io.terminal_stream.handler.hotty;
      const h = hs.host orelse return false;
-@@ -1946,7 +2318,7 @@ pub fn cellLinkButton(s: *Surface, action: input.MouseButtonState, button: input
+@@ -1946,7 +2513,7 @@ pub fn cellLinkButton(s: *Surface, action: input.MouseButtonState, button: input
      for (s.mouse.click_state, 0..) |state, i| {
          if (i != @intFromEnum(button) and state == .press) return null;
      }
@@ -944,7 +1139,7 @@ index b394c77c6..d3f514a96 100644
      defer s.renderer_state.mutex.unlock(global.io());
      if (!s.config.mouse_reporting or s.io.terminal.flags.mouse_event == .none) return null;
      hs.cell_link_press = s.rt_surface.getCursorPos() catch return null;
-@@ -2007,7 +2379,7 @@ fn openLink(s: *Surface, url: []const u8) void {
+@@ -2007,7 +2574,7 @@ fn openLink(s: *Surface, url: []const u8) void {
  /// loaded at, and the size in the settings, for the CSS px (`cssPx`). The
  /// resize that follows a change re-renders the surfaces with it.
  pub fn surfaceFont(s: *Surface) void {
@@ -953,7 +1148,7 @@ index b394c77c6..d3f514a96 100644
      defer s.renderer_state.mutex.unlock(global.io());
      s.io.terminal_stream.handler.hotty.font_size = s.font_size;
      s.io.terminal_stream.handler.hotty.original_points = s.config.original_font_size;
-@@ -2022,7 +2394,7 @@ pub fn surfaceMods(s: *Surface) void {
+@@ -2022,7 +2589,7 @@ pub fn surfaceMods(s: *Surface) void {
      var preview: ?[:0]u8 = null;
      defer if (preview) |p| s.alloc.free(p);
      {
@@ -962,7 +1157,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const hs = &s.io.terminal_stream.handler.hotty;
          if (hs.hover_len == 0) return; // not over a surface: the cells' business
-@@ -2141,7 +2513,7 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
+@@ -2141,7 +2708,7 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
  /// which a click on a surface carries (SPEC §9). An apprt that hands none
  /// over leaves the press to be counted as Ghostty counts one.
  pub fn surfaceClickCount(s: *Surface, n: c_int) void {
@@ -971,7 +1166,7 @@ index b394c77c6..d3f514a96 100644
      defer s.renderer_state.mutex.unlock(global.io());
      s.io.terminal_stream.handler.hotty.platform_count = @intCast(@max(n, 0));
  }
-@@ -2161,7 +2533,7 @@ pub fn surfaceMove(s: *Surface, pos: apprt.CursorPos, mods: ?input.Mods) bool {
+@@ -2161,7 +2728,7 @@ pub fn surfaceMove(s: *Surface, pos: apprt.CursorPos, mods: ?input.Mods) bool {
  fn windowLeft(s: *Surface, mods: input.Mods) void {
      var drew = false;
      {
@@ -980,7 +1175,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const hs = &s.io.terminal_stream.handler.hotty;
          hs.leaveWindow(&s.io.terminal, hostMods(mods));
-@@ -2190,7 +2562,7 @@ pub fn surfaceScroll(s: *Surface, xoff: f64, yoff: f64, scroll_mods: input.Scrol
+@@ -2190,7 +2757,7 @@ pub fn surfaceScroll(s: *Surface, xoff: f64, yoff: f64, scroll_mods: input.Scrol
          .{ -xoff * cell_w, -yoff * cell_h * m.discrete };
      var drew = false;
      const took = took: {
@@ -989,7 +1184,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const hs = &s.io.terminal_stream.handler.hotty;
          const took = hs.wheel(&s.io.terminal, tp.x, tp.y, dx, dy, hostMods(s.mouse.mods));
-@@ -2214,7 +2586,7 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
+@@ -2214,7 +2781,7 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
      const tp = coord.convert(.terminal, s.size).terminal;
      var drew = false;
      const r: Touch = r: {
@@ -998,7 +1193,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const hs = &s.io.terminal_stream.handler.hotty;
          // A touch that only focuses the split, as a click then does
-@@ -2289,7 +2661,7 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
+@@ -2289,7 +2856,7 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
      // Another key pressed makes a modifier held a chord's, not a tap.
      if (event.action == .press) hs.tap_key = null;
      if (event.action == .release) {
@@ -1007,7 +1202,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          if (!hs.held_keys.contains(event.key)) return false;
          hs.held_keys.remove(event.key);
-@@ -2309,7 +2681,7 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
+@@ -2309,7 +2876,7 @@ pub fn surfaceKeyPressed(s: *Surface, event: input.KeyEvent) bool {
      }
      var drew = false;
      const used = used: {
@@ -1016,7 +1211,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const used = hs.keyPressed(&s.io.terminal, name);
          hs.held_keys.setPresent(event.key, used);
-@@ -2337,7 +2709,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+@@ -2337,7 +2904,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
      const name = p.only();
      const hs = &s.io.terminal_stream.handler.hotty;
      const command = command: {
@@ -1025,7 +1220,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const h = hs.host orelse return false;
          const c = hotty_host_edit_command(h, namePtr(p.physical), p.physical.len, namePtr(p.character), p.character.len) orelse return false;
-@@ -2351,7 +2723,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+@@ -2351,7 +2918,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
      }
      if (std.mem.eql(u8, std.mem.span(command), "paste")) {
          {
@@ -1034,7 +1229,7 @@ index b394c77c6..d3f514a96 100644
              defer s.renderer_state.mutex.unlock(global.io());
              const n = @min(name.len, hs.paste_key.len);
              @memcpy(hs.paste_key[0..n], name[0..n]);
-@@ -2366,7 +2738,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+@@ -2366,7 +2933,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
          return true;
      }
      {
@@ -1043,7 +1238,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const fx = hs.effects();
          hotty_host_command(command, name.ptr, name.len, null, 0, &fx);
-@@ -2380,7 +2752,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+@@ -2380,7 +2947,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
  /// none when it holds none. False when no paste command waits.
  pub fn commandPaste(s: *Surface, data: []const u8) bool {
      {
@@ -1052,7 +1247,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const hs = &s.io.terminal_stream.handler.hotty;
          if (hs.paste_abandoned) {
-@@ -2414,7 +2786,7 @@ const paste_late_ms = 10_000;
+@@ -2414,7 +2981,7 @@ const paste_late_ms = 10_000;
  /// keys held go on, and so does this one.
  fn holdForPaste(s: *Surface, event: input.KeyEvent) bool {
      {
@@ -1061,7 +1256,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const hs = &s.io.terminal_stream.handler.hotty;
          if (!hs.paste_pending) return false;
-@@ -2432,7 +2804,7 @@ fn holdForPaste(s: *Surface, event: input.KeyEvent) bool {
+@@ -2432,7 +2999,7 @@ fn holdForPaste(s: *Surface, event: input.KeyEvent) bool {
          }
      }
      _ = commandPaste(s, "");
@@ -1070,7 +1265,7 @@ index b394c77c6..d3f514a96 100644
      defer s.renderer_state.mutex.unlock(global.io());
      s.io.terminal_stream.handler.hotty.paste_abandoned = true;
      return false;
-@@ -2443,7 +2815,7 @@ fn holdForPaste(s: *Surface, event: input.KeyEvent) bool {
+@@ -2443,7 +3010,7 @@ fn holdForPaste(s: *Surface, event: input.KeyEvent) bool {
  fn releaseHeld(s: *Surface) void {
      var held: [64]Hotty.HeldKey = undefined;
      const n = n: {
@@ -1079,7 +1274,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const hs = &s.io.terminal_stream.handler.hotty;
          const n = hs.paste_held_len;
-@@ -2466,7 +2838,7 @@ fn cellsKey(s: *Surface, event: input.KeyEvent) void {
+@@ -2466,7 +3033,7 @@ fn cellsKey(s: *Surface, event: input.KeyEvent) void {
      var press: Press = .{};
      if (!press.name(event, true)) press.character = event.utf8;
      if (press.physical.len == 0 and press.character.len == 0) return;
@@ -1088,7 +1283,7 @@ index b394c77c6..d3f514a96 100644
      defer s.renderer_state.mutex.unlock(global.io());
      const hs = &s.io.terminal_stream.handler.hotty;
      if (!hs.menu_shown or hs.hasKeyboard()) return;
-@@ -2491,7 +2863,7 @@ pub fn bindingFlags(s: *Surface, event: input.KeyEvent, flags: input.Binding.Fla
+@@ -2491,7 +3058,7 @@ pub fn bindingFlags(s: *Surface, event: input.KeyEvent, flags: input.Binding.Fla
  /// Whether a key is one of an edit command the program took (SPEC
  /// §10.6).
  fn takesCommand(s: *Surface, p: *const Press) bool {
@@ -1097,7 +1292,7 @@ index b394c77c6..d3f514a96 100644
      defer s.renderer_state.mutex.unlock(global.io());
      const hs = &s.io.terminal_stream.handler.hotty;
      const h = hs.host orelse return false;
-@@ -2637,7 +3009,7 @@ fn modifierKey(s: *Surface, event: input.KeyEvent) bool {
+@@ -2637,7 +3204,7 @@ fn modifierKey(s: *Surface, event: input.KeyEvent) bool {
      press.character = cw.buffered();
      var drew = false;
      const used = used: {
@@ -1106,7 +1301,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const used = hs.keyPressed(&s.io.terminal, &press);
          drew = hs.drew;
-@@ -2699,7 +3071,7 @@ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+@@ -2699,7 +3266,7 @@ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
      const bytes = if (event.action == .release or !holdsKeyboard(s)) "" else encodeKey(s, event, &buf);
      var drew = false;
      const consumed = consumed: {
@@ -1115,7 +1310,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          if (event.action == .release) {
              const held = hs.held_keys.contains(event.key);
-@@ -2727,7 +3099,7 @@ pub fn surfaceBindingBytes(s: *Surface, bytes: []const u8) bool {
+@@ -2727,7 +3294,7 @@ pub fn surfaceBindingBytes(s: *Surface, bytes: []const u8) bool {
      if (s.readonly) return false;
      var drew = false;
      const used = used: {
@@ -1124,7 +1319,7 @@ index b394c77c6..d3f514a96 100644
          defer s.renderer_state.mutex.unlock(global.io());
          const hs = &s.io.terminal_stream.handler.hotty;
          const used = hs.keyBytes(&s.io.terminal, bytes);
-@@ -2741,7 +3113,7 @@ pub fn surfaceBindingBytes(s: *Surface, bytes: []const u8) bool {
+@@ -2741,7 +3308,7 @@ pub fn surfaceBindingBytes(s: *Surface, bytes: []const u8) bool {
  }
  
  fn holdsKeyboard(s: *Surface) bool {

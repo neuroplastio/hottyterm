@@ -62,7 +62,9 @@ Each line after the header is one event, a JSON object:
   it. On 2026-11-19 that made a trace show 100–830 ms stalls that the
   untraced terminal didn't have. hottyterm's stamps go into a lock-free
   ring of about 8 MB, and its `hotty-trace` thread writes it out every
-  50 ms, at exit and on SIGTERM.
+  50 ms, at exit and on SIGTERM. Exit and SIGTERM wait for that write
+  1 s at most, a second SIGTERM not at all, so a reader or a disk that
+  stops can't keep the process from ending.
 - **A full buffer drops lines rather than wait,** and says so with a
   `trace.dropped` line: a counter sample, `c.lines` lines lost since the
   last one.
