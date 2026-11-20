@@ -67,6 +67,10 @@ Each line after the header is one event, a JSON object:
   gone, so a reader that stops can't keep the process from ending. A
   write to a regular file can't be cut short: on a stalled disk, SIGTERM
   waits for the write in progress. A second SIGTERM doesn't wait.
+  hotty-blitz (0.8.11 on) hands each unit's lines to a writer thread of
+  its own too. Its SIGTERM handler flushes within 500 ms and then hands
+  the signal to the one installed before it, hottyterm's, so both files
+  are complete.
 - **A full buffer drops lines rather than wait,** and says so with a
   `trace.dropped` line: a counter sample, `c.lines` lines lost since the
   last one.
