@@ -14,15 +14,18 @@ a mouse event. `focus` is Ghostty's behaviour.
 Upstream lines: Config.zig 11 (the option and its enum), Surface.zig 2
 (the config field and its init), GTK surface.zig 1 (the condition), and
 on macOS Ghostty.Config.swift 10 (the setting) and
-SurfaceView_AppKit.swift 10 (acceptsFirstMouse, the derived config, the
-split-focus condition).
+SurfaceView_AppKit.swift 16 (acceptsFirstMouse, the derived config, and
+a hook before the split-focus branch that lets the click through). The
+hook adds lines and changes none, so it applies on either side of
+upstream's 4edde79c0, which moved that branch's suppression into
+mouseDown and mouseUp.
 ---
- macos/Sources/Ghostty/Ghostty.Config.swift            | 10 ++++++++++
- .../Ghostty/Surface View/SurfaceView_AppKit.swift     | 11 ++++++++++-
- src/Surface.zig                                       |  2 ++
- src/apprt/gtk/class/surface.zig                       |  2 +-
- src/config/Config.zig                                 | 11 +++++++++++
- 5 files changed, 34 insertions(+), 2 deletions(-)
+ macos/Sources/Ghostty/Ghostty.Config.swift       | 10 ++++++++++
+ .../Surface View/SurfaceView_AppKit.swift        | 16 ++++++++++++++++
+ src/Surface.zig                                  |  2 ++
+ src/apprt/gtk/class/surface.zig                  |  2 +-
+ src/config/Config.zig                            | 11 +++++++++++
+ 5 files changed, 40 insertions(+), 1 deletion(-)
 
 diff --git a/macos/Sources/Ghostty/Ghostty.Config.swift b/macos/Sources/Ghostty/Ghostty.Config.swift
 index fb7325d44..ab6979984 100644
@@ -46,19 +49,24 @@ index fb7325d44..ab6979984 100644
              let defaultValue = MacOSTitlebarStyle.transparent
              guard let config = self.config else { return defaultValue }
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index 5da5291db..8552d8a40 100644
+index 5da5291db..dbc00edec 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
-@@ -711,7 +711,7 @@ extension Ghostty {
+@@ -708,6 +708,13 @@ extension Ghostty {
+                 return event
+             }
+ 
++            // hottyterm: with `hotty-focus-click = pass` the click that moves
++            // split focus reaches the terminal too.
++            if derivedConfig.hottyFocusClickPasses {
++                window.makeFirstResponder(self)
++                return event
++            }
++
              // If our window/app is already focused, then this click is only
              // being used to transfer split focus. Consume it so it does not
              // get forwarded to the terminal as a mouse click.
--            if NSApp.isActive && window.isKeyWindow {
-+            if NSApp.isActive && window.isKeyWindow && !derivedConfig.hottyFocusClickPasses {
-                 window.makeFirstResponder(self)
-                 suppressNextLeftMouseUp = true
-                 return nil
-@@ -919,6 +919,12 @@ extension Ghostty {
+@@ -919,6 +926,12 @@ extension Ghostty {
              setSurfaceSize(width: UInt32(scaledSize.width), height: UInt32(scaledSize.height))
          }
  
@@ -71,7 +79,7 @@ index 5da5291db..8552d8a40 100644
          override func mouseDown(with event: NSEvent) {
              guard let surface = self.surface else { return }
              let mods = Ghostty.ghosttyMods(event.modifierFlags)
-@@ -1865,6 +1871,7 @@ extension Ghostty {
+@@ -1865,6 +1878,7 @@ extension Ghostty {
              let windowTitleFontFamily: String?
              let windowAppearance: NSAppearance?
              let scrollbar: Ghostty.Config.Scrollbar
@@ -79,7 +87,7 @@ index 5da5291db..8552d8a40 100644
  
              init() {
                  self.backgroundColor = Color(NSColor.windowBackgroundColor)
-@@ -1874,6 +1881,7 @@ extension Ghostty {
+@@ -1874,6 +1888,7 @@ extension Ghostty {
                  self.windowTitleFontFamily = nil
                  self.windowAppearance = nil
                  self.scrollbar = .system
@@ -87,7 +95,7 @@ index 5da5291db..8552d8a40 100644
              }
  
              init(_ config: Ghostty.Config) {
-@@ -1884,6 +1892,7 @@ extension Ghostty {
+@@ -1884,6 +1899,7 @@ extension Ghostty {
                  self.windowTitleFontFamily = config.windowTitleFontFamily
                  self.windowAppearance = .init(ghosttyConfig: config)
                  self.scrollbar = config.scrollbar

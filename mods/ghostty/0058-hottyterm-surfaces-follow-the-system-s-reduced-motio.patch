@@ -30,7 +30,7 @@ index 2a1796494..c51220488 100644
                                                       ghostty_color_scheme_e);
  GHOSTTY_API ghostty_input_mods_e ghostty_surface_key_translation_mods(ghostty_surface_t,
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index 1704a3c3c..8a6b8fc6e 100644
+index 102f33b02..2c489e8a1 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 @@ -393,6 +393,10 @@ extension Ghostty {

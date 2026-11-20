@@ -60,10 +60,10 @@ index 07cc9e14b..825f9cfc2 100644
          syncMenuShortcut(config, action: "close_all_windows", menuItem: self.menuCloseAllWindows)
          syncMenuShortcut(config, action: "new_split:right", menuItem: self.menuSplitRight)
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index 8552d8a40..1704a3c3c 100644
+index dbc00edec..102f33b02 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
-@@ -1342,6 +1342,30 @@ extension Ghostty {
+@@ -1349,6 +1349,30 @@ extension Ghostty {
                  return false
              }
  
@@ -94,7 +94,7 @@ index 8552d8a40..1704a3c3c 100644
              // Get information about if this is a binding.
              let bindingFlags = surfaceModel.flatMap { surface in
                  var ghosttyEvent = event.ghosttyKeyEvent(GHOSTTY_ACTION_PRESS)
-@@ -1364,7 +1388,7 @@ extension Ghostty {
+@@ -1371,7 +1395,7 @@ extension Ghostty {
                     bindingFlags.isDisjoint(with: [.all, .performable]),
                     bindingFlags.contains(.consumed) {
                      if let appDelegate = NSApp.delegate as? AppDelegate,
@@ -103,7 +103,7 @@ index 8552d8a40..1704a3c3c 100644
                          return true
                      }
                  }
-@@ -1373,6 +1397,17 @@ extension Ghostty {
+@@ -1380,6 +1404,17 @@ extension Ghostty {
                  return true
              }
  
