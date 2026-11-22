@@ -1,0 +1,291 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Sun, 22 Nov 2026 18:54:12 +0100
+Subject: [PATCH 62/62] hottyterm: motion paces to the display's refresh rate
+
+Pass hotty-blitz the refresh rate of the display the window is on, through
+hotty_host_set_refresh_rate, so that CSS animations and fading scrollbars
+ask for frames at it rather than at 60 Hz. GTK watches the widget's
+GdkSurface (realize, unrealize), the monitors it enters and leaves, and the
+monitor's refresh-rate. AppKit sends the screen's rate (1 over its
+minimumRefreshInterval, or its maximumFramesPerSecond) as the window
+changes screens, as its backing properties change, and as the screen
+parameters change. The rate is kept before the lazy host exists, and 0 for
+a rate not known is hotty-blitz's 60 Hz. The log says when the host is
+handed a rate.
+
+Adds 21 lines to upstream files: two GTK lifecycle hooks, the namespaced
+embedded C bridge and its header declaration, and AppKit hooks. Host logic
+stays in src/termio/hotty.zig.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ include/ghostty.h                             |   1 +
+ .../Surface View/SurfaceView_AppKit.swift     |  14 ++
+ src/apprt/embedded.zig                        |   4 +
+ src/apprt/gtk/class/surface.zig               |   2 +
+ src/termio/hotty.zig                          | 137 ++++++++++++++++++
+ 5 files changed, 158 insertions(+)
+
+diff --git a/include/ghostty.h b/include/ghostty.h
+index c51220488..49fe08b33 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1220,6 +1220,7 @@ GHOSTTY_API ghostty_surface_size_s ghostty_surface_size(ghostty_surface_t);
+ GHOSTTY_API uint64_t ghostty_surface_foreground_pid(ghostty_surface_t);
+ GHOSTTY_API ghostty_string_s ghostty_surface_tty_name(ghostty_surface_t);
+ GHOSTTY_API void hottyterm_surface_set_reduced_motion(ghostty_surface_t, bool);
++GHOSTTY_API void hottyterm_surface_set_refresh_rate(ghostty_surface_t, uint32_t);
+ GHOSTTY_API void ghostty_surface_set_color_scheme(ghostty_surface_t,
+                                                      ghostty_color_scheme_e);
+ GHOSTTY_API ghostty_input_mods_e ghostty_surface_key_translation_mods(ghostty_surface_t,
+diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
+index 2c489e8a1..29223bd4c 100644
+--- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
++++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
+@@ -397,6 +397,9 @@ extension Ghostty {
+                 self, selector: #selector(hottyReducedMotionChanged),
+                 name: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil)
+             hottyReducedMotionChanged()
++            center.addObserver(
++                self, selector: #selector(hottyRefreshRateChanged),
++                name: NSApplication.didChangeScreenParametersNotification, object: nil)
+ 
+             // Setup our tracking area so we get mouse moved events
+             updateTrackingAreas()
+@@ -409,6 +412,15 @@ extension Ghostty {
+             fatalError("init(coder:) is not supported for this view")
+         }
+ 
++        @objc private func hottyRefreshRateChanged() {
++            guard let surface else { return }
++            // The exact rate (59.94 Hz, not 60) where the screen gives it.
++            let screen = window?.screen
++            let interval = screen?.minimumRefreshInterval ?? 0
++            let mhz = interval > 0 ? 1000 / interval : Double((screen?.maximumFramesPerSecond ?? 0) * 1000)
++            hottyterm_surface_set_refresh_rate(surface, UInt32(clamping: Int(mhz.rounded())))
++        }
++
+         @objc private func hottyReducedMotionChanged() {
+             guard let surface else { return }
+             hottyterm_surface_set_reduced_motion(surface, NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+@@ -850,6 +862,7 @@ extension Ghostty {
+             // ID. If vsync is enabled, this will be used with the CVDisplayLink to ensure
+             // the proper refresh rate is going.
+             ghostty_surface_set_display_id(surface, screen.displayID ?? 0)
++            hottyRefreshRateChanged()
+ 
+             // We also just trigger a backing property change. Just in case the screen has
+             // a different scaling factor, this ensures that we update our content scale.
+@@ -901,6 +914,7 @@ extension Ghostty {
+ 
+         override func viewDidChangeBackingProperties() {
+             super.viewDidChangeBackingProperties()
++            hottyRefreshRateChanged()
+ 
+             // The Core Animation compositing engine uses the layer's contentsScale property
+             // to determine whether to scale its contents during compositing. When the window
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index 865233a0d..5197f7fe6 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -2037,6 +2037,10 @@ pub const CAPI = struct {
+         @import("../termio/hotty.zig").surfaceReducedMotion(&surface.core_surface, reduce);
+     }
+ 
++    export fn hottyterm_surface_set_refresh_rate(surface: *Surface, millihertz: u32) void {
++        @import("../termio/hotty.zig").surfaceRefreshRate(&surface.core_surface, millihertz);
++    }
++
+     /// Update the content scale of the surface.
+     export fn ghostty_surface_set_content_scale(surface: *Surface, x: f64, y: f64) void {
+         surface.updateContentScale(x, y);
+diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
+index ef9b1a138..cee318f56 100644
+--- a/src/apprt/gtk/class/surface.zig
++++ b/src/apprt/gtk/class/surface.zig
+@@ -1980,6 +1980,7 @@ pub const Surface = extern struct {
+         const priv = self.private();
+         if (priv.core_surface) |v| {
+             hotty.gtkUnwatchMotion(v);
++            hotty.gtkUnwatchRate(v);
+             // Remove ourselves from the list of known surfaces in the app.
+             // We do this before deinit in case a callback triggers
+             // searching for this surface.
+@@ -3708,6 +3709,7 @@ pub const Surface = extern struct {
+         // Store it!
+         priv.core_surface = surface;
+         hotty.gtkWatchMotion(surface);
++        hotty.gtkWatchRate(surface, self.as(gtk.Widget));
+         priv.desktop_notifications = .init(surface.id);
+ 
+         // Give the render surface a pointer to the core surface so it
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index be76865aa..ce58efc17 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -713,6 +713,7 @@ extern fn hotty_host_clear_selection(h: *Host) void;
+ extern fn hotty_host_paste(h: *Host, text: [*]const u8, len: usize, fx: *const Effects) bool;
+ extern fn hotty_host_copy_key(h: *Host, physical: ?[*]const u8, physical_len: usize, other: ?[*]const u8, other_len: usize, text: *?[*:0]const u8) c_int;
+ extern fn hotty_host_set_reduced_motion(h: *Host, reduce: bool) void;
++extern fn hotty_host_set_refresh_rate(h: *Host, millihertz: u32) void;
+ extern fn hotty_host_set_network(h: *Host, policy: ?[*:0]const u8) void;
+ extern fn hotty_host_set_keys(h: *Host, mod_super: bool, edit: ?[*:0]const u8, commands: bool, menus: bool, fx: ?*const Effects) void;
+ extern fn hotty_host_edit_command(h: *Host, physical: ?[*]const u8, physical_len: usize, other: ?[*]const u8, other_len: usize) ?[*:0]const u8;
+@@ -897,6 +898,10 @@ pub const Hotty = struct {
+     theme_set: bool = false,
+     reduced_motion: bool = false,
+     gtk_motion_notify: c_ulong = 0,
++    /// The refresh rate of the display the window is on, in millihertz (0
++    /// not known): the host paces motion to it (`surfaceRefreshRate`).
++    refresh_mhz: u32 = 0,
++    gtk_rate: GtkRate = .{},
+     /// The size Ghostty loads the terminal's font at: points, and the DPI
+     /// that holds the display's content scale (Surface.font_size). The
+     /// Surface sets it (`surfaceFont`); a resize follows every change.
+@@ -1330,6 +1335,8 @@ pub const Hotty = struct {
+             // kitty z below the backgrounds' line (`stackZ`).
+             hotty_host_set_backdrops(h, true);
+             hotty_host_set_reduced_motion(h, self.reduced_motion);
++            hotty_host_set_refresh_rate(h, self.refresh_mhz);
++            log.info("host refresh rate {d} mHz", .{self.refresh_mhz});
+             hotty_host_set_network(h, self.settings.net.ptr);
+             if (self.wakeup != null) hotty_host_set_waker(h, wake, self);
+             self.setKeys(h);
+@@ -3548,6 +3555,136 @@ fn gtkMotionChanged(settings: *@import("gtk").Settings, _: *@import("gobject").P
+     surfaceReducedMotion(s, value.getBoolean() == 0);
+ }
+ 
++/// The refresh rate of the display the terminal's window is on, in
++/// millihertz (0 when the platform cannot tell): CSS animations and fading
++/// scrollbars ask for frames at it. Kept before the lazy host exists, so
++/// that it starts with it.
++pub fn surfaceRefreshRate(s: *Surface, millihertz: u32) void {
++    lockState(s, @src());
++    defer s.renderer_state.mutex.unlock(global.io());
++    const hs = &s.io.terminal_stream.handler.hotty;
++    if (hs.refresh_mhz == millihertz) return;
++    log.info("display refresh rate {d} mHz", .{millihertz});
++    hs.refresh_mhz = millihertz;
++    if (hs.hostReady()) |h| {
++        hotty_host_set_refresh_rate(h, millihertz);
++        log.info("host refresh rate {d} mHz", .{millihertz});
++        // A frame due at the old rate is armed again at the new one.
++        hs.flush(&s.io.terminal);
++    }
++}
++
++/// GTK: what the rate is watched through. The widget's realize and
++/// unrealize (a tab moved to another window gets a new GdkSurface), that
++/// surface's enter-monitor and leave-monitor, and the monitor's
++/// notify::refresh-rate (its mode changed). Opaque, so that this file
++/// builds where GTK is not.
++pub const GtkRate = struct {
++    widget: ?*anyopaque = null,
++    surface: ?*anyopaque = null,
++    enter_id: c_ulong = 0,
++    leave_id: c_ulong = 0,
++    monitor: ?*anyopaque = null,
++    rate_id: c_ulong = 0,
++};
++
++/// Watches the refresh rate of the display `widget`'s window is on, for the
++/// core surface it shows; connected for exactly as long as the core
++/// surface lives (`gtkUnwatchRate`).
++pub fn gtkWatchRate(s: *Surface, widget: anytype) void {
++    const gtk = @import("gtk");
++    const w: *gtk.Widget = widget;
++    const r = &s.io.terminal_stream.handler.hotty.gtk_rate;
++    r.widget = w;
++    // The widget's dispose disconnects these; its core surface outlives it.
++    _ = gtk.Widget.signals.realize.connect(w, *Surface, gtkRateRealized, s, .{});
++    _ = gtk.Widget.signals.unrealize.connect(w, *Surface, gtkRateUnrealized, s, .{});
++    if (w.getRealized() != 0) gtkRateRealized(w, s);
++}
++
++pub fn gtkUnwatchRate(s: *Surface) void {
++    const gtk = @import("gtk");
++    const r = &s.io.terminal_stream.handler.hotty.gtk_rate;
++    const widget: *gtk.Widget = @ptrCast(@alignCast(r.widget orelse return));
++    // The widget's own realize and unrealize handlers went with its
++    // dispose, before this finalize; the surface's and monitor's are on
++    // other objects, and go here.
++    gtkRateUnrealized(widget, s);
++    r.* = .{};
++}
++
++fn gtkRateRealized(widget: *@import("gtk").Widget, s: *Surface) callconv(.c) void {
++    const gdk = @import("gdk");
++    const gobject = @import("gobject");
++    const r = &s.io.terminal_stream.handler.hotty.gtk_rate;
++    const native = widget.getNative() orelse return;
++    const surface = native.getSurface() orelse return;
++    if (r.surface != null) gtkRateUnrealized(widget, s);
++    _ = surface.as(gobject.Object).ref();
++    r.surface = surface;
++    r.enter_id = gdk.Surface.signals.enter_monitor.connect(surface, *Surface, gtkRateEntered, s, .{});
++    r.leave_id = gdk.Surface.signals.leave_monitor.connect(surface, *Surface, gtkRateLeft, s, .{});
++    gtkRateMonitor(s, surface.getDisplay().getMonitorAtSurface(surface));
++}
++
++fn gtkRateUnrealized(_: *@import("gtk").Widget, s: *Surface) callconv(.c) void {
++    const gdk = @import("gdk");
++    const gobject = @import("gobject");
++    const r = &s.io.terminal_stream.handler.hotty.gtk_rate;
++    gtkRateMonitor(s, null);
++    const surface: *gdk.Surface = @ptrCast(@alignCast(r.surface orelse return));
++    gobject.signalHandlerDisconnect(surface.as(gobject.Object), r.enter_id);
++    gobject.signalHandlerDisconnect(surface.as(gobject.Object), r.leave_id);
++    surface.as(gobject.Object).unref();
++    r.surface = null;
++    r.enter_id = 0;
++    r.leave_id = 0;
++}
++
++/// The window entered a monitor: the last one entered is the one it is on,
++/// as a window dragged onto another display enters it before it leaves the
++/// one it came from.
++fn gtkRateEntered(_: *@import("gdk").Surface, monitor: *@import("gdk").Monitor, s: *Surface) callconv(.c) void {
++    gtkRateMonitor(s, monitor);
++}
++
++/// The window left a monitor: if it was the one it was on, it is on what
++/// the display says it is on now.
++fn gtkRateLeft(surface: *@import("gdk").Surface, monitor: *@import("gdk").Monitor, s: *Surface) callconv(.c) void {
++    const r = &s.io.terminal_stream.handler.hotty.gtk_rate;
++    if (r.monitor != @as(?*anyopaque, monitor)) return;
++    const now = surface.getDisplay().getMonitorAtSurface(surface);
++    gtkRateMonitor(s, if (now == monitor) null else now);
++}
++
++/// The window is on `monitor` (null: none it can tell): watch its mode,
++/// and pass its rate.
++fn gtkRateMonitor(s: *Surface, monitor: ?*@import("gdk").Monitor) void {
++    const gdk = @import("gdk");
++    const gobject = @import("gobject");
++    const r = &s.io.terminal_stream.handler.hotty.gtk_rate;
++    if (r.monitor != @as(?*anyopaque, monitor)) {
++        if (r.monitor) |p| {
++            const old: *gdk.Monitor = @ptrCast(@alignCast(p));
++            gobject.signalHandlerDisconnect(old.as(gobject.Object), r.rate_id);
++            old.as(gobject.Object).unref();
++            r.monitor = null;
++            r.rate_id = 0;
++        }
++        if (monitor) |m| {
++            _ = m.as(gobject.Object).ref();
++            r.monitor = m;
++            r.rate_id = gobject.Object.signals.notify.connect(m, *Surface, gtkRateChanged, s, .{ .detail = "refresh-rate" });
++        }
++    }
++    // On no monitor it can tell, the window keeps the rate it had.
++    if (monitor) |m| surfaceRefreshRate(s, @intCast(@max(m.getRefreshRate(), 0)));
++}
++
++fn gtkRateChanged(monitor: *@import("gdk").Monitor, _: *@import("gobject").ParamSpec, s: *Surface) callconv(.c) void {
++    surfaceRefreshRate(s, @intCast(@max(monitor.getRefreshRate(), 0)));
++}
++
+ /// Surface.init and Surface.setFontSize: the size the terminal's font is
+ /// loaded at, and the size in the settings, for the CSS px (`cssPx`). The
+ /// resize that follows a change re-renders the surfaces with it.
