@@ -14,18 +14,18 @@ parameters change. The rate is kept before the lazy host exists, and 0 for
 a rate not known is hotty-blitz's 60 Hz. The log says when the host is
 handed a rate.
 
-Adds 21 lines to upstream files: two GTK lifecycle hooks, the namespaced
+Adds 23 lines to upstream files: two GTK lifecycle hooks, the namespaced
 embedded C bridge and its header declaration, and AppKit hooks. Host logic
 stays in src/termio/hotty.zig.
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
  include/ghostty.h                             |   1 +
- .../Surface View/SurfaceView_AppKit.swift     |  14 ++
+ .../Surface View/SurfaceView_AppKit.swift     |  16 ++
  src/apprt/embedded.zig                        |   4 +
  src/apprt/gtk/class/surface.zig               |   2 +
- src/termio/hotty.zig                          | 137 ++++++++++++++++++
- 5 files changed, 158 insertions(+)
+ src/termio/hotty.zig                          | 138 ++++++++++++++++++
+ 5 files changed, 161 insertions(+)
 
 diff --git a/include/ghostty.h b/include/ghostty.h
 index c51220488..49fe08b33 100644
@@ -40,7 +40,7 @@ index c51220488..49fe08b33 100644
                                                       ghostty_color_scheme_e);
  GHOSTTY_API ghostty_input_mods_e ghostty_surface_key_translation_mods(ghostty_surface_t,
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index 2c489e8a1..29223bd4c 100644
+index 2c489e8a1..1a1f408da 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 @@ -397,6 +397,9 @@ extension Ghostty {
@@ -53,23 +53,25 @@ index 2c489e8a1..29223bd4c 100644
  
              // Setup our tracking area so we get mouse moved events
              updateTrackingAreas()
-@@ -409,6 +412,15 @@ extension Ghostty {
+@@ -409,6 +412,17 @@ extension Ghostty {
              fatalError("init(coder:) is not supported for this view")
          }
  
 +        @objc private func hottyRefreshRateChanged() {
-+            guard let surface else { return }
++            // With no screen, the last rate stays, as on GTK.
++            guard let surface, let screen = window?.screen else { return }
 +            // The exact rate (59.94 Hz, not 60) where the screen gives it.
-+            let screen = window?.screen
-+            let interval = screen?.minimumRefreshInterval ?? 0
-+            let mhz = interval > 0 ? 1000 / interval : Double((screen?.maximumFramesPerSecond ?? 0) * 1000)
-+            hottyterm_surface_set_refresh_rate(surface, UInt32(clamping: Int(mhz.rounded())))
++            let interval = screen.minimumRefreshInterval
++            let mhz = interval > 0 ? 1000 / interval : Double(screen.maximumFramesPerSecond) * 1000
++            // No display runs past 1000 Hz; hotty-blitz clamps it further.
++            let rate = mhz.isFinite ? UInt32(min(max(mhz, 0), 1_000_000).rounded()) : 0
++            hottyterm_surface_set_refresh_rate(surface, rate)
 +        }
 +
          @objc private func hottyReducedMotionChanged() {
              guard let surface else { return }
              hottyterm_surface_set_reduced_motion(surface, NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
-@@ -850,6 +862,7 @@ extension Ghostty {
+@@ -850,6 +864,7 @@ extension Ghostty {
              // ID. If vsync is enabled, this will be used with the CVDisplayLink to ensure
              // the proper refresh rate is going.
              ghostty_surface_set_display_id(surface, screen.displayID ?? 0)
@@ -77,7 +79,7 @@ index 2c489e8a1..29223bd4c 100644
  
              // We also just trigger a backing property change. Just in case the screen has
              // a different scaling factor, this ensures that we update our content scale.
-@@ -901,6 +914,7 @@ extension Ghostty {
+@@ -901,6 +916,7 @@ extension Ghostty {
  
          override func viewDidChangeBackingProperties() {
              super.viewDidChangeBackingProperties()
@@ -121,7 +123,7 @@ index ef9b1a138..cee318f56 100644
  
          // Give the render surface a pointer to the core surface so it
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index be76865aa..ce58efc17 100644
+index be76865aa..986530812 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -713,6 +713,7 @@ extern fn hotty_host_clear_selection(h: *Host) void;
@@ -152,7 +154,7 @@ index be76865aa..ce58efc17 100644
              hotty_host_set_network(h, self.settings.net.ptr);
              if (self.wakeup != null) hotty_host_set_waker(h, wake, self);
              self.setKeys(h);
-@@ -3548,6 +3555,136 @@ fn gtkMotionChanged(settings: *@import("gtk").Settings, _: *@import("gobject").P
+@@ -3548,6 +3555,137 @@ fn gtkMotionChanged(settings: *@import("gtk").Settings, _: *@import("gobject").P
      surfaceReducedMotion(s, value.getBoolean() == 0);
  }
  
@@ -176,7 +178,8 @@ index be76865aa..ce58efc17 100644
 +}
 +
 +/// GTK: what the rate is watched through. The widget's realize and
-+/// unrealize (a tab moved to another window gets a new GdkSurface), that
++/// unrealize (reparented, it is realized again with its window's
++/// GdkSurface), that
 +/// surface's enter-monitor and leave-monitor, and the monitor's
 +/// notify::refresh-rate (its mode changed). Opaque, so that this file
 +/// builds where GTK is not.

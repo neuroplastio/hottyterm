@@ -8,17 +8,17 @@ upstream-fit: no
 display its window is on, through `hotty_host_set_refresh_rate`, so that
 CSS animations and transitions mid-flight, and scrollbars fading, ask for
 frames at that rate rather than at 60 Hz. On GTK it watches the widget's
-GdkSurface from realize to unrealize (a tab moved to another window gets a
-new one), the monitors that surface enters and leaves (the last entered is
-the one it is on), and that monitor's `refresh-rate` for a mode change. On
-macOS it sends the screen's rate, 1 over its `minimumRefreshInterval` (or
-its `maximumFramesPerSecond`), as the window changes screens, as its
-backing properties change, and as the screen parameters change. The rate
-is kept before hotty-blitz's lazy host exists, so the host starts with it;
-0, a rate the platform cannot tell, is hotty-blitz's 60 Hz. Twenty-one
-lines added to upstream files: two GTK lifecycle calls, a namespaced
-embedded C bridge and its header declaration, and AppKit hooks.
-The logic stays in `src/termio/hotty.zig`.
+GdkSurface from realize to unrealize (reparented, the widget is realized
+again with its window's surface), the monitors that surface enters and
+leaves (the last entered is the one it is on), and that monitor's
+`refresh-rate` for a mode change. On macOS it sends the screen's rate, 1
+over its `minimumRefreshInterval` (or its `maximumFramesPerSecond`), as the
+window changes screens, as its backing properties change, and as the screen
+parameters change. The rate is kept before hotty-blitz's lazy host exists,
+so the host starts with it; 0, a rate the platform cannot tell, is
+hotty-blitz's 60 Hz. Twenty-three lines added to upstream files: two GTK
+lifecycle calls, a namespaced embedded C bridge and its header declaration,
+and AppKit hooks. The logic stays in `src/termio/hotty.zig`.
 
 **Why we carry it:** a browser renders motion at the display's rate. At a
 fixed 60 Hz, motion on a 120 or 144 Hz display ran at half its rate or
