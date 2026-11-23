@@ -10,10 +10,10 @@ Track captures and swallowed releases by button, keep GTK pointer chords intact,
  .../Surface View/SurfaceView_AppKit.swift     |  28 +-
  src/Surface.zig                               |  18 +-
  src/apprt/embedded.zig                        |   6 +
- src/apprt/gtk/class/surface.zig               |  73 +--
+ src/apprt/gtk/class/surface.zig               |  73 ++-
  src/apprt/gtk/ui/1.0/surface.blp              |   5 +
- src/termio/hotty.zig                          | 577 ++++++++++++------
- 7 files changed, 460 insertions(+), 250 deletions(-)
+ src/termio/hotty.zig                          | 619 ++++++++++++------
+ 7 files changed, 503 insertions(+), 249 deletions(-)
 
 diff --git a/include/ghostty.h b/include/ghostty.h
 index 49fe08b3..46fe2cf6 100644
@@ -334,7 +334,7 @@ index 99f87da3..9d4e05bb 100644
        pressed => $mouse_down();
        released => $mouse_up();
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 45ba6e6e..281dba34 100644
+index 45ba6e6e..2bd01693 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -692,12 +692,14 @@ extern fn hotty_host_render(h: *Host, ctx: ?*anyopaque, cb: FrameFn) void;
@@ -354,15 +354,18 @@ index 45ba6e6e..281dba34 100644
  extern fn hotty_host_touch(h: *Host, surface: [*:0]const u8, phase: u32, x: f32, y: f32, mods: u32, fx: *const Effects) u32;
  extern fn hotty_host_cells_touch(h: *Host, phase: u32, x: f32, y: f32, mods: u32, reports: bool, at_screen: bool, mouse: ?[*]Mouse, nmouse: ?*usize, fx: ?*const Effects) u32;
  extern fn hotty_host_blur(h: *Host, surface: [*:0]const u8, fx: *const Effects) void;
-@@ -940,6 +942,7 @@ pub const Hotty = struct {
+@@ -940,6 +942,10 @@ pub const Hotty = struct {
      /// reaches it.
      capture: [72]u8 = undefined,
      capture_len: usize = 0,
 +    captured_buttons: MouseButtons = .{},
++    /// Buttons swallowed locally because Blitz already saw their DOM number
++    /// or because only such a button was left holding the surface.
++    local_buttons: MouseButtons = .{},
      /// The surface the live touch began on, which has every phase of it
      /// (`touch`); empty for one that began over the cells.
      touch_surface: [72]u8 = undefined,
-@@ -972,9 +975,6 @@ pub const Hotty = struct {
+@@ -972,9 +978,6 @@ pub const Hotty = struct {
      /// on cells (a divider between two surfaces, say) reaches it whole.
      /// Only the Surface entry points touch it, on the apprt thread.
      program_hold: bool = false,
@@ -372,7 +375,7 @@ index 45ba6e6e..281dba34 100644
      /// A pointer event or a key drew a frame: the renderer must show it,
      /// whether or not a surface took the event (a leave repaints too).
      drew: bool = false,
-@@ -2809,89 +2809,79 @@ pub const Hotty = struct {
+@@ -2809,89 +2812,84 @@ pub const Hotty = struct {
          return n;
      }
  
@@ -400,6 +403,10 @@ index 45ba6e6e..281dba34 100644
 +        const took = self.captured_buttons.release(button);
 +        if (self.captured_buttons.empty()) self.capture_len = 0;
 +        return took;
++    }
++
++    fn captureIsLocal(self: *const Hotty) bool {
++        return !self.captured_buttons.empty() and self.captured_buttons.bits.subsetOf(self.local_buttons.bits);
 +    }
 +
 +    /// A captured surface gets moves even outside its placement. With no
@@ -437,6 +444,7 @@ index 45ba6e6e..281dba34 100644
 -        if (self.capture_len > 0 and held == null) self.capture_len = 0; // it went away
 -        const target = held orelse self.hit(t, px, py);
 +        const captured = !self.captured_buttons.empty();
++        if (self.captureIsLocal()) return true;
 +        if (self.placed.count() == 0) return captured;
 +        const target = if (captured) self.capturedTarget(t, px, py) else self.hit(t, px, py);
          const fx = self.effects();
@@ -515,7 +523,7 @@ index 45ba6e6e..281dba34 100644
      }
  
      /// The pointer left the terminal's window: the surface it was over is
-@@ -2899,12 +2889,12 @@ pub const Hotty = struct {
+@@ -2899,12 +2897,12 @@ pub const Hotty = struct {
      /// press that holds the pointer for its surface keeps it: the platform
      /// goes on reporting its moves and its release.
      fn leaveWindow(self: *Hotty, t: *terminal.Terminal, mods: u32) void {
@@ -530,7 +538,7 @@ index 45ba6e6e..281dba34 100644
          self.hover_len = 0;
          self.shape = null;
          self.setLink(null);
-@@ -3033,22 +3023,6 @@ pub const Hotty = struct {
+@@ -3033,22 +3031,6 @@ pub const Hotty = struct {
          self.paint_wanted = true;
      }
  
@@ -553,7 +561,7 @@ index 45ba6e6e..281dba34 100644
      /// A finger at viewport pixel (`px`, `py`) (SPEC §9.1, §9.6). A touch
      /// that begins over a surface that takes the pointer there is that
      /// surface's to decide, every phase of it, taps included, and
-@@ -3100,7 +3074,7 @@ pub const Hotty = struct {
+@@ -3100,7 +3082,7 @@ pub const Hotty = struct {
          const p = self.at(t, own, px, py);
          const fx = self.effects();
          const ph: TouchPhase = if (p == null) .cancel else phase;
@@ -562,7 +570,7 @@ index 45ba6e6e..281dba34 100644
          if (phase == .up or p == null) self.touch_len = 0;
          if (phase == .up and r != 2) hotty_host_end_gesture(h);
          if (phase == .move) self.inputPaint(t, h) else if (self.render(t)) self.drew = true;
-@@ -3121,7 +3095,7 @@ pub const Hotty = struct {
+@@ -3121,7 +3103,7 @@ pub const Hotty = struct {
      /// that begins in no such area is the terminal's, as before.
      fn cellsTouch(self: *Hotty, t: *terminal.Terminal, h: *Host, phase: TouchPhase, px: f64, py: f64, mods: u32, reports: bool) Touch {
          const fx = self.effects();
@@ -571,7 +579,7 @@ index 45ba6e6e..281dba34 100644
          if (phase == .down) self.touch_cells = r != 0;
          if (phase == .up) self.touch_cells = false;
          // The lift ends the wheel gesture a pan scrolled with.
-@@ -3218,45 +3192,19 @@ fn deliver(s: *Surface, redraw: bool) void {
+@@ -3218,45 +3200,19 @@ fn deliver(s: *Surface, redraw: bool) void {
      if (redraw) s.renderer_thread.wakeup.notify() catch {};
  }
  
@@ -619,7 +627,7 @@ index 45ba6e6e..281dba34 100644
          shape = hs.shapeChange(s.io.terminal.mouse_shape, osc8, false);
          if (hs.previewChange(osc8 and s.config.link_previews != .false, false)) |p| preview = s.alloc.dupeSentinel(u8, p, 0) catch null;
          drew = hs.drew;
-@@ -3264,7 +3212,6 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M
+@@ -3264,7 +3220,6 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M
          break :took took;
      };
      apply(s, shape, preview);
@@ -627,7 +635,7 @@ index 45ba6e6e..281dba34 100644
      deliver(s, took or drew);
      return took;
  }
-@@ -3455,7 +3402,7 @@ pub fn cellLinkButton(s: *Surface, action: input.MouseButtonState, button: input
+@@ -3455,7 +3410,7 @@ pub fn cellLinkButton(s: *Surface, action: input.MouseButtonState, button: input
      if (!s.mouse.over_link or !plainLinkClick(s, s.mouse.mods)) return null;
      // Ghostty has already recorded this press in click_state.
      for (s.mouse.click_state, 0..) |state, i| {
@@ -636,7 +644,7 @@ index 45ba6e6e..281dba34 100644
      }
      lockState(s, @src());
      defer s.renderer_state.mutex.unlock(global.io());
-@@ -3783,61 +3730,302 @@ test programHolds {
+@@ -3783,61 +3738,338 @@ test programHolds {
      try t.expect(!programHolds(false, false, false, false));
  }
  
@@ -697,21 +705,8 @@ index 45ba6e6e..281dba34 100644
 +    const scale = @import("../apprt/gtk/scale.zig").widgetSurfaceScale(render_widget);
 +    down(widget, event, button, @as(f64, pos.x) / scale, @as(f64, pos.y) / scale);
 +    return 1;
- }
- 
--test altPress {
--    const t = std.testing;
--    // An Alt press that begins a gesture is the program's, with other keys
--    // held too...
--    try t.expect(altPress(.press, true, .{ .alt = true }));
--    try t.expect(altPress(.press, true, .{ .alt = true, .shift = true, .ctrl = true }));
--    // ...and a press without Alt is not: a surface may take it.
--    try t.expect(!altPress(.press, true, .{}));
--    try t.expect(!altPress(.press, true, .{ .shift = true }));
--    // The press decides: Alt held at a release, or at a press while a
--    // gesture goes on, changes nothing.
--    try t.expect(!altPress(.release, false, .{ .alt = true }));
--    try t.expect(!altPress(.press, false, .{ .alt = true }));
++}
++
 +const MouseMap = enum { gtk, appkit };
 +const mouse_map: MouseMap = if (apprt.runtime == apprt.embedded and builtin.os.tag.isDarwin()) .appkit else .gtk;
 +
@@ -730,13 +725,31 @@ index 45ba6e6e..281dba34 100644
 +        .eleven => if (platform == .appkit) 11 else 3,
 +        .unknown => null,
 +    };
-+}
-+
+ }
+ 
+-test altPress {
+-    const t = std.testing;
+-    // An Alt press that begins a gesture is the program's, with other keys
+-    // held too...
+-    try t.expect(altPress(.press, true, .{ .alt = true }));
+-    try t.expect(altPress(.press, true, .{ .alt = true, .shift = true, .ctrl = true }));
+-    // ...and a press without Alt is not: a surface may take it.
+-    try t.expect(!altPress(.press, true, .{}));
+-    try t.expect(!altPress(.press, true, .{ .shift = true }));
+-    // The press decides: Alt held at a release, or at a press while a
+-    // gesture goes on, changes nothing.
+-    try t.expect(!altPress(.release, false, .{ .alt = true }));
+-    try t.expect(!altPress(.press, false, .{ .alt = true }));
 +test "GTK DOM mouse buttons" {
 +    const expected = [_]?u32{ null, 0, 2, 1, null, null, null, null, 3, 4, 4, 3 };
 +    for (expected, 0..) |dom, i| try std.testing.expectEqual(dom, domButton(.gtk, @fromBackingInt(@intCast(i))));
-+}
-+
+ }
+ 
+-/// Surface.mouseButtonCallback: a left click on a surface belongs to it, and
+-/// is neither reported to the program nor used for selection. A press on
+-/// the cells, of any other button, or with Alt held (`altPress`) is the
+-/// program's, and holds the pointer for it until the release
+-/// (`programHolds`).
 +test "AppKit DOM mouse buttons" {
 +    const expected = [_]?u32{ null, 0, 2, 1, 8, 9, 6, 7, 3, 4, 10, 11 };
 +    for (expected, 0..) |dom, i| try std.testing.expectEqual(dom, domButton(.appkit, @fromBackingInt(@intCast(i))));
@@ -761,13 +774,8 @@ index 45ba6e6e..281dba34 100644
 +        s.rt_surface.surface.primaryPasteEnabled()
 +    else
 +        true;
- }
- 
--/// Surface.mouseButtonCallback: a left click on a surface belongs to it, and
--/// is neither reported to the program nor used for selection. A press on
--/// the cells, of any other button, or with Alt held (`altPress`) is the
--/// program's, and holds the pointer for it until the release
--/// (`programHolds`).
++}
++
 +fn middleClipboard(s: *Surface) ?apprt.Clipboard {
 +    if (!primaryPasteEnabled(s)) return null;
 +    return switch (s.config.middle_click_action) {
@@ -784,31 +792,40 @@ index 45ba6e6e..281dba34 100644
 -    // Ghostty has already recorded this event in click_state.
 +    const index: usize = @intCast(@backingInt(button));
      var others = false;
-+    var same_dom = false;
++    var local_press = hs.captureIsLocal();
 +    const dom = domButton(mouse_map, button);
      for (s.mouse.click_state, 0..) |state, i| {
 -        if (i != @intFromEnum(button) and state == .press) others = true;
 +        if (i == index) continue;
-+        const other: input.MouseButton = @fromBackingInt(@intCast(i));
-+        const captured = hs.captured_buttons.has(other);
 +        others = others or state == .press;
-+        same_dom = same_dom or (dom != null and dom == domButton(mouse_map, other) and (state == .press or captured));
-+    }
-+    const pos = s.rt_surface.getCursorPos() catch .{ .x = -1, .y = -1 };
-+    const filtered = button == .middle and !primaryPasteEnabled(s) and !s.mouseReportingActive();
-+    const took = buttonAt(s, action, button, pos, mods, .{ .same_dom = same_dom, .filtered = filtered });
-+    if (took or filtered) s.mouse.click_state[index] = .release;
-+    if (took) {
-+        if (action == .release and hs.captured_buttons.empty()) _ = surfaceMove(s, pos, mods);
-+        return true;
++        if (comptime mouse_map == .gtk) {
++            const other: input.MouseButton = @fromBackingInt(@intCast(i));
++            local_press = local_press or (dom != null and dom == domButton(mouse_map, other) and
++                (state == .press or hs.captured_buttons.has(other)));
++        }
      }
 -    const first = action == .press and !others;
 -    const any_down = action == .press or others;
 -    const pos = s.rt_surface.getCursorPos() catch {
 -        hs.program_hold = programHolds(hs.program_hold, first, false, any_down);
 -        return false;
--    };
++    // Only the physical button whose down reached Blitz can send its up.
++    const local_button = switch (action) {
++        .press => local: {
++            if (local_press) hs.local_buttons.press(button);
++            break :local local_press;
++        },
++        .release => hs.local_buttons.release(button),
+     };
 -    if (button == .right and secondaryButton(s, action, pos, mods)) return true;
++    const pos = s.rt_surface.getCursorPos() catch .{ .x = -1, .y = -1 };
++    const filtered = button == .middle and !primaryPasteEnabled(s) and !s.mouseReportingActive();
++    const took = buttonAt(s, action, button, pos, mods, .{ .local_button = local_button, .filtered = filtered });
++    if (took or filtered) s.mouse.click_state[index] = .release;
++    if (took) {
++        if (action == .release and hs.captured_buttons.empty()) _ = surfaceMove(s, pos, mods);
++        return true;
++    }
 +    if (filtered and action == .press) return true;
      const was = hs.program_hold;
 -    const alt = altPress(action, first, mods);
@@ -825,7 +842,7 @@ index 45ba6e6e..281dba34 100644
 +
 +const ButtonOptions = struct {
 +    context: bool = false,
-+    same_dom: bool = false,
++    local_button: bool = false,
 +    filtered: bool = false,
 +    /// AppKit asks about Control-click before deciding whether to show a menu.
 +    alt_over: ?*bool = null,
@@ -891,7 +908,7 @@ index 45ba6e6e..281dba34 100644
 +            0;
 +        const dom = domButton(mouse_map, button);
 +        var owned = if (action == .press) captured else was_taken;
-+        if (!options.same_dom) if (dom) |number| {
++        if (!options.local_button) if (dom) |number| {
 +            if (button == .middle and action == .press) hotty_host_set_middle_paste(h, paste != null);
 +            const ffi_kind: u32 = @backingInt(kind) + @as(u32, if (options.context) 3 else 0);
 +            owned = hs.buttonInput(h, target, number, ffi_kind, hostMods(mods), count) or owned;
@@ -907,13 +924,15 @@ index 45ba6e6e..281dba34 100644
 +            var name_buf: [73]u8 = undefined;
 +            const name = std.mem.printSentinel(&name_buf, "{s}", .{hs.hover[0..hs.hover_len]}, 0) catch "";
 +            const fx = hs.effects();
-+            _ = hotty_host_pointer(h, name.ptr, @intFromEnum(PointerKind.leave), 0, 0, hostMods(mods), 0, &fx);
++            _ = hotty_host_pointer(h, name.ptr, @backingInt(PointerKind.leave), 0, 0, hostMods(mods), 0, &fx);
 +            hs.hover_len = 0;
 +        }
 +        if (action == .press and owned) {
 +            hs.captureButton(capture_button, target);
 +            if (!captured) s.setSelection(null) catch {};
-+        } else if (action == .press and button == .left and target == null and !captured) {
++        } else if (action == .press and target == null and !captured and !hs.program_hold and
++            (button == .left or mods.alt))
++        {
 +            const fx = hs.effects();
 +            if (hotty_host_focused(h)) |name| hotty_host_blur(h, name, &fx);
 +            hotty_host_clear_selection(h);
@@ -950,9 +969,10 @@ index 45ba6e6e..281dba34 100644
 +        if (!took) appKitProgramClick(s, action, pos, context_mods);
 +        return true;
 +    }
-+    if (!mods.shift) {
++    const held = !hs.captured_buttons.empty() or hs.program_hold;
++    if (held or !mods.shift) {
 +        if (buttonAt(s, action, .right, pos, context_mods, .{ .context = true, .alt_over = &alt_over })) return true;
-+        if (alt_over) {
++        if (hs.program_hold or alt_over) {
 +            appKitProgramClick(s, action, pos, context_mods);
 +            return true;
 +        }
@@ -968,9 +988,7 @@ index 45ba6e6e..281dba34 100644
 +
 +fn appKitProgramClick(s: *Surface, action: input.MouseButtonState, pos: apprt.CursorPos, mods: input.Mods) void {
 +    const hs = &s.io.terminal_stream.handler.hotty;
-+    const right = @backingInt(input.MouseButton.right);
-+    s.mouse.click_state[right] = action;
-+    hs.program_hold = action == .press or std.mem.findScalar(input.MouseButtonState, &s.mouse.click_state, .press) != null;
++    hs.program_hold = appKitControlButtonState(&s.mouse.click_state, action);
 +    lockState(s, @src());
 +    defer s.renderer_state.mutex.unlock(global.io());
 +    if (s.config.mouse_reporting and s.io.terminal.flags.mouse_event != .none) {
@@ -978,10 +996,35 @@ index 45ba6e6e..281dba34 100644
 +    }
 +}
 +
++/// The terminal receives a right-button report for an intercepted
++/// Control-click. Ghostty tracks the physical left button in its chord.
++fn appKitControlButtonState(states: []input.MouseButtonState, action: input.MouseButtonState) bool {
++    states[@backingInt(input.MouseButton.left)] = action;
++    return std.mem.findScalar(input.MouseButtonState, states, .press) != null;
++}
++
++test "AppKit Control-click keeps physical right independent" {
++    const left = @backingInt(input.MouseButton.left);
++    const right = @backingInt(input.MouseButton.right);
++    var states: [input.MouseButton.max + 1]input.MouseButtonState = @splat(.release);
++
++    try std.testing.expect(appKitControlButtonState(&states, .press));
++    try std.testing.expectEqual(input.MouseButtonState.release, states[right]);
++    states[right] = .press;
++    states[right] = .release;
++    try std.testing.expect(programHolds(true, false, false, states[left] == .press));
++    try std.testing.expect(!appKitControlButtonState(&states, .release));
++
++    states[right] = .press;
++    try std.testing.expect(appKitControlButtonState(&states, .press));
++    try std.testing.expect(appKitControlButtonState(&states, .release));
++    try std.testing.expectEqual(input.MouseButtonState.press, states[right]);
++}
++
  /// Surface.mouseButtonCallback, for a secondary press it leaves unconsumed:
  /// the apprt opens its context menu, and the menu takes the release (GTK's
  /// popover grabs the pointer, AppKit's menu tracks it), so no release
-@@ -3847,9 +4035,12 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
+@@ -3847,9 +4079,12 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
  /// after the menu, and every later pointer event, a click, a hover or the
  /// wheel, was the program's, not the surface's: a surface that had
  /// opened the menu was dead until the next secondary release.
@@ -995,7 +1038,7 @@ index 45ba6e6e..281dba34 100644
      hs.program_hold = menuTakesRelease(&s.mouse.click_state, hs.program_hold);
  }
  
-@@ -3857,15 +4048,15 @@ pub fn menuPress(s: *Surface, button: input.MouseButton, action: input.MouseButt
+@@ -3857,15 +4092,15 @@ pub fn menuPress(s: *Surface, button: input.MouseButton, action: input.MouseButt
  /// the program still holds the pointer, which it does only for a gesture
  /// another button began and has not ended.
  fn menuTakesRelease(states: []input.MouseButtonState, held: bool) bool {
@@ -1014,7 +1057,7 @@ index 45ba6e6e..281dba34 100644
      var states: [input.MouseButton.max + 1]input.MouseButtonState = @splat(.release);
      // A secondary press the program holds the pointer for (nothing took it,
      // `programHolds`), whose menu takes the release: the hold ends with it.
-@@ -3885,37 +4076,6 @@ test "menuTakesRelease" {
+@@ -3885,37 +4120,6 @@ test "menuTakesRelease" {
      try t.expect(!menuTakesRelease(&states, false));
  }
  
@@ -1052,7 +1095,7 @@ index 45ba6e6e..281dba34 100644
  /// The GTK apprt took a touch that began over a surface for a long press,
  /// with the finger at `pos` (SPEC §9.1). The apprt has no modifiers for it:
  /// those are the keyboard's last. True if the surface took it.
-@@ -3938,11 +4098,11 @@ pub fn surfaceClickCount(s: *Surface, n: c_int) void {
+@@ -3938,11 +4142,11 @@ pub fn surfaceClickCount(s: *Surface, n: c_int) void {
  /// is the pointer leaving the window (the apprts send -1, -1): the surface
  /// under it is left.
  pub fn surfaceMove(s: *Surface, pos: apprt.CursorPos, mods: ?input.Mods) bool {
@@ -1066,7 +1109,7 @@ index 45ba6e6e..281dba34 100644
  }
  
  fn windowLeft(s: *Surface, mods: input.Mods) void {
-@@ -4033,7 +4193,7 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
+@@ -4033,7 +4237,7 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
  /// button is still let go. Under the renderer lock.
  fn touchMouse(s: *Surface, hs: *Hotty) void {
      defer hs.mouse_len = 0;
@@ -1075,7 +1118,7 @@ index 45ba6e6e..281dba34 100644
      const shift = s.mouseShiftCapture(false);
      for (hs.mouse[0..hs.mouse_len]) |m| {
          const action: input.MouseAction = switch (m.kind) {
-@@ -4481,6 +4641,7 @@ fn reserved(s: *Surface, event: input.KeyEvent) bool {
+@@ -4481,6 +4685,7 @@ fn reserved(s: *Surface, event: input.KeyEvent) bool {
  /// hears a release without its press, nor a press without its release.
  pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
      if (s.readonly) return false;
@@ -1083,7 +1126,7 @@ index 45ba6e6e..281dba34 100644
      const hs = &s.io.terminal_stream.handler.hotty;
      hs.copy_denied = false;
      // Encoding takes the renderer lock itself.
-@@ -4506,6 +4667,26 @@ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+@@ -4506,6 +4711,26 @@ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
      return consumed;
  }
  
