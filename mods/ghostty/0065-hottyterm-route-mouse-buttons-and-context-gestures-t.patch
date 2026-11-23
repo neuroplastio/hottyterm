@@ -1,0 +1,1112 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Mon, 23 Nov 2026 12:54:18 +0100
+Subject: [PATCH 65/65] hottyterm: route mouse buttons and context gestures
+ through Blitz
+
+Track captures and swallowed releases by button, keep GTK pointer chords intact, and route middle paste and AppKit context clicks. Adds 81 lines in upstream files across the core, GTK, and AppKit hooks.
+---
+ include/ghostty.h                             |   3 +
+ .../Surface View/SurfaceView_AppKit.swift     |  28 +-
+ src/Surface.zig                               |  18 +-
+ src/apprt/embedded.zig                        |   6 +
+ src/apprt/gtk/class/surface.zig               |  73 +--
+ src/apprt/gtk/ui/1.0/surface.blp              |   5 +
+ src/termio/hotty.zig                          | 577 ++++++++++++------
+ 7 files changed, 460 insertions(+), 250 deletions(-)
+
+diff --git a/include/ghostty.h b/include/ghostty.h
+index 49fe08b3..46fe2cf6 100644
+--- a/include/ghostty.h
++++ b/include/ghostty.h
+@@ -1239,6 +1239,9 @@ GHOSTTY_API bool ghostty_surface_mouse_button(ghostty_surface_t,
+                                                  ghostty_input_mouse_state_e,
+                                                  ghostty_input_mouse_button_e,
+                                                  ghostty_input_mods_e);
++GHOSTTY_API bool hottyterm_surface_control_click(ghostty_surface_t,
++                                                ghostty_input_mouse_state_e,
++                                                double, double, ghostty_input_mods_e);
+ GHOSTTY_API void ghostty_surface_mouse_pos(ghostty_surface_t,
+                                               double,
+                                               double,
+diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
+index 1a1f408d..acdc10fd 100644
+--- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
++++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
+@@ -204,6 +204,7 @@ extension Ghostty {
+         // True when we've consumed a left mouse-down only to move focus and
+         // should suppress the matching mouse-up from being reported.
+         private var suppressNextLeftMouseUp: Bool = false
++        private var hottyControlClick = false
+ 
+         // A small delay that is introduced before a title change to avoid flickers
+         private var titleChangeTimer: Timer?
+@@ -959,12 +960,18 @@ extension Ghostty {
+         }
+ 
+         override func mouseDown(with event: NSEvent) {
++            if hottyControlClick { return }
+             guard let surface = self.surface else { return }
+             let mods = Ghostty.ghosttyMods(event.modifierFlags)
+             ghostty_surface_mouse_button(surface, GHOSTTY_MOUSE_PRESS, GHOSTTY_MOUSE_LEFT, mods)
+         }
+ 
+         override func mouseUp(with event: NSEvent) {
++            if hottyControlClick {
++                hottyControlClick = false
++                _ = sendHottyControlClick(event, GHOSTTY_MOUSE_RELEASE)
++                return
++            }
+             // If this mouse-up corresponds to a focus-only click transfer,
+             // suppress it so we don't emit a release without a press.
+             if suppressNextLeftMouseUp {
+@@ -1651,6 +1658,13 @@ extension Ghostty {
+             self.showDefinition(for: str, at: pt)
+         }
+ 
++        private func sendHottyControlClick(_ event: NSEvent, _ action: ghostty_input_mouse_state_e) -> Bool {
++            guard let surface else { return false }
++            let pos = convert(event.locationInWindow, from: nil)
++            return hottyterm_surface_control_click(
++                surface, action, pos.x, frame.height - pos.y, Ghostty.ghosttyMods(event.modifierFlags))
++        }
++
+         override func menu(for event: NSEvent) -> NSMenu? {
+             // We only support right-click menus
+             switch event.type {
+@@ -1667,21 +1681,11 @@ extension Ghostty {
+                 // If mouse capturing is enabled then we never show the context menu
+                 // so that we can handle ctrl+left-click in the terminal app.
+                 guard let surfaceModel else { return nil }
+-                if surfaceModel.mouseCaptured {
++                hottyControlClick = sendHottyControlClick(event, GHOSTTY_MOUSE_PRESS)
++                if hottyControlClick || (surfaceModel.mouseCaptured && !event.modifierFlags.contains(.shift)) {
+                     return nil
+                 }
+ 
+-                // If we return a non-nil menu then mouse events will never be
+-                // processed by the core, so we need to manually send a right
+-                // mouse down event.
+-                //
+-                // Note this never sounds a right mouse up event but that's the
+-                // same as normal right-click with capturing disabled from AppKit.
+-                surfaceModel.sendMouseButton(.init(
+-                    action: .press,
+-                    button: .right,
+-                    mods: .init(nsFlags: event.modifierFlags)))
+-
+             default:
+                 return nil
+             }
+diff --git a/src/Surface.zig b/src/Surface.zig
+index 100964bc..40fad990 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -3998,6 +3998,16 @@ pub fn mouseButtonCallback(
+     action: input.MouseButtonState,
+     button: input.MouseButton,
+     mods: input.Mods,
++) !bool {
++    return self.mouseButtonCallbackRouted(action, button, mods, true);
++}
++
++pub fn mouseButtonCallbackRouted(
++    self: *Surface,
++    action: input.MouseButtonState,
++    button: input.MouseButton,
++    mods: input.Mods,
++    route_hotty: bool,
+ ) !bool {
+     hotty.trace.instant("term.button");
+     // Crash metadata in case we crash in here
+@@ -4021,7 +4031,7 @@ pub fn mouseButtonCallback(
+     self.modsChanged(mods);
+ 
+     // hottyterm: a click on a surface belongs to the surface.
+-    if (hotty.surfaceButton(self, action, button, mods)) return true;
++    if (route_hotty and hotty.surfaceButton(self, action, button, mods)) return true;
+ 
+     // hottyterm: a plain click on a link in the cells opens it, though the
+     // program reports the mouse.
+@@ -4337,7 +4347,7 @@ pub fn mouseButtonCallback(
+                 try self.queueRender();
+ 
+                 // Don't consume so that we show the context menu in apprt.
+-                hotty.menuPress(self, button, action); // hottyterm: the menu takes the release
++                hotty.menuPress(self, button, action, true); // hottyterm: the menu takes the release
+                 return false;
+             },
+             .copy => {
+@@ -4388,7 +4398,7 @@ pub fn mouseButtonCallback(
+         return true;
+     }
+ 
+-    hotty.menuPress(self, button, action); // hottyterm: the menu takes the release
++    hotty.menuPress(self, button, action, false); // hottyterm: the menu takes the release
+     return false;
+ }
+ 
+@@ -6329,7 +6339,7 @@ pub fn denyClipboardRequest(self: *Surface, req: apprt.ClipboardRequest) void {
+ /// weren't started never complete. Callers own reacting to that, e.g.
+ /// performable paste keybinds pass through and Kitty clipboard reads
+ /// answer the program.
+-fn startClipboardRequest(
++pub fn startClipboardRequest(
+     self: *Surface,
+     loc: apprt.Clipboard,
+     req: apprt.ClipboardRequest,
+diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
+index 5197f7fe..0b326d1c 100644
+--- a/src/apprt/embedded.zig
++++ b/src/apprt/embedded.zig
+@@ -2185,6 +2185,12 @@ pub const CAPI = struct {
+         );
+     }
+ 
++    export fn hottyterm_surface_control_click(surface: *Surface, action: input.MouseButtonState, x: f64, y: f64, mods: c_int) bool {
++        const pos = surface.cursorPosToPixels(.{ .x = @floatCast(x), .y = @floatCast(y) }) catch return false;
++        surface.cursor_pos = pos;
++        return @import("../termio/hotty.zig").appKitControlClick(&surface.core_surface, action, pos, @bitCast(@as(input.Mods.Backing, @truncate(@as(c_uint, @bitCast(mods))))));
++    }
++
+     /// Update the mouse position within the view.
+     export fn ghostty_surface_mouse_pos(
+         surface: *Surface,
+diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
+index cee318f5..ad7e7c6e 100644
+--- a/src/apprt/gtk/class/surface.zig
++++ b/src/apprt/gtk/class/surface.zig
+@@ -753,6 +753,7 @@ pub const Surface = extern struct {
+ 
+         /// Whether primary paste (middle-click paste) is enabled.
+         gtk_enable_primary_paste: bool = true,
++        mouse_buttons: hotty.MouseButtons = .{},
+ 
+         /// True when a left mouse down was consumed purely for a focus change,
+         /// and the matching left mouse release should also be suppressed.
+@@ -1610,6 +1611,10 @@ pub const Surface = extern struct {
+         return priv.size;
+     }
+ 
++    pub fn primaryPasteEnabled(self: *Self) bool {
++        return self.private().gtk_enable_primary_paste;
++    }
++
+     pub fn getCursorPos(self: *Self) apprt.CursorPos {
+         return self.private().cursor_pos;
+     }
+@@ -2946,26 +2951,24 @@ pub const Surface = extern struct {
+     ) callconv(.c) void {
+         const event = gesture.as(gtk.EventController).getCurrentEvent() orelse return;
+ 
+-        // Bell stops ringing if any mouse button is pressed.
+-        self.setBellRinging(false);
++        const priv = self.private();
++        const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
++        if (gesture.as(gtk.GestureSingle).getCurrentSequence() == null) {
++            priv.mouse_buttons.press(button);
++        } else if (priv.touch_hotty) return;
++        if (priv.core_surface) |core_surface| {
++            if (button == .left) hotty.surfaceClickCount(core_surface, n_press);
++        }
++        self.mouseDown(event, button, x, y);
++    }
+ 
+-        // Get our surface. If we don't have one, ignore this.
++    fn mouseDown(self: *Self, event: *gdk.Event, button: input.MouseButton, x: f64, y: f64) void {
++        self.setBellRinging(false);
+         const priv = self.private();
+         const core_surface = priv.core_surface orelse return;
+-
+-        // If we don't have focus, grab it.
+         const widget = priv.render_surface.as(gtk.Widget);
+         const had_focus = widget.hasFocus() != 0;
+-        if (!had_focus) {
+-            _ = widget.grabFocus();
+-        }
+-
+-        // hottyterm: a touch a HOTTY surface has is not a click.
+-        if (priv.touch_hotty and gesture.as(gtk.GestureSingle).getCurrentSequence() != null) return;
+-        hotty.surfaceClickCount(core_surface, n_press); // hottyterm: the platform's count (SPEC §9)
+-
+-        // Report the event
+-        const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
++        if (!had_focus) _ = widget.grabFocus();
+ 
+         // If this click is only transitioning split focus, suppress it so
+         // it doesn't get forwarded to the terminal as a mouse event.
+@@ -2974,13 +2977,6 @@ pub const Surface = extern struct {
+             return;
+         }
+ 
+-        if (button == .middle and
+-            !priv.gtk_enable_primary_paste and
+-            !core_surface.mouseReportingActive())
+-        {
+-            return;
+-        }
+-
+         const consumed = consumed: {
+             const gtk_mods = event.getModifierState();
+             const mods = gtk_key.translateMods(gtk_mods);
+@@ -2998,6 +2994,7 @@ pub const Surface = extern struct {
+         // word and returns false. We can use this to handle the context menu
+         // opening under normal scenarios.
+         if (!consumed and button == .right) {
++            _ = priv.mouse_buttons.release(.right);
+             signals.menu.impl.emit(
+                 self,
+                 null,
+@@ -3027,27 +3024,21 @@ pub const Surface = extern struct {
+     ) callconv(.c) void {
+         const event = gesture.as(gtk.EventController).getCurrentEvent() orelse return;
+ 
++        // Raw physical releases reach mouseUp even if GTK cancels the
++        // click gesture. GestureClick still handles touchscreen clicks.
++        if (gesture.as(gtk.GestureSingle).getCurrentSequence() == null or self.private().touch_hotty) return;
++        self.mouseUp(event, translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton()));
++    }
++
++    fn mouseUp(self: *Self, event: *gdk.Event, button: input.MouseButton) void {
+         const priv = self.private();
+         const surface = priv.core_surface orelse return;
+-        const gtk_mods = event.getModifierState();
+-        const button = translateMouseButton(gesture.as(gtk.GestureSingle).getCurrentButton());
+-
+-        // hottyterm: a touch a HOTTY surface has is not a click.
+-        if (priv.touch_hotty and gesture.as(gtk.GestureSingle).getCurrentSequence() != null) return;
+-
+         if (button == .left and priv.suppress_left_mouse_release) {
+             priv.suppress_left_mouse_release = false;
+             return;
+         }
+ 
+-        if (button == .middle and
+-            !priv.gtk_enable_primary_paste and
+-            !surface.mouseReportingActive())
+-        {
+-            return;
+-        }
+-
+-        const mods = gtk_key.translateMods(gtk_mods);
++        const mods = gtk_key.translateMods(event.getModifierState());
+         const consumed = surface.mouseButtonCallback(
+             .release,
+             button,
+@@ -3069,6 +3060,15 @@ pub const Surface = extern struct {
+         }
+     }
+ 
++    fn ecMouseButton(
++        _: *gtk.EventControllerLegacy,
++        event: *gdk.Event,
++        self: *Self,
++    ) callconv(.c) c_int {
++        const priv = self.private();
++        return hotty.gtkMouseButton(event, &priv.mouse_buttons, self, priv.render_surface.as(gtk.Widget), translateMouseButton, mouseDown, mouseUp);
++    }
++
+     fn ecMouseMotion(
+         ec: *gtk.EventControllerMotion,
+         x: f64,
+@@ -4047,6 +4047,7 @@ pub const Surface = extern struct {
+             class.bindTemplateCallback("focus_leave", &ecFocusLeave);
+             class.bindTemplateCallback("key_pressed", &ecKeyPressed);
+             class.bindTemplateCallback("key_released", &ecKeyReleased);
++            class.bindTemplateCallback("mouse_button", &ecMouseButton);
+             class.bindTemplateCallback("mouse_down", &gcMouseDown);
+             class.bindTemplateCallback("mouse_up", &gcMouseUp);
+             class.bindTemplateCallback("mouse_motion", &ecMouseMotion);
+diff --git a/src/apprt/gtk/ui/1.0/surface.blp b/src/apprt/gtk/ui/1.0/surface.blp
+index 99f87da3..9d4e05bb 100644
+--- a/src/apprt/gtk/ui/1.0/surface.blp
++++ b/src/apprt/gtk/ui/1.0/surface.blp
+@@ -67,6 +67,11 @@ Overlay terminal_page {
+       leave => $mouse_leave();
+     }
+ 
++    EventControllerLegacy {
++      propagation-phase: capture;
++      event => $mouse_button();
++    }
++
+     GestureClick {
+       pressed => $mouse_down();
+       released => $mouse_up();
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 45ba6e6e..281dba34 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -692,12 +692,14 @@ extern fn hotty_host_render(h: *Host, ctx: ?*anyopaque, cb: FrameFn) void;
+ extern fn hotty_host_events(h: *Host, fx: ?*const Effects) void;
+ extern fn hotty_host_reset(h: *Host, fx: ?*const Effects) void;
+ extern fn hotty_host_unplaced(h: *Host, surface: [*:0]const u8, fx: ?*const Effects) void;
+-extern fn hotty_host_pointer(h: *Host, surface: [*:0]const u8, kind: u32, x: f32, y: f32, mods: u32, count: u32, fx: *const Effects) void;
++extern fn hotty_host_pointer(h: *Host, surface: ?[*:0]const u8, kind: u32, x: f32, y: f32, mods: u32, count: u32, fx: *const Effects) bool;
+ extern fn hotty_host_key_bytes(h: *Host, data: [*]const u8, len: usize, fx: *const Effects) bool;
+ extern fn hotty_host_key_pressed(h: *Host, physical: ?[*]const u8, physical_len: usize, other: ?[*]const u8, other_len: usize, fx: *const Effects) bool;
+ extern fn hotty_host_wheel(h: *Host, surface: ?[*:0]const u8, x: f32, y: f32, dx: f32, dy: f32, mods: u32, fx: *const Effects) bool;
+ extern fn hotty_host_end_gesture(h: *Host) void;
+-extern fn hotty_host_secondary(h: *Host, surface: [*:0]const u8, x: f32, y: f32, mods: u32, fx: *const Effects) bool;
++extern fn hotty_host_button(h: *Host, surface: ?[*:0]const u8, button: u32, kind: u32, x: f32, y: f32, mods: u32, fx: *const Effects) bool;
++extern fn hotty_host_set_middle_paste(h: *Host, enabled: bool) void;
++extern fn hotty_host_menu_key(h: *Host, surface: [*:0]const u8, shift_f10: bool, fx: *const Effects) bool;
+ extern fn hotty_host_touch(h: *Host, surface: [*:0]const u8, phase: u32, x: f32, y: f32, mods: u32, fx: *const Effects) u32;
+ extern fn hotty_host_cells_touch(h: *Host, phase: u32, x: f32, y: f32, mods: u32, reports: bool, at_screen: bool, mouse: ?[*]Mouse, nmouse: ?*usize, fx: ?*const Effects) u32;
+ extern fn hotty_host_blur(h: *Host, surface: [*:0]const u8, fx: *const Effects) void;
+@@ -940,6 +942,7 @@ pub const Hotty = struct {
+     /// reaches it.
+     capture: [72]u8 = undefined,
+     capture_len: usize = 0,
++    captured_buttons: MouseButtons = .{},
+     /// The surface the live touch began on, which has every phase of it
+     /// (`touch`); empty for one that began over the cells.
+     touch_surface: [72]u8 = undefined,
+@@ -972,9 +975,6 @@ pub const Hotty = struct {
+     /// on cells (a divider between two surfaces, say) reaches it whole.
+     /// Only the Surface entry points touch it, on the apprt thread.
+     program_hold: bool = false,
+-    /// A surface took a secondary press (`secondaryPress`): its release is
+-    /// the surface's too.
+-    secondary_down: bool = false,
+     /// A pointer event or a key drew a frame: the renderer must show it,
+     /// whether or not a surface took the event (a leave repaints too).
+     drew: bool = false,
+@@ -2809,89 +2809,79 @@ pub const Hotty = struct {
+         return n;
+     }
+ 
+-    /// A pointer event at viewport pixel (`px`, `py`), a press or a release
+-    /// the `count`th of its run of clicks (0 for another). True if a
+-    /// surface took it; replies for the program stay in `replies`.
+-    fn pointer(self: *Hotty, t: *terminal.Terminal, kind: PointerKind, px: f64, py: f64, mods: u32, count: u32) bool {
+-        // The pointer moved: the next scroll may be over something else.
++    fn capturedTarget(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64) ?Target {
++        if (self.capture_len == 0) return null;
++        return self.at(t, self.capture[0..self.capture_len], px, py);
++    }
++
++    fn captureButton(self: *Hotty, button: input.MouseButton, target: ?Target) void {
++        self.captured_buttons.press(button);
++        if (self.capture_len == 0) if (target) |tg| {
++            if (tg.name.len <= self.capture.len) {
++                @memcpy(self.capture[0..tg.name.len], tg.name);
++                self.capture_len = tg.name.len;
++            }
++        };
++    }
++
++    fn releaseButton(self: *Hotty, button: input.MouseButton) bool {
++        const took = self.captured_buttons.release(button);
++        if (self.captured_buttons.empty()) self.capture_len = 0;
++        return took;
++    }
++
++    /// A captured surface gets moves even outside its placement. With no
++    /// capture, the topmost surface under the pointer gets hover.
++    fn pointer(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64, mods: u32) bool {
+         self.wheel_took = false;
+         self.shape = null;
+         self.setLink(null);
++        if (self.program_hold) return false;
+         const h = self.hostReady() orelse return false;
+-        if (self.placed.count() == 0) {
+-            self.capture_len = 0;
+-            return false;
+-        }
+-        // While a press on the cells holds the pointer, the program gets
+-        // every event, and no surface is hovered. A press then is one on
+-        // the cells: it takes the keyboard back (SPEC §10.1).
+-        if (self.program_hold) {
+-            const fx = self.effects();
+-            if (self.hover_len > 0) {
+-                var buf: [73]u8 = undefined;
+-                const old = std.mem.printSentinel(&buf, "{s}", .{self.hover[0..self.hover_len]}, 0) catch "";
+-                hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, 0, &fx);
+-                self.hover_len = 0;
+-            }
+-            if (kind == .down) {
+-                if (hotty_host_focused(h)) |name| hotty_host_blur(h, name, &fx);
+-                hotty_host_clear_selection(h); // one selection (SPEC §11)
+-            }
+-            if (self.render(t)) self.drew = true;
+-            return false;
+-        }
+-        // While a press holds the pointer, its surface gets every event.
+-        const held: ?Target = if (self.capture_len > 0) self.at(t, self.capture[0..self.capture_len], px, py) else null;
+-        if (self.capture_len > 0 and held == null) self.capture_len = 0; // it went away
+-        const target = held orelse self.hit(t, px, py);
++        const captured = !self.captured_buttons.empty();
++        if (self.placed.count() == 0) return captured;
++        const target = if (captured) self.capturedTarget(t, px, py) else self.hit(t, px, py);
+         const fx = self.effects();
+ 
+-        // Leaving a surface (or moving onto another) clears its hover.
+         const over: []const u8 = if (target) |tg| tg.name else "";
+-        if (self.hover_len > 0 and !std.mem.eql(u8, self.hover[0..self.hover_len], over)) {
++        if (!captured and self.hover_len > 0 and !std.mem.eql(u8, self.hover[0..self.hover_len], over)) {
+             var buf: [73]u8 = undefined;
+             const old = std.mem.printSentinel(&buf, "{s}", .{self.hover[0..self.hover_len]}, 0) catch "";
+-            hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, 0, &fx);
++            _ = hotty_host_pointer(h, old.ptr, @backingInt(PointerKind.leave), 0, 0, mods, 0, &fx);
+             self.hover_len = 0;
+         }
+         if (target) |tg| {
++            var name_buf: [73]u8 = undefined;
++            const name = std.mem.printSentinel(&name_buf, "{s}", .{tg.name}, 0) catch return captured;
+             if (tg.name.len <= self.hover.len) {
+                 @memcpy(self.hover[0..tg.name.len], tg.name);
+                 self.hover_len = tg.name.len;
+             }
+-            var name_buf: [73]u8 = undefined;
+-            const name = std.mem.printSentinel(&name_buf, "{s}", .{tg.name}, 0) catch return false;
+-            hotty_host_pointer(h, name.ptr, @intFromEnum(kind), tg.x, tg.y, mods, count, &fx);
+-            const css = hotty_host_cursor(h, name.ptr);
+-            self.shape = if (css) |c| terminal.MouseShape.fromString(std.mem.span(c)) orelse .default else .default;
+-            self.setLink(if (hotty_host_hyperlink(h, name.ptr)) |u| std.mem.span(u) else null);
+-            switch (kind) {
+-                .down => if (tg.name.len <= self.capture.len) {
+-                    @memcpy(self.capture[0..tg.name.len], tg.name);
+-                    self.capture_len = tg.name.len;
+-                },
+-                .up => {
+-                    self.capture_len = 0;
+-                    // Released outside it: the pointer has left it.
+-                    const now = self.hit(t, px, py);
+-                    if (now == null or !std.mem.eql(u8, now.?.name, tg.name)) {
+-                        hotty_host_pointer(h, name.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, 0, &fx);
+-                        self.hover_len = 0;
+-                        self.shape = null;
+-                    }
+-                },
+-                else => {},
++            const took = hotty_host_pointer(h, name.ptr, @backingInt(PointerKind.move), tg.x, tg.y, mods, 0, &fx);
++            if (!captured or took or self.link_press) {
++                const css = hotty_host_cursor(h, name.ptr);
++                self.shape = if (css) |c| terminal.MouseShape.fromString(std.mem.span(c)) orelse .default else .default;
++                self.setLink(if (hotty_host_hyperlink(h, name.ptr)) |u| std.mem.span(u) else null);
+             }
+-        } else if (kind == .down) {
+-            // A click outside every surface takes the keyboard back, and
+-            // drops the selection: there is one (SPEC §11).
+-            if (hotty_host_focused(h)) |name| hotty_host_blur(h, name, &fx);
+-            hotty_host_clear_selection(h);
+         }
+         if (self.render(t)) self.drew = true;
+-        // A thumb hovered or dragged holds its scrollbars; left, they fade.
+         self.schedule(t);
+-        return target != null;
++        return captured or target != null;
++    }
++
++    fn buttonInput(self: *Hotty, h: *Host, target: ?Target, dom: u32, kind: u32, mods: u32, count: u32) bool {
++        var name_buf: [73]u8 = undefined;
++        const name: ?[*:0]const u8 = if (target) |tg|
++            (std.mem.printSentinel(&name_buf, "{s}", .{tg.name}, 0) catch return false).ptr
++        else
++            null;
++        const x = if (target) |tg| tg.x else 0;
++        const y = if (target) |tg| tg.y else 0;
++        const fx = self.effects();
++        return if (dom == 0)
++            hotty_host_pointer(h, name, kind, x, y, mods, count, &fx)
++        else
++            hotty_host_button(h, name, dom, kind, x, y, mods, &fx);
+     }
+ 
+     /// The pointer left the terminal's window: the surface it was over is
+@@ -2899,12 +2889,12 @@ pub const Hotty = struct {
+     /// press that holds the pointer for its surface keeps it: the platform
+     /// goes on reporting its moves and its release.
+     fn leaveWindow(self: *Hotty, t: *terminal.Terminal, mods: u32) void {
+-        if (self.capture_len > 0 or self.hover_len == 0) return;
++        if (!self.captured_buttons.empty() or self.program_hold or self.hover_len == 0) return;
+         const h = self.hostReady() orelse return;
+         const fx = self.effects();
+         var buf: [73]u8 = undefined;
+         const old = std.mem.printSentinel(&buf, "{s}", .{self.hover[0..self.hover_len]}, 0) catch "";
+-        hotty_host_pointer(h, old.ptr, @intFromEnum(PointerKind.leave), 0, 0, mods, 0, &fx);
++        _ = hotty_host_pointer(h, old.ptr, @backingInt(PointerKind.leave), 0, 0, mods, 0, &fx);
+         self.hover_len = 0;
+         self.shape = null;
+         self.setLink(null);
+@@ -3033,22 +3023,6 @@ pub const Hotty = struct {
+         self.paint_wanted = true;
+     }
+ 
+-    /// A secondary press at viewport pixel (`px`, `py`) (SPEC §9): true if
+-    /// a surface took it. Not while the program holds the pointer, nor over
+-    /// the cells.
+-    fn secondaryPress(self: *Hotty, t: *terminal.Terminal, px: f64, py: f64, mods: u32) bool {
+-        self.secondary_down = false;
+-        const h = self.hostReady() orelse return false;
+-        const tg = (if (self.program_hold) null else self.hit(t, px, py)) orelse return false;
+-        var name_buf: [73]u8 = undefined;
+-        const name = std.mem.printSentinel(&name_buf, "{s}", .{tg.name}, 0) catch return false;
+-        const fx = self.effects();
+-        const took = hotty_host_secondary(h, name.ptr, tg.x, tg.y, mods, &fx);
+-        if (self.render(t)) self.drew = true;
+-        self.secondary_down = took;
+-        return took;
+-    }
+-
+     /// A finger at viewport pixel (`px`, `py`) (SPEC §9.1, §9.6). A touch
+     /// that begins over a surface that takes the pointer there is that
+     /// surface's to decide, every phase of it, taps included, and
+@@ -3100,7 +3074,7 @@ pub const Hotty = struct {
+         const p = self.at(t, own, px, py);
+         const fx = self.effects();
+         const ph: TouchPhase = if (p == null) .cancel else phase;
+-        const r = hotty_host_touch(h, name.ptr, @intFromEnum(ph), if (p) |q| q.x else 0, if (p) |q| q.y else 0, mods, &fx);
++        const r = hotty_host_touch(h, name.ptr, @backingInt(ph), if (p) |q| q.x else 0, if (p) |q| q.y else 0, mods, &fx);
+         if (phase == .up or p == null) self.touch_len = 0;
+         if (phase == .up and r != 2) hotty_host_end_gesture(h);
+         if (phase == .move) self.inputPaint(t, h) else if (self.render(t)) self.drew = true;
+@@ -3121,7 +3095,7 @@ pub const Hotty = struct {
+     /// that begins in no such area is the terminal's, as before.
+     fn cellsTouch(self: *Hotty, t: *terminal.Terminal, h: *Host, phase: TouchPhase, px: f64, py: f64, mods: u32, reports: bool) Touch {
+         const fx = self.effects();
+-        const r = hotty_host_cells_touch(h, @intFromEnum(phase), @floatCast(px), @floatCast(py), mods, reports, t.screens.active.viewportIsBottom(), &self.mouse, &self.mouse_len, &fx);
++        const r = hotty_host_cells_touch(h, @backingInt(phase), @floatCast(px), @floatCast(py), mods, reports, t.screens.active.viewportIsBottom(), &self.mouse, &self.mouse_len, &fx);
+         if (phase == .down) self.touch_cells = r != 0;
+         if (phase == .up) self.touch_cells = false;
+         // The lift ends the wheel gesture a pan scrolled with.
+@@ -3218,45 +3192,19 @@ fn deliver(s: *Surface, redraw: bool) void {
+     if (redraw) s.renderer_thread.wakeup.notify() catch {};
+ }
+ 
+-fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.Mods) bool {
++fn pointerAt(s: *Surface, pos: apprt.CursorPos, mods: input.Mods) bool {
+     const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = pos.x, .y = pos.y } };
+     const tp = coord.convert(.terminal, s.size).terminal;
+     const osc8 = osc8Gesture(s, mods);
+     var shape: ?terminal.MouseShape = null;
+     var preview: ?[:0]u8 = null;
+     defer if (preview) |p| s.alloc.free(p);
+-    var open: ?[]u8 = null;
+-    defer if (open) |u| s.alloc.free(u);
+     var drew = false;
+     const took = took: {
+         lockState(s, @src());
+         defer s.renderer_state.mutex.unlock(global.io());
+         const hs = &s.io.terminal_stream.handler.hotty;
+-        // A hyperlink (SPEC §9) is the terminal's: with the OSC 8 gesture,
+-        // its press and release never reach the surface, and the release
+-        // opens it, as Ghostty opens an OSC 8 link.
+-        switch (kind) {
+-            .down => if (osc8 and hs.link != null) {
+-                hs.link_press = true;
+-                break :took true;
+-            },
+-            .up => if (hs.link_press) {
+-                hs.link_press = false;
+-                if (osc8) if (hs.link) |u| {
+-                    open = s.alloc.dupe(u8, u) catch null;
+-                };
+-                break :took true;
+-            },
+-            else => {},
+-        }
+-        // A press's count in its run of clicks, and its release's (SPEC §9).
+-        const count = hs.clickCount(kind, pos, s.config.mouse_interval, @floatFromInt(s.size.cell.width));
+-        const took = hs.pointer(&s.io.terminal, kind, tp.x, tp.y, hostMods(mods), count);
+-        // One selection (SPEC §11): a press on a surface drops the
+-        // terminal's, and its release copies the surface's as Ghostty
+-        // copies its own on select.
+-        if (took and kind == .down) s.setSelection(null) catch {};
+-        if (took and kind == .up) copyOnSelect(s);
++        const took = hs.pointer(&s.io.terminal, tp.x, tp.y, hostMods(mods));
+         shape = hs.shapeChange(s.io.terminal.mouse_shape, osc8, false);
+         if (hs.previewChange(osc8 and s.config.link_previews != .false, false)) |p| preview = s.alloc.dupeSentinel(u8, p, 0) catch null;
+         drew = hs.drew;
+@@ -3264,7 +3212,6 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M
+         break :took took;
+     };
+     apply(s, shape, preview);
+-    if (open) |u| openLink(s, u);
+     deliver(s, took or drew);
+     return took;
+ }
+@@ -3455,7 +3402,7 @@ pub fn cellLinkButton(s: *Surface, action: input.MouseButtonState, button: input
+     if (!s.mouse.over_link or !plainLinkClick(s, s.mouse.mods)) return null;
+     // Ghostty has already recorded this press in click_state.
+     for (s.mouse.click_state, 0..) |state, i| {
+-        if (i != @intFromEnum(button) and state == .press) return null;
++        if (i != @backingInt(button) and state == .press) return null;
+     }
+     lockState(s, @src());
+     defer s.renderer_state.mutex.unlock(global.io());
+@@ -3783,61 +3730,302 @@ test programHolds {
+     try t.expect(!programHolds(false, false, false, false));
+ }
+ 
+-/// Whether a button event is the program's whatever lies under it: the
+-/// first press of a gesture with Alt held (Option on macOS, which Ghostty
+-/// reports as Alt whatever `macos-option-as-alt` says). SPEC §9.2: it is a
+-/// press on the cells, so no surface (nor a hyperlink in one) gets it, and
+-/// the gesture it begins is the program's until the release
+-/// (`programHolds`).
+-fn altPress(action: input.MouseButtonState, first_press: bool, mods: input.Mods) bool {
+-    return action == .press and first_press and mods.alt;
++pub const MouseButtons = struct {
++    bits: std.StaticBitSet(input.MouseButton.max + 1) = .empty,
++
++    pub fn press(self: *MouseButtons, button: input.MouseButton) void {
++        self.bits.set(@intCast(@backingInt(button)));
++    }
++
++    pub fn release(self: *MouseButtons, button: input.MouseButton) bool {
++        const was_down = self.has(button);
++        self.bits.unset(@intCast(@backingInt(button)));
++        return was_down;
++    }
++
++    pub fn has(self: MouseButtons, button: input.MouseButton) bool {
++        return self.bits.isSet(@intCast(@backingInt(button)));
++    }
++
++    pub fn empty(self: MouseButtons) bool {
++        return self.bits.count() == 0;
++    }
++};
++
++/// GestureClick counts the first press. A capture-phase controller
++/// intercepts a chord press before GTK cancels that gesture, and delivers
++/// physical releases even if GTK has already stopped tracking the click.
++pub fn gtkMouseButton(
++    event: *@import("gdk").Event,
++    buttons: *MouseButtons,
++    widget: anytype,
++    render_widget: *@import("gtk").Widget,
++    comptime translate: anytype,
++    comptime down: anytype,
++    comptime up: anytype,
++) c_int {
++    const kind = event.getEventType();
++    if (kind != .button_press and kind != .button_release) return 0;
++    const button_event: *@import("gdk").ButtonEvent = @ptrCast(event);
++    const button = translate(button_event.getButton());
++    if (kind == .button_release) {
++        if (buttons.release(button)) up(widget, event, button);
++        // GestureClick also sees the release so it can count later clicks.
++        return 0;
++    }
++    if (buttons.empty() or buttons.has(button)) return 0;
++    buttons.press(button);
++    const pos = widget.getCursorPos();
++    const scale = @import("../apprt/gtk/scale.zig").widgetSurfaceScale(render_widget);
++    down(widget, event, button, @as(f64, pos.x) / scale, @as(f64, pos.y) / scale);
++    return 1;
+ }
+ 
+-test altPress {
+-    const t = std.testing;
+-    // An Alt press that begins a gesture is the program's, with other keys
+-    // held too...
+-    try t.expect(altPress(.press, true, .{ .alt = true }));
+-    try t.expect(altPress(.press, true, .{ .alt = true, .shift = true, .ctrl = true }));
+-    // ...and a press without Alt is not: a surface may take it.
+-    try t.expect(!altPress(.press, true, .{}));
+-    try t.expect(!altPress(.press, true, .{ .shift = true }));
+-    // The press decides: Alt held at a release, or at a press while a
+-    // gesture goes on, changes nothing.
+-    try t.expect(!altPress(.release, false, .{ .alt = true }));
+-    try t.expect(!altPress(.press, false, .{ .alt = true }));
++const MouseMap = enum { gtk, appkit };
++const mouse_map: MouseMap = if (apprt.runtime == apprt.embedded and builtin.os.tag.isDarwin()) .appkit else .gtk;
++
++fn domButton(comptime platform: MouseMap, button: input.MouseButton) ?u32 {
++    return switch (button) {
++        .left => 0,
++        .middle => 1,
++        .right => 2,
++        .eight => 3,
++        .nine => 4,
++        .four => if (platform == .appkit) 8 else null,
++        .five => if (platform == .appkit) 9 else null,
++        .six => if (platform == .appkit) 6 else null,
++        .seven => if (platform == .appkit) 7 else null,
++        .ten => if (platform == .appkit) 10 else 4,
++        .eleven => if (platform == .appkit) 11 else 3,
++        .unknown => null,
++    };
++}
++
++test "GTK DOM mouse buttons" {
++    const expected = [_]?u32{ null, 0, 2, 1, null, null, null, null, 3, 4, 4, 3 };
++    for (expected, 0..) |dom, i| try std.testing.expectEqual(dom, domButton(.gtk, @fromBackingInt(@intCast(i))));
++}
++
++test "AppKit DOM mouse buttons" {
++    const expected = [_]?u32{ null, 0, 2, 1, 8, 9, 6, 7, 3, 4, 10, 11 };
++    for (expected, 0..) |dom, i| try std.testing.expectEqual(dom, domButton(.appkit, @fromBackingInt(@intCast(i))));
++}
++
++test "surface mouse chord releases preserve the primary capture" {
++    var hs: Hotty = .{ .alloc = std.testing.allocator };
++    hs.captureButton(.left, .{ .name = "drag", .x = 1, .y = 2 });
++    hs.captureButton(.middle, null);
++    hs.captureButton(.right, null);
++    try std.testing.expect(hs.releaseButton(.middle));
++    try std.testing.expect(hs.releaseButton(.right));
++    try std.testing.expect(!hs.releaseButton(.right));
++    try std.testing.expect(hs.captured_buttons.has(.left));
++    try std.testing.expectEqualStrings("drag", hs.capture[0..hs.capture_len]);
++    try std.testing.expect(hs.releaseButton(.left));
++    try std.testing.expectEqual(@as(usize, 0), hs.capture_len);
++}
++
++fn primaryPasteEnabled(s: *Surface) bool {
++    return if (comptime apprt.runtime == apprt.gtk)
++        s.rt_surface.surface.primaryPasteEnabled()
++    else
++        true;
+ }
+ 
+-/// Surface.mouseButtonCallback: a left click on a surface belongs to it, and
+-/// is neither reported to the program nor used for selection. A press on
+-/// the cells, of any other button, or with Alt held (`altPress`) is the
+-/// program's, and holds the pointer for it until the release
+-/// (`programHolds`).
++fn middleClipboard(s: *Surface) ?apprt.Clipboard {
++    if (!primaryPasteEnabled(s)) return null;
++    return switch (s.config.middle_click_action) {
++        .ignore => null,
++        .@"clipboard-paste" => .standard,
++        .@"primary-paste" => if (s.rt_surface.supportsClipboard(.selection)) .selection else null,
++    };
++}
++
++/// Ghostty has already recorded the event. Swallow the surface's full
++/// chord and clear its buttons from Ghostty's mouse-reporting state.
+ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.MouseButton, mods: input.Mods) bool {
+     const hs = &s.io.terminal_stream.handler.hotty;
+-    // Ghostty has already recorded this event in click_state.
++    const index: usize = @intCast(@backingInt(button));
+     var others = false;
++    var same_dom = false;
++    const dom = domButton(mouse_map, button);
+     for (s.mouse.click_state, 0..) |state, i| {
+-        if (i != @intFromEnum(button) and state == .press) others = true;
++        if (i == index) continue;
++        const other: input.MouseButton = @fromBackingInt(@intCast(i));
++        const captured = hs.captured_buttons.has(other);
++        others = others or state == .press;
++        same_dom = same_dom or (dom != null and dom == domButton(mouse_map, other) and (state == .press or captured));
++    }
++    const pos = s.rt_surface.getCursorPos() catch .{ .x = -1, .y = -1 };
++    const filtered = button == .middle and !primaryPasteEnabled(s) and !s.mouseReportingActive();
++    const took = buttonAt(s, action, button, pos, mods, .{ .same_dom = same_dom, .filtered = filtered });
++    if (took or filtered) s.mouse.click_state[index] = .release;
++    if (took) {
++        if (action == .release and hs.captured_buttons.empty()) _ = surfaceMove(s, pos, mods);
++        return true;
+     }
+-    const first = action == .press and !others;
+-    const any_down = action == .press or others;
+-    const pos = s.rt_surface.getCursorPos() catch {
+-        hs.program_hold = programHolds(hs.program_hold, first, false, any_down);
+-        return false;
+-    };
+-    if (button == .right and secondaryButton(s, action, pos, mods)) return true;
++    if (filtered and action == .press) return true;
+     const was = hs.program_hold;
+-    const alt = altPress(action, first, mods);
+-    const took = button == .left and !alt and pointerAt(s, if (action == .press) .down else .up, pos, mods);
+-    hs.program_hold = programHolds(was, first, took, any_down);
+-    // A gesture the program now holds leaves the surface under the pointer.
+-    // A left press kept from the surfaces by Alt is one on the cells, and
+-    // takes the keyboard back as one does.
+-    if (hs.program_hold and !was) _ = pointerAt(s, if (alt and button == .left) .down else .move, pos, mods);
++    hs.program_hold = programHolds(was, action == .press and !others, false, action == .press or others);
++    if (was != hs.program_hold) _ = surfaceMove(s, pos, mods);
++    return filtered;
++}
++
++const ButtonOptions = struct {
++    context: bool = false,
++    same_dom: bool = false,
++    filtered: bool = false,
++    /// AppKit asks about Control-click before deciding whether to show a menu.
++    alt_over: ?*bool = null,
++};
++
++fn buttonAt(s: *Surface, action: input.MouseButtonState, button: input.MouseButton, pos: apprt.CursorPos, mods: input.Mods, options: ButtonOptions) bool {
++    const hs = &s.io.terminal_stream.handler.hotty;
++    const t = &s.io.terminal;
++    const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = pos.x, .y = pos.y } };
++    const tp = coord.convert(.terminal, s.size).terminal;
++    const osc8 = button == .left and osc8Gesture(s, mods);
++    const paste = if (button == .middle) middleClipboard(s) else null;
++    // AppKit Control-click uses the physical left button.
++    const capture_button = if (options.context) .left else button;
++    var paste_here = false;
++    var drew = false;
++    var open: ?[]u8 = null;
++    defer if (open) |url| s.alloc.free(url);
++
++    const took = took: {
++        lockState(s, @src());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const captured = !hs.captured_buttons.empty();
++        const was_taken = action == .release and hs.captured_buttons.has(capture_button);
++        defer if (action == .release) {
++            _ = hs.releaseButton(capture_button);
++        };
++        defer {
++            drew = hs.drew;
++            hs.drew = false;
++        }
++        const h = hs.hostReady() orelse break :took was_taken;
++        const target = if (captured)
++            hs.capturedTarget(t, tp.x, tp.y)
++        else if (hs.program_hold or pos.x < 0 or pos.y < 0)
++            null
++        else
++            hs.hit(t, tp.x, tp.y);
++        if (options.alt_over) |over| over.* = mods.alt and target != null and !captured;
++        hs.wheel_took = false;
++
++        // OSC 8 links retain their existing press and release gesture.
++        if (!captured and action == .press and osc8 and !mods.alt and target != null and hs.link != null) {
++            hs.link_press = true;
++            hs.captureButton(capture_button, target);
++            break :took true;
++        }
++        if (hs.link_press) {
++            if (button == .left and was_taken) {
++                hs.link_press = false;
++                if (osc8) if (hs.link) |url| {
++                    open = s.alloc.dupe(u8, url) catch null;
++                };
++            }
++            if (action == .press) hs.captureButton(capture_button, target);
++            break :took captured;
++        }
++
++        const kind: PointerKind = if (action == .press) .down else .up;
++        const count = if (button == .left)
++            hs.clickCount(kind, pos, s.config.mouse_interval, @floatFromInt(s.size.cell.width))
++        else
++            0;
++        const dom = domButton(mouse_map, button);
++        var owned = if (action == .press) captured else was_taken;
++        if (!options.same_dom) if (dom) |number| {
++            if (button == .middle and action == .press) hotty_host_set_middle_paste(h, paste != null);
++            const ffi_kind: u32 = @backingInt(kind) + @as(u32, if (options.context) 3 else 0);
++            owned = hs.buttonInput(h, target, number, ffi_kind, hostMods(mods), count) or owned;
++            // GTK drops a disabled middle press on the cells. Finish its
++            // Blitz gesture immediately since Ghostty never records it.
++            if (options.filtered and action == .press and !owned)
++                _ = hs.buttonInput(h, null, number, @backingInt(PointerKind.up), hostMods(mods), count);
++        };
++
++        if (action == .press and !owned and !hs.program_hold and !captured and hs.hover_len > 0) {
++            // Ghostty tracks the program's hold even for buttons that
++            // Blitz cannot represent. Clear the preceding document hover.
++            var name_buf: [73]u8 = undefined;
++            const name = std.mem.printSentinel(&name_buf, "{s}", .{hs.hover[0..hs.hover_len]}, 0) catch "";
++            const fx = hs.effects();
++            _ = hotty_host_pointer(h, name.ptr, @intFromEnum(PointerKind.leave), 0, 0, hostMods(mods), 0, &fx);
++            hs.hover_len = 0;
++        }
++        if (action == .press and owned) {
++            hs.captureButton(capture_button, target);
++            if (!captured) s.setSelection(null) catch {};
++        } else if (action == .press and button == .left and target == null and !captured) {
++            const fx = hs.effects();
++            if (hotty_host_focused(h)) |name| hotty_host_blur(h, name, &fx);
++            hotty_host_clear_selection(h);
++        } else if (button == .left and was_taken) {
++            copyOnSelect(s);
++        }
++        if (paste != null and hs.paste_wanted) {
++            hs.paste_wanted = false;
++            paste_here = true;
++        }
++
++        if (hs.render(t)) hs.drew = true;
++        hs.schedule(t);
++        break :took owned;
++    };
++    if (open) |url| openLink(s, url);
++    deliver(s, took or drew);
++    if (paste_here) {
++        const clipboard_type = paste.?;
++        _ = s.startClipboardRequest(clipboard_type, .{ .paste = clipboard_type }) catch |err|
++            log.warn("hotty: middle paste could not read the clipboard err={}", .{err});
++    }
+     return took;
+ }
+ 
++/// AppKit asks before dispatching a Control-click. A surface context
++/// click and an Option press over a surface both suppress its native menu.
++pub fn appKitControlClick(s: *Surface, action: input.MouseButtonState, pos: apprt.CursorPos, mods: input.Mods) bool {
++    const hs = &s.io.terminal_stream.handler.hotty;
++    const context_mods = mods.unset(.{ .ctrl = true });
++    var alt_over = false;
++    if (action == .release) {
++        const took = buttonAt(s, action, .right, pos, context_mods, .{ .context = true });
++        if (!took) appKitProgramClick(s, action, pos, context_mods);
++        return true;
++    }
++    if (!mods.shift) {
++        if (buttonAt(s, action, .right, pos, context_mods, .{ .context = true, .alt_over = &alt_over })) return true;
++        if (alt_over) {
++            appKitProgramClick(s, action, pos, context_mods);
++            return true;
++        }
++        _ = buttonAt(s, .release, .right, pos, context_mods, .{ .context = true });
++    }
++    if (!s.mouseCaptured()) {
++        _ = s.mouseButtonCallbackRouted(.press, .right, mods, false) catch false;
++        // AppKit tracks the menu and supplies no matching terminal release.
++        hs.program_hold = menuTakesRelease(&s.mouse.click_state, hs.program_hold);
++    }
++    return false;
++}
++
++fn appKitProgramClick(s: *Surface, action: input.MouseButtonState, pos: apprt.CursorPos, mods: input.Mods) void {
++    const hs = &s.io.terminal_stream.handler.hotty;
++    const right = @backingInt(input.MouseButton.right);
++    s.mouse.click_state[right] = action;
++    hs.program_hold = action == .press or std.mem.findScalar(input.MouseButtonState, &s.mouse.click_state, .press) != null;
++    lockState(s, @src());
++    defer s.renderer_state.mutex.unlock(global.io());
++    if (s.config.mouse_reporting and s.io.terminal.flags.mouse_event != .none) {
++        s.mouseReport(.right, if (action == .press) .press else .release, mods, pos);
++    }
++}
++
+ /// Surface.mouseButtonCallback, for a secondary press it leaves unconsumed:
+ /// the apprt opens its context menu, and the menu takes the release (GTK's
+ /// popover grabs the pointer, AppKit's menu tracks it), so no release
+@@ -3847,9 +4035,12 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
+ /// after the menu, and every later pointer event, a click, a hover or the
+ /// wheel, was the program's, not the surface's: a surface that had
+ /// opened the menu was dead until the next secondary release.
+-pub fn menuPress(s: *Surface, button: input.MouseButton, action: input.MouseButtonState) void {
++pub fn menuPress(s: *Surface, button: input.MouseButton, action: input.MouseButtonState, locked: bool) void {
+     if (button != .right or action != .press) return;
++    if (!locked) lockState(s, @src());
++    defer if (!locked) s.renderer_state.mutex.unlock(global.io());
+     const hs = &s.io.terminal_stream.handler.hotty;
++    if (hs.hostReady()) |h| _ = hs.buttonInput(h, null, 2, @backingInt(PointerKind.up), hostMods(s.mouse.mods), 0);
+     hs.program_hold = menuTakesRelease(&s.mouse.click_state, hs.program_hold);
+ }
+ 
+@@ -3857,15 +4048,15 @@ pub fn menuPress(s: *Surface, button: input.MouseButton, action: input.MouseButt
+ /// the program still holds the pointer, which it does only for a gesture
+ /// another button began and has not ended.
+ fn menuTakesRelease(states: []input.MouseButtonState, held: bool) bool {
+-    states[@intFromEnum(input.MouseButton.right)] = .release;
++    states[@backingInt(input.MouseButton.right)] = .release;
+     for (states) |st| if (st == .press) return held;
+     return false;
+ }
+ 
+ test "menuTakesRelease" {
+     const t = std.testing;
+-    const right = @intFromEnum(input.MouseButton.right);
+-    const left = @intFromEnum(input.MouseButton.left);
++    const right = @backingInt(input.MouseButton.right);
++    const left = @backingInt(input.MouseButton.left);
+     var states: [input.MouseButton.max + 1]input.MouseButtonState = @splat(.release);
+     // A secondary press the program holds the pointer for (nothing took it,
+     // `programHolds`), whose menu takes the release: the hold ends with it.
+@@ -3885,37 +4076,6 @@ test "menuTakesRelease" {
+     try t.expect(!menuTakesRelease(&states, false));
+ }
+ 
+-/// Surface.mouseButtonCallback, for the secondary button (SPEC §9): a press
+-/// on an element that takes it is the surface's, and so is the release after
+-/// it. Neither reaches the program or `right-click-action`, and Ghostty's
+-/// own state of the button is as if it had not been pressed. A press no
+-/// surface takes goes on as Ghostty would have it: Shift's menu, Alt's
+-/// report, `right-click-action`.
+-fn secondaryButton(s: *Surface, action: input.MouseButtonState, pos: apprt.CursorPos, mods: input.Mods) bool {
+-    const hs = &s.io.terminal_stream.handler.hotty;
+-    const coord: rendererpkg.Coordinate = .{ .surface = .{ .x = pos.x, .y = pos.y } };
+-    const tp = coord.convert(.terminal, s.size).terminal;
+-    var drew = false;
+-    const took = took: {
+-        lockState(s, @src());
+-        defer s.renderer_state.mutex.unlock(global.io());
+-        const took = switch (action) {
+-            .press => hs.secondaryPress(&s.io.terminal, tp.x, tp.y, hostMods(mods)),
+-            .release => rel: {
+-                const was = hs.secondary_down;
+-                hs.secondary_down = false;
+-                break :rel was;
+-            },
+-        };
+-        drew = hs.drew;
+-        hs.drew = false;
+-        break :took took;
+-    };
+-    if (took) s.mouse.click_state[@intFromEnum(input.MouseButton.right)] = .release;
+-    deliver(s, took or drew);
+-    return took;
+-}
+-
+ /// The GTK apprt took a touch that began over a surface for a long press,
+ /// with the finger at `pos` (SPEC §9.1). The apprt has no modifiers for it:
+ /// those are the keyboard's last. True if the surface took it.
+@@ -3938,11 +4098,11 @@ pub fn surfaceClickCount(s: *Surface, n: c_int) void {
+ /// is the pointer leaving the window (the apprts send -1, -1): the surface
+ /// under it is left.
+ pub fn surfaceMove(s: *Surface, pos: apprt.CursorPos, mods: ?input.Mods) bool {
+-    if (pos.x < 0 or pos.y < 0) {
++    if (pos.x == -1 and pos.y == -1) {
+         windowLeft(s, mods orelse s.mouse.mods);
+         return false;
+     }
+-    return pointerAt(s, .move, pos, mods orelse s.mouse.mods);
++    return pointerAt(s, pos, mods orelse s.mouse.mods);
+ }
+ 
+ fn windowLeft(s: *Surface, mods: input.Mods) void {
+@@ -4033,7 +4193,7 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
+ /// button is still let go. Under the renderer lock.
+ fn touchMouse(s: *Surface, hs: *Hotty) void {
+     defer hs.mouse_len = 0;
+-    const left = &s.mouse.click_state[@intFromEnum(input.MouseButton.left)];
++    const left = &s.mouse.click_state[@backingInt(input.MouseButton.left)];
+     const shift = s.mouseShiftCapture(false);
+     for (hs.mouse[0..hs.mouse_len]) |m| {
+         const action: input.MouseAction = switch (m.kind) {
+@@ -4481,6 +4641,7 @@ fn reserved(s: *Surface, event: input.KeyEvent) bool {
+ /// hears a release without its press, nor a press without its release.
+ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+     if (s.readonly) return false;
++    if (surfaceMenuKey(s, event)) return true;
+     const hs = &s.io.terminal_stream.handler.hotty;
+     hs.copy_denied = false;
+     // Encoding takes the renderer lock itself.
+@@ -4506,6 +4667,26 @@ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+     return consumed;
+ }
+ 
++fn surfaceMenuKey(s: *Surface, event: input.KeyEvent) bool {
++    if (event.action == .release) return false;
++    const shift_f10 = event.key == .f10 and event.mods.keys().int() == (input.Mods.Keys{ .shift = true }).int();
++    const menu_key = event.key == .context_menu and event.mods.keys().int() == 0;
++    if (!menu_key and !shift_f10) return false;
++    const took = took: {
++        lockState(s, @src());
++        defer s.renderer_state.mutex.unlock(global.io());
++        const hs = &s.io.terminal_stream.handler.hotty;
++        const h = hs.hostReady() orelse break :took false;
++        const name = hotty_host_focused(h) orelse break :took false;
++        const fx = hs.effects();
++        if (!hotty_host_menu_key(h, name, shift_f10, &fx)) break :took false;
++        hs.held_keys.insert(event.key);
++        break :took true;
++    };
++    if (took) deliver(s, false);
++    return took;
++}
++
+ /// Surface.performBindingAction: what a binding writes to the pty (`text:`,
+ /// `csi:`, `esc:`, `cursor_key`) goes to the surface holding the keyboard
+ /// first, as the keys the program would read in it (SPEC §10.4). Ghostty's

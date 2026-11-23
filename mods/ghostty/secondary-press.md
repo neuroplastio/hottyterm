@@ -18,7 +18,7 @@ press is `right-click-action`'s. Plain moves still hover. The logic is in
 upstream file.
 
 **Why we carry it:** a hotty program can open its own context menu on a
-secondary press (hotty SPEC §9, HOST.md §3). macOS's Control-click is not
-covered: AppKit makes it a menu before the core sees a press.
+secondary press (hotty SPEC §9, HOST.md §3). The later other-buttons
+patch replaces this ABI call and adds AppKit Control-click handling.
 
 **For upstream:** no. It serves hotty surfaces.

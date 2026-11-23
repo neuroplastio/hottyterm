@@ -19,6 +19,7 @@ and wheel over a surface was taken for the program's; a program that does not
 report the mouse heard none of it, and the surface was dead until the next
 secondary release. It looked like a deadlock, but no thread waited on a lock.
 A right-click on cells with no surface behaves as before, and a left
-gesture still down keeps its hold.
+gesture still down keeps its hold. The later other-buttons patch also
+ends the menu's button in Blitz's gesture state.
 
 **For upstream:** no. The hold only exists for hotty surfaces.

@@ -14,4 +14,8 @@ including 0.7 compatibility and EVERSION.
 `scripts/reduced-motion-check.sh` tests the GTK preference and idle repaint; `probe-macos.yml`'s `reduced_motion` mode tests
 the macOS preference on its disposable runner.
 
+`scripts/button-chord-check.py` uses HOTTY_DIR and HOTTY_BLITZ_DIR to run
+a GTK pointer chord on a private Wayland display. It checks that a primary
+drag survives the second button and ends when the primary button is released.
+
 Do not edit the vectors here. Update this copy from a released spec tag.
