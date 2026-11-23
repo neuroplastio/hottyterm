@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Mon, 23 Nov 2026 12:42:46 +0100
+Subject: [PATCH 64/65] hottyterm: acknowledge keys delivered as edit commands
+
+Confirms the command after the terminal selection check and, for paste, once its text is available. Adds 0 lines to upstream files.
+---
+ src/termio/hotty.zig | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 333035ff..45ba6e6e 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -717,6 +717,7 @@ extern fn hotty_host_set_refresh_rate(h: *Host, millihertz: u32) void;
+ extern fn hotty_host_set_network(h: *Host, policy: ?[*:0]const u8) void;
+ extern fn hotty_host_set_keys(h: *Host, mod_super: bool, edit: ?[*:0]const u8, commands: bool, menus: bool, fx: ?*const Effects) void;
+ extern fn hotty_host_edit_command(h: *Host, physical: ?[*]const u8, physical_len: usize, other: ?[*]const u8, other_len: usize) ?[*:0]const u8;
++extern fn hotty_host_command_key_sent(h: *Host, key: [*]const u8, len: usize) void;
+ extern fn hotty_host_command(name: [*:0]const u8, key: ?[*]const u8, key_len: usize, text: ?[*]const u8, text_len: usize, fx: ?*const Effects) void;
+ extern fn hotty_host_cells_key(h: *Host, physical: ?[*]const u8, physical_len: usize, other: ?[*]const u8, other_len: usize) void;
+ extern fn hotty_host_set_scroll_modes(h: *Host, alt_screen: bool, mouse_tracking: bool) void;
+@@ -4156,6 +4157,7 @@ fn editCommand(s: *Surface, event: input.KeyEvent, p: *const Press) bool {
+         defer s.renderer_state.mutex.unlock(global.io());
+         const fx = hs.effects();
+         hotty_host_command(command, name.ptr, name.len, null, 0, &fx);
++        if (hs.hostReady()) |h| hotty_host_command_key_sent(h, name.ptr, name.len);
+     }
+     deliver(s, false);
+     return true;
+@@ -4181,6 +4183,7 @@ pub fn commandPaste(s: *Surface, data: []const u8) bool {
+         const fx = hs.effects();
+         const text: ?[*]const u8 = if (data.len > 0) data.ptr else null;
+         hotty_host_command("paste", &hs.paste_key, hs.paste_key_len, text, data.len, &fx);
++        if (hs.hostReady()) |h| hotty_host_command_key_sent(h, &hs.paste_key, hs.paste_key_len);
+     }
+     deliver(s, false);
+     releaseHeld(s);
