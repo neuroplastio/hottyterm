@@ -8,12 +8,12 @@ Track captures and swallowed releases by button, keep GTK pointer chords intact,
 ---
  include/ghostty.h                             |   3 +
  .../Surface View/SurfaceView_AppKit.swift     |  28 +-
- src/Surface.zig                               |  18 +-
+ src/Surface.zig                               |  27 +-
  src/apprt/embedded.zig                        |   6 +
- src/apprt/gtk/class/surface.zig               |  73 ++-
+ src/apprt/gtk/class/surface.zig               |  73 +-
  src/apprt/gtk/ui/1.0/surface.blp              |   5 +
- src/termio/hotty.zig                          | 619 ++++++++++++------
- 7 files changed, 503 insertions(+), 249 deletions(-)
+ src/termio/hotty.zig                          | 698 +++++++++++++-----
+ 7 files changed, 583 insertions(+), 257 deletions(-)
 
 diff --git a/include/ghostty.h b/include/ghostty.h
 index 49fe08b3..46fe2cf6 100644
@@ -99,7 +99,7 @@ index 1a1f408d..acdc10fd 100644
                  return nil
              }
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 100964bc..40fad990 100644
+index 100964bc..e9c3c132 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -3998,6 +3998,16 @@ pub fn mouseButtonCallback(
@@ -146,7 +146,23 @@ index 100964bc..40fad990 100644
      return false;
  }
  
-@@ -6329,7 +6339,7 @@ pub fn denyClipboardRequest(self: *Surface, req: apprt.ClipboardRequest) void {
+@@ -4895,14 +4905,7 @@ pub fn cursorPosCallback(
+             }
+         }
+ 
+-        // We use the first mouse button we find pressed in order to report
+-        // since the spec (afaict) does not say...
+-        const button: ?input.MouseButton = button: for (self.mouse.click_state, 0..) |state, i| {
+-            if (state == .press)
+-                break :button @fromBackingInt(@intCast(i));
+-        } else null;
+-
+-        self.mouseReport(button, .motion, self.mouse.mods, pos);
++        hotty.mouseMotionReport(self, pos);
+ 
+         // If we're doing mouse motion tracking, we do not support text
+         // selection.
+@@ -6329,7 +6332,7 @@ pub fn denyClipboardRequest(self: *Surface, req: apprt.ClipboardRequest) void {
  /// weren't started never complete. Callers own reacting to that, e.g.
  /// performable paste keybinds pass through and Kitty clipboard reads
  /// answer the program.
@@ -334,7 +350,7 @@ index 99f87da3..9d4e05bb 100644
        pressed => $mouse_down();
        released => $mouse_up();
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 45ba6e6e..2bd01693 100644
+index 45ba6e6e..03535573 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -692,12 +692,14 @@ extern fn hotty_host_render(h: *Host, ctx: ?*anyopaque, cb: FrameFn) void;
@@ -365,17 +381,19 @@ index 45ba6e6e..2bd01693 100644
      /// The surface the live touch began on, which has every phase of it
      /// (`touch`); empty for one that began over the cells.
      touch_surface: [72]u8 = undefined,
-@@ -972,9 +978,6 @@ pub const Hotty = struct {
+@@ -972,9 +978,8 @@ pub const Hotty = struct {
      /// on cells (a divider between two surfaces, say) reaches it whole.
      /// Only the Surface entry points touch it, on the apprt thread.
      program_hold: bool = false,
 -    /// A surface took a secondary press (`secondaryPress`): its release is
 -    /// the surface's too.
 -    secondary_down: bool = false,
++    /// AppKit intercepted the physical left button for the program.
++    program_control_click: bool = false,
      /// A pointer event or a key drew a frame: the renderer must show it,
      /// whether or not a surface took the event (a leave repaints too).
      drew: bool = false,
-@@ -2809,89 +2812,84 @@ pub const Hotty = struct {
+@@ -2809,89 +2814,84 @@ pub const Hotty = struct {
          return n;
      }
  
@@ -523,7 +541,7 @@ index 45ba6e6e..2bd01693 100644
      }
  
      /// The pointer left the terminal's window: the surface it was over is
-@@ -2899,12 +2897,12 @@ pub const Hotty = struct {
+@@ -2899,12 +2899,12 @@ pub const Hotty = struct {
      /// press that holds the pointer for its surface keeps it: the platform
      /// goes on reporting its moves and its release.
      fn leaveWindow(self: *Hotty, t: *terminal.Terminal, mods: u32) void {
@@ -538,7 +556,7 @@ index 45ba6e6e..2bd01693 100644
          self.hover_len = 0;
          self.shape = null;
          self.setLink(null);
-@@ -3033,22 +3031,6 @@ pub const Hotty = struct {
+@@ -3033,22 +3033,6 @@ pub const Hotty = struct {
          self.paint_wanted = true;
      }
  
@@ -561,7 +579,7 @@ index 45ba6e6e..2bd01693 100644
      /// A finger at viewport pixel (`px`, `py`) (SPEC §9.1, §9.6). A touch
      /// that begins over a surface that takes the pointer there is that
      /// surface's to decide, every phase of it, taps included, and
-@@ -3100,7 +3082,7 @@ pub const Hotty = struct {
+@@ -3100,7 +3084,7 @@ pub const Hotty = struct {
          const p = self.at(t, own, px, py);
          const fx = self.effects();
          const ph: TouchPhase = if (p == null) .cancel else phase;
@@ -570,7 +588,7 @@ index 45ba6e6e..2bd01693 100644
          if (phase == .up or p == null) self.touch_len = 0;
          if (phase == .up and r != 2) hotty_host_end_gesture(h);
          if (phase == .move) self.inputPaint(t, h) else if (self.render(t)) self.drew = true;
-@@ -3121,7 +3103,7 @@ pub const Hotty = struct {
+@@ -3121,7 +3105,7 @@ pub const Hotty = struct {
      /// that begins in no such area is the terminal's, as before.
      fn cellsTouch(self: *Hotty, t: *terminal.Terminal, h: *Host, phase: TouchPhase, px: f64, py: f64, mods: u32, reports: bool) Touch {
          const fx = self.effects();
@@ -579,7 +597,7 @@ index 45ba6e6e..2bd01693 100644
          if (phase == .down) self.touch_cells = r != 0;
          if (phase == .up) self.touch_cells = false;
          // The lift ends the wheel gesture a pan scrolled with.
-@@ -3218,45 +3200,19 @@ fn deliver(s: *Surface, redraw: bool) void {
+@@ -3218,45 +3202,19 @@ fn deliver(s: *Surface, redraw: bool) void {
      if (redraw) s.renderer_thread.wakeup.notify() catch {};
  }
  
@@ -627,7 +645,7 @@ index 45ba6e6e..2bd01693 100644
          shape = hs.shapeChange(s.io.terminal.mouse_shape, osc8, false);
          if (hs.previewChange(osc8 and s.config.link_previews != .false, false)) |p| preview = s.alloc.dupeSentinel(u8, p, 0) catch null;
          drew = hs.drew;
-@@ -3264,7 +3220,6 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M
+@@ -3264,7 +3222,6 @@ fn pointerAt(s: *Surface, kind: PointerKind, pos: apprt.CursorPos, mods: input.M
          break :took took;
      };
      apply(s, shape, preview);
@@ -635,7 +653,7 @@ index 45ba6e6e..2bd01693 100644
      deliver(s, took or drew);
      return took;
  }
-@@ -3455,7 +3410,7 @@ pub fn cellLinkButton(s: *Surface, action: input.MouseButtonState, button: input
+@@ -3455,7 +3412,7 @@ pub fn cellLinkButton(s: *Surface, action: input.MouseButtonState, button: input
      if (!s.mouse.over_link or !plainLinkClick(s, s.mouse.mods)) return null;
      // Ghostty has already recorded this press in click_state.
      for (s.mouse.click_state, 0..) |state, i| {
@@ -644,7 +662,7 @@ index 45ba6e6e..2bd01693 100644
      }
      lockState(s, @src());
      defer s.renderer_state.mutex.unlock(global.io());
-@@ -3783,61 +3738,338 @@ test programHolds {
+@@ -3783,61 +3740,415 @@ test programHolds {
      try t.expect(!programHolds(false, false, false, false));
  }
  
@@ -966,14 +984,14 @@ index 45ba6e6e..2bd01693 100644
 +    var alt_over = false;
 +    if (action == .release) {
 +        const took = buttonAt(s, action, .right, pos, context_mods, .{ .context = true });
-+        if (!took) appKitProgramClick(s, action, pos, context_mods);
++        if (!took) appKitProgramClick(s, action, pos, mods);
 +        return true;
 +    }
 +    const held = !hs.captured_buttons.empty() or hs.program_hold;
 +    if (held or !mods.shift) {
 +        if (buttonAt(s, action, .right, pos, context_mods, .{ .context = true, .alt_over = &alt_over })) return true;
 +        if (hs.program_hold or alt_over) {
-+            appKitProgramClick(s, action, pos, context_mods);
++            appKitProgramClick(s, action, pos, mods);
 +            return true;
 +        }
 +        _ = buttonAt(s, .release, .right, pos, context_mods, .{ .context = true });
@@ -988,43 +1006,120 @@ index 45ba6e6e..2bd01693 100644
 +
 +fn appKitProgramClick(s: *Surface, action: input.MouseButtonState, pos: apprt.CursorPos, mods: input.Mods) void {
 +    const hs = &s.io.terminal_stream.handler.hotty;
-+    hs.program_hold = appKitControlButtonState(&s.mouse.click_state, action);
++    hs.program_hold = appKitControlButtonState(&s.mouse.click_state, &hs.program_control_click, action);
 +    lockState(s, @src());
 +    defer s.renderer_state.mutex.unlock(global.io());
 +    if (s.config.mouse_reporting and s.io.terminal.flags.mouse_event != .none) {
-+        s.mouseReport(.right, if (action == .press) .press else .release, mods, pos);
++        const report = mouseButtonReport(.left, mods, true);
++        s.mouseReport(report.button, if (action == .press) .press else .release, report.mods, pos);
 +    }
 +}
 +
 +/// The terminal receives a right-button report for an intercepted
 +/// Control-click. Ghostty tracks the physical left button in its chord.
-+fn appKitControlButtonState(states: []input.MouseButtonState, action: input.MouseButtonState) bool {
++fn appKitControlButtonState(states: []input.MouseButtonState, active: *bool, action: input.MouseButtonState) bool {
++    active.* = action == .press;
 +    states[@backingInt(input.MouseButton.left)] = action;
 +    return std.mem.findScalar(input.MouseButtonState, states, .press) != null;
 +}
 +
-+test "AppKit Control-click keeps physical right independent" {
++const MouseButtonReport = struct { button: ?input.MouseButton, mods: input.Mods };
++
++fn mouseButtonReport(physical: ?input.MouseButton, mods: input.Mods, control_click: bool) MouseButtonReport {
++    if (control_click and physical == .left) return .{
++        .button = .right,
++        .mods = mods.unset(.{ .ctrl = true }),
++    };
++    return .{ .button = physical, .mods = mods };
++}
++
++fn motionButtonReport(states: []const input.MouseButtonState, mods: input.Mods, control_click: bool) MouseButtonReport {
++    // Match Ghostty's choice of the first pressed physical button.
++    const physical: ?input.MouseButton = if (std.mem.findScalar(input.MouseButtonState, states, .press)) |i|
++        @fromBackingInt(@intCast(i))
++    else
++        null;
++    return mouseButtonReport(physical, mods, control_click);
++}
++
++/// Surface.cursorPosCallback, with the renderer lock held. Preserve the
++/// physical chord until the reporting boundary.
++pub fn mouseMotionReport(s: *Surface, pos: apprt.CursorPos) void {
++    const hs = &s.io.terminal_stream.handler.hotty;
++    const report = motionButtonReport(&s.mouse.click_state, s.mouse.mods, hs.program_control_click);
++    s.mouseReport(report.button, .motion, report.mods, pos);
++}
++
++fn expectSgrMouseReport(report: MouseButtonReport, action: input.MouseAction, x: f32, opts: input.mouse_encode.Options, expected: []const u8) !void {
++    var buf: [32]u8 = undefined;
++    var writer: std.Io.Writer = .fixed(&buf);
++    try input.mouse_encode.encode(&writer, .{
++        .button = report.button,
++        .mods = report.mods,
++        .action = action,
++        .pos = .{ .x = x },
++    }, opts);
++    try std.testing.expectEqualStrings(expected, writer.buffered());
++}
++
++test "AppKit Control-click SGR reports and physical chord release orders" {
++    const t = std.testing;
 +    const left = @backingInt(input.MouseButton.left);
 +    const right = @backingInt(input.MouseButton.right);
-+    var states: [input.MouseButton.max + 1]input.MouseButtonState = @splat(.release);
++    const mods: input.Mods = .{ .alt = true, .ctrl = true };
++    const intercepted = mouseButtonReport(.left, mods, true);
++    const real_right = mouseButtonReport(.right, mods, false);
 +
-+    try std.testing.expect(appKitControlButtonState(&states, .press));
-+    try std.testing.expectEqual(input.MouseButtonState.release, states[right]);
-+    states[right] = .press;
-+    states[right] = .release;
-+    try std.testing.expect(programHolds(true, false, false, states[left] == .press));
-+    try std.testing.expect(!appKitControlButtonState(&states, .release));
++    for ([_]terminal.MouseEvent{ .button, .any }) |mode| {
++        for ([_]enum { single, right_first, left_first }{ .single, .right_first, .left_first }) |release_order| {
++            var states: [input.MouseButton.max + 1]input.MouseButtonState = @splat(.release);
++            var active = false;
++            var last: ?terminal.point.Coordinate = null;
++            const opts: input.mouse_encode.Options = .{
++                .event = mode,
++                .format = .sgr,
++                .size = .{ .screen = .{ .width = 80, .height = 32 }, .cell = .{ .width = 8, .height = 16 }, .padding = .{} },
++                .last_cell = &last,
++            };
 +
-+    states[right] = .press;
-+    try std.testing.expect(appKitControlButtonState(&states, .press));
-+    try std.testing.expect(appKitControlButtonState(&states, .release));
-+    try std.testing.expectEqual(input.MouseButtonState.press, states[right]);
++            try t.expect(appKitControlButtonState(&states, &active, .press));
++            try t.expectEqual(input.MouseButtonState.release, states[right]);
++            try expectSgrMouseReport(intercepted, .press, 0, opts, "\x1b[<10;1;1M");
++            if (release_order != .single) {
++                states[right] = .press;
++                try expectSgrMouseReport(real_right, .press, 0, opts, "\x1b[<26;1;1M");
++            }
++            try expectSgrMouseReport(motionButtonReport(&states, mods, active), .motion, 8, opts, "\x1b[<42;2;1M");
++
++            if (release_order == .left_first) {
++                try t.expect(appKitControlButtonState(&states, &active, .release));
++                try t.expectEqual(input.MouseButtonState.press, states[right]);
++                try expectSgrMouseReport(intercepted, .release, 8, opts, "\x1b[<10;2;1m");
++                try expectSgrMouseReport(motionButtonReport(&states, mods, active), .motion, 16, opts, "\x1b[<58;3;1M");
++                states[right] = .release;
++                try expectSgrMouseReport(real_right, .release, 16, opts, "\x1b[<26;3;1m");
++            } else {
++                if (release_order == .right_first) {
++                    states[right] = .release;
++                    try t.expect(programHolds(true, false, false, states[left] == .press));
++                    try expectSgrMouseReport(real_right, .release, 8, opts, "\x1b[<26;2;1m");
++                    try expectSgrMouseReport(motionButtonReport(&states, mods, active), .motion, 16, opts, "\x1b[<42;3;1M");
++                }
++                try t.expect(!appKitControlButtonState(&states, &active, .release));
++                try expectSgrMouseReport(intercepted, .release, 16, opts, "\x1b[<10;3;1m");
++            }
++            try t.expect(!active);
++            const after = motionButtonReport(&states, mods, active);
++            try t.expectEqual(@as(?input.MouseButton, null), after.button);
++            try t.expect(after.mods.ctrl);
++        }
++    }
 +}
 +
  /// Surface.mouseButtonCallback, for a secondary press it leaves unconsumed:
  /// the apprt opens its context menu, and the menu takes the release (GTK's
  /// popover grabs the pointer, AppKit's menu tracks it), so no release
-@@ -3847,9 +4079,12 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
+@@ -3847,9 +4158,12 @@ pub fn surfaceButton(s: *Surface, action: input.MouseButtonState, button: input.
  /// after the menu, and every later pointer event, a click, a hover or the
  /// wheel, was the program's, not the surface's: a surface that had
  /// opened the menu was dead until the next secondary release.
@@ -1038,7 +1133,7 @@ index 45ba6e6e..2bd01693 100644
      hs.program_hold = menuTakesRelease(&s.mouse.click_state, hs.program_hold);
  }
  
-@@ -3857,15 +4092,15 @@ pub fn menuPress(s: *Surface, button: input.MouseButton, action: input.MouseButt
+@@ -3857,15 +4171,15 @@ pub fn menuPress(s: *Surface, button: input.MouseButton, action: input.MouseButt
  /// the program still holds the pointer, which it does only for a gesture
  /// another button began and has not ended.
  fn menuTakesRelease(states: []input.MouseButtonState, held: bool) bool {
@@ -1057,7 +1152,7 @@ index 45ba6e6e..2bd01693 100644
      var states: [input.MouseButton.max + 1]input.MouseButtonState = @splat(.release);
      // A secondary press the program holds the pointer for (nothing took it,
      // `programHolds`), whose menu takes the release: the hold ends with it.
-@@ -3885,37 +4120,6 @@ test "menuTakesRelease" {
+@@ -3885,37 +4199,6 @@ test "menuTakesRelease" {
      try t.expect(!menuTakesRelease(&states, false));
  }
  
@@ -1095,7 +1190,7 @@ index 45ba6e6e..2bd01693 100644
  /// The GTK apprt took a touch that began over a surface for a long press,
  /// with the finger at `pos` (SPEC §9.1). The apprt has no modifiers for it:
  /// those are the keyboard's last. True if the surface took it.
-@@ -3938,11 +4142,11 @@ pub fn surfaceClickCount(s: *Surface, n: c_int) void {
+@@ -3938,11 +4221,11 @@ pub fn surfaceClickCount(s: *Surface, n: c_int) void {
  /// is the pointer leaving the window (the apprts send -1, -1): the surface
  /// under it is left.
  pub fn surfaceMove(s: *Surface, pos: apprt.CursorPos, mods: ?input.Mods) bool {
@@ -1109,7 +1204,7 @@ index 45ba6e6e..2bd01693 100644
  }
  
  fn windowLeft(s: *Surface, mods: input.Mods) void {
-@@ -4033,7 +4237,7 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
+@@ -4033,7 +4316,7 @@ pub fn surfaceTouch(s: *Surface, phase: TouchPhase, pos: apprt.CursorPos, mods:
  /// button is still let go. Under the renderer lock.
  fn touchMouse(s: *Surface, hs: *Hotty) void {
      defer hs.mouse_len = 0;
@@ -1118,7 +1213,7 @@ index 45ba6e6e..2bd01693 100644
      const shift = s.mouseShiftCapture(false);
      for (hs.mouse[0..hs.mouse_len]) |m| {
          const action: input.MouseAction = switch (m.kind) {
-@@ -4481,6 +4685,7 @@ fn reserved(s: *Surface, event: input.KeyEvent) bool {
+@@ -4481,6 +4764,7 @@ fn reserved(s: *Surface, event: input.KeyEvent) bool {
  /// hears a release without its press, nor a press without its release.
  pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
      if (s.readonly) return false;
@@ -1126,7 +1221,7 @@ index 45ba6e6e..2bd01693 100644
      const hs = &s.io.terminal_stream.handler.hotty;
      hs.copy_denied = false;
      // Encoding takes the renderer lock itself.
-@@ -4506,6 +4711,26 @@ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
+@@ -4506,6 +4790,26 @@ pub fn surfaceKey(s: *Surface, event: input.KeyEvent) bool {
      return consumed;
  }
  

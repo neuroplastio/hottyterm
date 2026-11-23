@@ -16,9 +16,10 @@ or Shift+F10 through its context-menu listener.
 
 AppKit offers Control-click before building its menu. An existing
 chord keeps its owner. Shift opens the terminal menu for a new gesture.
-Option over a surface passes a right-button report to the program and
-tracks the physical left button in Ghostty. The button map reverses AppKit's conversion to
-Ghostty's button enum for hotty events. Ghostty still encodes AppKit
+Option over a surface tracks the physical left button in Ghostty.
+The terminal reports right-button press, motion, and release for that
+gesture with Control removed. The button map reverses AppKit's
+conversion to Ghostty's button enum for hotty events. Ghostty still encodes AppKit
 `buttonNumber` 7 as `.four`, which becomes SGR 64 (wheel) if it reaches
 terminal mouse reporting.
 
