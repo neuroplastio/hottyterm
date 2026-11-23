@@ -26,7 +26,6 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 FORK="${HOTTYTERM_GHOSTTY:-$(dirname "$HERE")/ghostty}"
 OPT="${1:-ReleaseFast}"; [ $# -gt 0 ] && shift
 CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/hotty"
-ZIG="$(cd "$HERE" && mise which zig)"
 
 . "$HERE/scripts/lib-blitz.sh"
 select_blitz
@@ -52,13 +51,13 @@ WRAP
 chmod +x "$BIN/blueprint-compiler"
 
 # 2. hotty-blitz, as the shared library the fork links.
-(cd "$BLITZ" && make -s blitz >/dev/null && mise x -- cargo build -q --release -p hotty-blitz)
+(cd "$BLITZ" && make -s blitz >/dev/null && mise exec -- cargo build -q --release -p hotty-blitz)
 
 # 3. The name a person reads the version by (gov P-5 rule 6), which --version
 # and the About window show (mods/ghostty/version-label.md).
 LABEL="$("$HERE/scripts/versions.sh" "$BLITZ" | sed -n 's/^label=//p')"
 
-cd "$FORK"
+cd "$HERE"
 HOTTY_BLITZ_LIB="$BLITZ/target/release" HOTTYTERM_LABEL="$LABEL" PATH="$BIN:$PATH" \
-  "$ZIG" build -Doptimize="$OPT" "$@"
+  mise exec -- sh -c 'cd "$1"; shift; exec zig build "$@"' hottyterm-build "$FORK" -Doptimize="$OPT" "$@"
 echo "built $FORK/zig-out/bin/hottyterm against hotty-blitz $(git -C "$BLITZ" rev-parse --short=7 HEAD) in $BLITZ"

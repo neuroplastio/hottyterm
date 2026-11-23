@@ -1,0 +1,114 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Mon, 23 Nov 2026 12:42:11 +0100
+Subject: [PATCH 63/65] hottyterm: tell Blitz which terminal modes receive edge
+ wheels
+
+Adds 8 lines to the upstream stream handler.
+---
+ src/termio/hotty.zig          | 19 ++++++++++++++++++-
+ src/termio/stream_handler.zig | 16 ++++++++--------
+ 2 files changed, 26 insertions(+), 9 deletions(-)
+
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 98653081..333035ff 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -719,6 +719,7 @@ extern fn hotty_host_set_keys(h: *Host, mod_super: bool, edit: ?[*:0]const u8, c
+ extern fn hotty_host_edit_command(h: *Host, physical: ?[*]const u8, physical_len: usize, other: ?[*]const u8, other_len: usize) ?[*:0]const u8;
+ extern fn hotty_host_command(name: [*:0]const u8, key: ?[*]const u8, key_len: usize, text: ?[*]const u8, text_len: usize, fx: ?*const Effects) void;
+ extern fn hotty_host_cells_key(h: *Host, physical: ?[*]const u8, physical_len: usize, other: ?[*]const u8, other_len: usize) void;
++extern fn hotty_host_set_scroll_modes(h: *Host, alt_screen: bool, mouse_tracking: bool) void;
+ extern fn hotty_host_set_screen(h: *Host, alt: bool) void;
+ extern fn hotty_host_set_waker(h: *Host, wake: ?*const fn (?*anyopaque) callconv(.c) void, ctx: ?*anyopaque) void;
+ 
+@@ -1208,7 +1209,19 @@ pub const Hotty = struct {
+         if (now == self.screen) return;
+         if (self.screen == .alternate) self.taken[1] = 0;
+         self.screen = now;
+-        if (self.hostReady()) |h| hotty_host_set_screen(h, now == .alternate);
++        if (self.hostReady()) |h| {
++            hotty_host_set_screen(h, now == .alternate);
++            setScrollModes(h, t);
++        }
++    }
++
++    /// DECSET 9, 1000, 1002 and 1003 share Ghostty's mouse-event mode.
++    pub fn syncScrollModes(self: *Hotty, t: *terminal.Terminal) void {
++        if (self.hostReady()) |h| setScrollModes(h, t);
++    }
++
++    fn setScrollModes(h: *Host, t: *const terminal.Terminal) void {
++        hotty_host_set_scroll_modes(h, t.screens.active_key == .alternate, t.flags.mouse_event != .none);
+     }
+ 
+     /// Whether the program took the edit command `name` on its screen.
+@@ -1343,6 +1356,7 @@ pub const Hotty = struct {
+             // The screen it is told first (SPEC §10.7).
+             self.screen = t.screens.active_key;
+             hotty_host_set_screen(h, self.screen == .alternate);
++            setScrollModes(h, t);
+             self.paint_thread = std.Thread.spawn(.{}, paintLoop, .{self}) catch |err| p: {
+                 log.warn("hotty: no paint thread, the stream paints: {}", .{err});
+                 break :p null;
+@@ -1416,6 +1430,9 @@ pub const Hotty = struct {
+         const h = self.hostReady() orelse return;
+         hotty_host_reset(h, null);
+         const t = self.streamHandler().terminal;
++        self.screen = t.screens.active_key;
++        hotty_host_set_screen(h, self.screen == .alternate);
++        setScrollModes(h, t);
+         var it = self.placed.iterator();
+         while (it.next()) |e| {
+             self.deleteImage(t, e.value_ptr.*);
+diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
+index 84962fa3..554253f5 100644
+--- a/src/termio/stream_handler.zig
++++ b/src/termio/stream_handler.zig
+@@ -782,38 +782,38 @@ pub const StreamHandler = struct {
+             .mouse_event_x10 => {
+                 if (enabled) {
+                     self.terminal.flags.mouse_event = .x10;
+-                    try self.setMouseShape(.default);
+                 } else {
+                     self.terminal.flags.mouse_event = .none;
+-                    try self.setMouseShape(.text);
+                 }
++                self.hotty.syncScrollModes(self.terminal); // hottyterm
++                try self.setMouseShape(if (enabled) .default else .text);
+             },
+             .mouse_event_normal => {
+                 if (enabled) {
+                     self.terminal.flags.mouse_event = .normal;
+-                    try self.setMouseShape(.default);
+                 } else {
+                     self.terminal.flags.mouse_event = .none;
+-                    try self.setMouseShape(.text);
+                 }
++                self.hotty.syncScrollModes(self.terminal); // hottyterm
++                try self.setMouseShape(if (enabled) .default else .text);
+             },
+             .mouse_event_button => {
+                 if (enabled) {
+                     self.terminal.flags.mouse_event = .button;
+-                    try self.setMouseShape(.default);
+                 } else {
+                     self.terminal.flags.mouse_event = .none;
+-                    try self.setMouseShape(.text);
+                 }
++                self.hotty.syncScrollModes(self.terminal); // hottyterm
++                try self.setMouseShape(if (enabled) .default else .text);
+             },
+             .mouse_event_any => {
+                 if (enabled) {
+                     self.terminal.flags.mouse_event = .any;
+-                    try self.setMouseShape(.default);
+                 } else {
+                     self.terminal.flags.mouse_event = .none;
+-                    try self.setMouseShape(.text);
+                 }
++                self.hotty.syncScrollModes(self.terminal); // hottyterm
++                try self.setMouseShape(if (enabled) .default else .text);
+             },
+ 
+             .mouse_format_utf8 => self.terminal.flags.mouse_format = if (enabled) .utf8 else .x10,
