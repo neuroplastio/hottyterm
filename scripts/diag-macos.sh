@@ -4,6 +4,8 @@
 #
 #   sh diag-macos.sh           # the hottyterm that is running, as it is
 #   sh diag-macos.sh --trace   # and then a traced one you start your programs in
+#   sh diag-macos.sh --trace-dir DIR   # the running one, started traced:
+#       open -a hottyterm --env HOTTY_TRACE=DIR
 #
 # It writes hottyterm-diag-<time>/ and a .tar.gz of it in the current
 # directory, holding hottyterm's own numbers only:
@@ -21,7 +23,11 @@
 set -u
 SECS="${SECS:-15}"
 TRACE=0
-[ "${1:-}" = --trace ] && TRACE=1
+TRACE_DIR=
+case "${1:-}" in
+--trace) TRACE=1 ;;
+--trace-dir) TRACE_DIR="${2:?--trace-dir needs the directory HOTTY_TRACE named}" ;;
+esac
 [ "$(uname)" = Darwin ] || { echo "This is for macOS." >&2; exit 1; }
 
 OUT="$PWD/hottyterm-diag-$(date +%Y%m%d-%H%M%S)"
@@ -88,6 +94,15 @@ if [ -n "$PID" ]; then
     measure "$PID" shown
     wait_enter "  Now minimise every hottyterm window (Cmd+M),"
     measure "$PID" hidden
+fi
+
+if [ -n "$TRACE_DIR" ] && [ -n "$PID" ]; then
+    # The running hottyterm's own stamps, named by its pid.
+    mkdir -p "$OUT/trace"
+    for f in "$TRACE_DIR"/hottyterm-"$PID".jsonl "$TRACE_DIR"/blitz-"$PID".jsonl; do
+        [ -f "$f" ] && cp "$f" "$OUT/trace/"
+    done
+    [ -n "$(ls "$OUT/trace")" ] || echo "  No trace of pid $PID in $TRACE_DIR: was it started with HOTTY_TRACE=$TRACE_DIR?"
 fi
 
 if [ "$TRACE" = 1 ]; then
