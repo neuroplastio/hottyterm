@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Fri, 27 Nov 2026 20:30:03 +0100
+Subject: [PATCH 69/72] hottyterm: a hold's end draws only a frame the hold
+ kept back
+
+The end of a hotty hold queued a render every time, so every paint of a
+hotty surface drew a terminal frame, even when no frame came during the
+hold. The renderer now notes a frame it skipped for the hold, and only
+then does the end of the hold queue one.
+---
+ src/renderer/State.zig   | 4 ++++
+ src/renderer/generic.zig | 1 +
+ src/termio/hotty.zig     | 3 +++
+ 3 files changed, 8 insertions(+)
+
+diff --git a/src/renderer/State.zig b/src/renderer/State.zig
+index 1c72b4ed1..c2cfbf4ef 100644
+--- a/src/renderer/State.zig
++++ b/src/renderer/State.zig
+@@ -39,6 +39,10 @@ mouse: Mouse = .{},
+ /// update, until the update's surfaces are in (SPEC §6.3).
+ hotty_hold: bool = false,
+ 
++/// hottyterm: a frame the renderer skipped for `hotty_hold`, which the end
++/// of the hold draws.
++hotty_held: bool = false,
++
+ /// hottyterm: the terminal's hotty surfaces (termio/hotty.zig), told at each
+ /// frame where the view is, so that what plays out of view stops.
+ hotty: ?*@import("../termio/hotty.zig").Hotty = null,
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index 72cbcfffd..962113d37 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -1450,6 +1450,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 // hottyterm: and while its end waits for hotty surfaces.
+                 if (state.terminal.modes.get(.synchronized_output) or state.hotty_hold) {
+                     log.debug("synchronized output started, skipping render", .{});
++                    if (state.hotty_hold) state.hotty_held = true;
+                     return;
+                 }
+ 
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 4b98b59d1..3550cb8d9 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -1680,6 +1680,9 @@ pub const Hotty = struct {
+         const sh = self.streamHandler();
+         if (!sh.renderer_state.hotty_hold) return;
+         sh.renderer_state.hotty_hold = false;
++        // Only a frame the hold kept back needs drawing now.
++        if (!sh.renderer_state.hotty_held) return;
++        sh.renderer_state.hotty_held = false;
+         sh.queueRender() catch {};
+     }
+ 

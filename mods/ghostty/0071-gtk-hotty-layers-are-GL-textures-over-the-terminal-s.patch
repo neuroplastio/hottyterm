@@ -1,0 +1,333 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Fri, 27 Nov 2026 20:30:12 +0100
+Subject: [PATCH 71/72] gtk: hotty layers are GL textures over the terminal's
+
+RenderSurface snapshots each hotty layer as its own texture over the
+terminal's, where the frame says it shows, clipped to its placement. A
+layer's texture is one of up to three GL textures in a context shared
+with GTK's: the next is brought up to date from the newest on the GPU
+(glCopyImageSubData), and only the rectangles that changed are uploaded
+(glTexSubImage2D), behind a fence GTK waits on. GTK 4.24 uploads a memory
+texture whole even with an update region, so it is used only without GL.
+---
+ src/apprt/gtk/class/render_surface.zig | 269 ++++++++++++++++++++++++-
+ 1 file changed, 268 insertions(+), 1 deletion(-)
+
+diff --git a/src/apprt/gtk/class/render_surface.zig b/src/apprt/gtk/class/render_surface.zig
+index df5b520ee..a1c8e9447 100644
+--- a/src/apprt/gtk/class/render_surface.zig
++++ b/src/apprt/gtk/class/render_surface.zig
+@@ -14,6 +14,8 @@ const rendererpkg = @import("../../../renderer.zig");
+ const ExportedFrame = rendererpkg.Renderer.ExportedFrame;
+ const Dmabuf = @import("../../../renderer/Dmabuf.zig");
+ const hotty = @import("../../../termio/hotty.zig");
++const hotty_layers = @import("../../../renderer/hotty_layers.zig");
++const gl = @import("opengl");
+ const Planes = Dmabuf.Planes;
+ 
+ const log = std.log.scoped(.gtk_render_surface);
+@@ -73,6 +75,16 @@ pub const RenderSurface = extern struct {
+         /// One-shot so we log the first real allocation, not every size-allocate.
+         scale_logged_size: bool = false,
+ 
++        /// hottyterm: where the layers show in `texture`, and a texture of
++        /// each (hotty_layers.zig).
++        geometry: std.ArrayListUnmanaged(hotty_layers.Geometry) = .empty,
++        layer_textures: std.AutoHashMapUnmanaged(u32, LayerTexture) = .empty,
++        layer_changed: std.ArrayListUnmanaged(hotty_layers.Rect) = .empty,
++        /// The GL context the layers' textures are written in, shared with
++        /// GTK's; `layer_gl_failed` once it could not be had.
++        layer_gl: ?*gdk.GLContext = null,
++        layer_gl_failed: bool = false,
++
+         pub var offset: c_int = 0;
+     };
+ 
+@@ -117,6 +129,8 @@ pub const RenderSurface = extern struct {
+             tex.as(gobject.Object).unref();
+             priv.texture = null;
+         }
++        priv.geometry.clearRetainingCapacity();
++        self.pruneLayerTextures();
+ 
+         gtk.Widget.virtual_methods.unrealize.call(
+             Class.parent,
+@@ -156,7 +170,7 @@ pub const RenderSurface = extern struct {
+         // still unconsumed in the queue, but not the texture we're
+         // currently displaying.
+         if (priv.core_surface) |core| {
+-            if (core.renderer.takeFrame()) |frame| {
++            if (core.renderer.takeFrameLayers(&priv.geometry)) |frame| {
+                 hotty.trace.instant(if (frame == .dmabuf) "term.snapshot" else "term.snapshot.cpu");
+                 self.rebuildTexture(frame) catch |err| switch (err) {
+                     // GTK can't import our DMABUFs, e.g. due to an
+@@ -205,8 +219,260 @@ pub const RenderSurface = extern struct {
+             .f_origin = .{ .f_x = @floatCast(origin.x), .f_y = @floatCast(origin.y) },
+             .f_size = .{ .f_width = css_w, .f_height = css_h },
+         });
++        if (flip) {
++            snap.restore();
++            snap.save();
++        }
++        self.snapshotLayers(snap, @floatCast(origin.x), @floatCast(origin.y), scale, css_w, css_h);
++    }
++
++    /// hottyterm: a layer's texture, the version of its pixels it has, and
++    /// the GL textures it is made from: GTK holds the one it shows while
++    /// the next is written, brought up to date first from the newest with
++    /// what changed since it was the newest. A memory texture without GL.
++    const LayerTexture = struct {
++        texture: ?*gdk.Texture = null,
++        version: u64 = 0,
++        w: u32 = 0,
++        h: u32 = 0,
++        slots: std.ArrayListUnmanaged(*GlSlot) = .empty,
++        newest: ?*GlSlot = null,
++
++        fn deinit(self: *LayerTexture) void {
++            if (self.texture) |t| t.as(gobject.Object).unref();
++            for (self.slots.items) |slot| slot.drop();
++            self.slots.deinit(std.heap.c_allocator);
++            self.* = .{};
++        }
++    };
++
++    /// A GL texture of a layer. Freed when both the layer and GTK let go.
++    const GlSlot = struct {
++        id: c_uint = 0,
++        /// The layer's, and one while a GdkTexture of it lives.
++        refs: u32 = 1,
++        sync: ?*anyopaque = null,
++        stale: hotty_layers.Region = .{},
++
++        fn held(self: *const GlSlot) bool {
++            return self.refs > 1;
++        }
++
++        /// Lets go of one reference. Main thread, with GTK's or the
++        /// layers' context current: the textures are shared.
++        fn drop(self: *GlSlot) void {
++            self.refs -= 1;
++            if (self.refs > 0) return;
++            if (self.sync) |sy| gl.glad.context.DeleteSync.?(@ptrCast(sy));
++            if (self.id != 0) gl.glad.context.DeleteTextures.?(1, &self.id);
++            self.stale.rects.deinit(std.heap.c_allocator);
++            std.heap.c_allocator.destroy(self);
++        }
++    };
++
++    fn releaseSlot(data: ?*anyopaque) callconv(.c) void {
++        const slot: *GlSlot = @ptrCast(@alignCast(data.?));
++        slot.drop();
++    }
++
++    /// The layers' GL context, made current. Null without GL, after which
++    /// layers are memory textures.
++    fn layerGl(self: *Self) ?*gdk.GLContext {
++        const priv = self.private();
++        if (priv.layer_gl) |ctx| {
++            ctx.makeCurrent();
++            return ctx;
++        }
++        if (priv.layer_gl_failed) return null;
++        priv.layer_gl_failed = true;
++        const native = self.as(gtk.Widget).getNative() orelse return null;
++        const surface = native.getSurface() orelse return null;
++        var err: ?*glib.Error = null;
++        const ctx = surface.createGlContext(&err) orelse {
++            if (err) |e| e.free();
++            return null;
++        };
++        ctx.setAllowedApis(.{ .gl = true });
++        if (ctx.realize(&err) == 0) {
++            if (err) |e| e.free();
++            ctx.as(gobject.Object).unref();
++            return null;
++        }
++        ctx.makeCurrent();
++        const version = gl.glad.load(&gl.egl.getProcAddress) catch {
++            ctx.as(gobject.Object).unref();
++            return null;
++        };
++        if (gl.glad.versionMajor(@intCast(version)) * 10 + gl.glad.versionMinor(@intCast(version)) < 43) {
++            ctx.as(gobject.Object).unref();
++            return null;
++        }
++        priv.layer_gl_failed = false;
++        priv.layer_gl = ctx;
++        return ctx;
++    }
++
++    /// Image `id`'s layer as a texture, made again when its pixels changed.
++    /// With GL, only what changed is written, into a GL texture GTK does
++    /// not hold; without, the newest pixels become a memory texture.
++    fn layerTexture(self: *Self, ls: *hotty_layers.Layers, id: u32) ?*gdk.Texture {
++        const priv = self.private();
++        const gop = priv.layer_textures.getOrPut(std.heap.c_allocator, id) catch return null;
++        if (!gop.found_existing) gop.value_ptr.* = .{};
++        const cur = gop.value_ptr;
++        const t = ls.take(id, cur.version, &priv.layer_changed) orelse return cur.texture;
++        defer t.buffer.release();
++        const texture = if (self.layerGl()) |ctx|
++            glLayerTexture(ctx, cur, t) orelse return cur.texture
++        else
++            memoryLayerTexture(t);
++        if (cur.texture) |old| old.as(gobject.Object).unref();
++        cur.texture = texture;
++        cur.version = t.version;
++        return texture;
++    }
++
++    fn memoryLayerTexture(t: hotty_layers.Layers.Taken) *gdk.Texture {
++        _ = t.buffer.refs.fetchAdd(1, .acq_rel);
++        const bytes = glib.Bytes.newWithFreeFunc(t.buffer.data.ptr, t.buffer.data.len, &releaseLayerBuffer, t.buffer);
++        defer bytes.unref();
++        return gdk.MemoryTexture.new(@intCast(t.w), @intCast(t.h), .r8g8b8a8_premultiplied, bytes, @as(usize, t.w) * 4).as(gdk.Texture);
++    }
++
++    fn glLayerTexture(ctx: *gdk.GLContext, cur: *LayerTexture, t: hotty_layers.Layers.Taken) ?*gdk.Texture {
++        const c = &gl.glad.context;
++        const a = std.heap.c_allocator;
++        if (cur.w != t.w or cur.h != t.h) {
++            for (cur.slots.items) |slot| slot.drop();
++            cur.slots.clearRetainingCapacity();
++            cur.newest = null;
++            cur.w = t.w;
++            cur.h = t.h;
++        }
++        // A slot GTK does not hold, else a new one.
++        var slot: ?*GlSlot = null;
++        for (cur.slots.items) |sl| if (sl != cur.newest and !sl.held()) {
++            slot = sl;
++            break;
++        };
++        const s = slot orelse s: {
++            const sl = a.create(GlSlot) catch return null;
++            sl.* = .{};
++            cur.slots.append(a, sl) catch {
++                a.destroy(sl);
++                return null;
++            };
++            c.GenTextures.?(1, &sl.id);
++            c.BindTexture.?(gl.c.GL_TEXTURE_2D, sl.id);
++            c.TexParameteri.?(gl.c.GL_TEXTURE_2D, gl.c.GL_TEXTURE_MIN_FILTER, gl.c.GL_NEAREST);
++            c.TexParameteri.?(gl.c.GL_TEXTURE_2D, gl.c.GL_TEXTURE_MAG_FILTER, gl.c.GL_NEAREST);
++            c.TexStorage2D.?(gl.c.GL_TEXTURE_2D, 1, gl.c.GL_RGBA8, @intCast(t.w), @intCast(t.h));
++            sl.stale.add(.{ .x = 0, .y = 0, .w = t.w, .h = t.h });
++            break :s sl;
++        };
++        if (s.sync) |sy| {
++            c.DeleteSync.?(@ptrCast(sy));
++            s.sync = null;
++        }
++        // Up to date with the newest first, on the GPU; without one, all of
++        // it comes from the pixels.
++        const whole = [_]hotty_layers.Rect{.{ .x = 0, .y = 0, .w = t.w, .h = t.h }};
++        var upload: []const hotty_layers.Rect = t.changed;
++        if (cur.newest) |n| {
++            for (s.stale.rects.items) |r| c.CopyImageSubData.?(
++                n.id, gl.c.GL_TEXTURE_2D, 0, @intCast(r.x), @intCast(r.y), 0,
++                s.id, gl.c.GL_TEXTURE_2D, 0, @intCast(r.x), @intCast(r.y), 0,
++                @intCast(r.w), @intCast(r.h), 1,
++            );
++        } else upload = &whole;
++        s.stale.rects.clearRetainingCapacity();
++        c.BindTexture.?(gl.c.GL_TEXTURE_2D, s.id);
++        c.PixelStorei.?(gl.c.GL_UNPACK_ROW_LENGTH, @intCast(t.w));
++        c.PixelStorei.?(gl.c.GL_UNPACK_ALIGNMENT, 4);
++        for (upload) |r| {
++            if (r.w == 0 or r.h == 0) continue;
++            c.TexSubImage2D.?(
++                gl.c.GL_TEXTURE_2D, 0, @intCast(r.x), @intCast(r.y), @intCast(r.w), @intCast(r.h),
++                gl.c.GL_RGBA, gl.c.GL_UNSIGNED_BYTE,
++                t.buffer.data[(@as(usize, r.y) * t.w + r.x) * 4 ..].ptr,
++            );
++        }
++        c.PixelStorei.?(gl.c.GL_UNPACK_ROW_LENGTH, 0);
++        c.BindTexture.?(gl.c.GL_TEXTURE_2D, 0);
++        for (cur.slots.items) |o| if (o != s) for (upload) |r| o.stale.add(r);
++        s.sync = c.FenceSync.?(gl.c.GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
++        c.Flush.?();
++        cur.newest = s;
++
++        const builder = gdk.GLTextureBuilder.new();
++        defer builder.unref();
++        builder.setContext(ctx);
++        builder.setId(s.id);
++        builder.setWidth(@intCast(t.w));
++        builder.setHeight(@intCast(t.h));
++        builder.setFormat(.r8g8b8a8_premultiplied);
++        builder.setSync(s.sync);
++        s.refs += 1;
++        return builder.build(&releaseSlot, s);
+     }
+ 
++    /// hottyterm: the layers over the terminal's frame, where its frame
++    /// says they show, each clipped to its placement and all to the frame.
++    fn snapshotLayers(self: *Self, snap: *gtk.Snapshot, ox: f32, oy: f32, scale: f32, w: f32, h: f32) void {
++        const priv = self.private();
++        const core = priv.core_surface orelse return;
++        const ls = &core.renderer_state.hotty_layers;
++        if (!ls.on()) return;
++        self.pruneLayerTextures();
++        if (priv.geometry.items.len == 0) return;
++        snap.pushClip(&.{ .f_origin = .{ .f_x = ox, .f_y = oy }, .f_size = .{ .f_width = w, .f_height = h } });
++        defer snap.pop();
++        for (priv.geometry.items) |g| {
++            if (g.source_w == 0 or g.source_h == 0) continue;
++            const texture = self.layerTexture(ls, g.image_id) orelse continue;
++            const kx = @as(f32, @floatFromInt(g.w)) / @as(f32, @floatFromInt(g.source_w)) / scale;
++            const ky = @as(f32, @floatFromInt(g.h)) / @as(f32, @floatFromInt(g.source_h)) / scale;
++            const x = ox + @as(f32, @floatFromInt(g.x)) / scale;
++            const y = oy + @as(f32, @floatFromInt(g.y)) / scale;
++            snap.pushClip(&.{
++                .f_origin = .{ .f_x = x, .f_y = y },
++                .f_size = .{ .f_width = @as(f32, @floatFromInt(g.w)) / scale, .f_height = @as(f32, @floatFromInt(g.h)) / scale },
++            });
++            snap.appendScaledTexture(texture, .nearest, &.{
++                .f_origin = .{ .f_x = x - @as(f32, @floatFromInt(g.source_x)) * kx, .f_y = y - @as(f32, @floatFromInt(g.source_y)) * ky },
++                .f_size = .{ .f_width = @as(f32, @floatFromInt(texture.getWidth())) * kx, .f_height = @as(f32, @floatFromInt(texture.getHeight())) * ky },
++            });
++            snap.pop();
++        }
++    }
++
++    /// Lets go of the textures of layers no longer in the frame.
++    fn pruneLayerTextures(self: *Self) void {
++        const priv = self.private();
++        var it = priv.layer_textures.iterator();
++        while (it.next()) |e| {
++            for (priv.geometry.items) |g| {
++                if (g.image_id == e.key_ptr.*) break;
++            } else {
++                // GL textures go in the layers' context (or none, without GL).
++                if (e.value_ptr.slots.items.len > 0) _ = self.layerGl();
++                e.value_ptr.deinit();
++                priv.layer_textures.removeByPtr(e.key_ptr);
++                it = priv.layer_textures.iterator();
++            }
++        }
++    }
++
++    fn releaseLayerBuffer(data: ?*anyopaque) callconv(.c) void {
++        const b: *hotty_layers.Buffer = @ptrCast(@alignCast(data.?));
++        b.release();
++    }
++
++    const RectangleInt = extern struct { x: c_int, y: c_int, width: c_int, height: c_int };
++    extern fn cairo_region_create() *anyopaque;
++    extern fn cairo_region_destroy(*anyopaque) void;
++    extern fn cairo_region_union_rectangle(*anyopaque, *const RectangleInt) c_int;
++
+     /// hottyterm: with HOTTY_TRACE set, stamps GTK's frame clock (gov
+     /// R-22): `term.fc` as each phase of a frame begins (`a.p`), `term.frame`
+     /// after each paint, with the frame's counter, its frame time and its
+@@ -367,6 +633,7 @@ pub const RenderSurface = extern struct {
+     /// render when this is unset.
+     pub fn setCoreSurface(self: *Self, core: ?*CoreSurface) void {
+         self.private().core_surface = core;
++        if (core) |c| c.renderer_state.hotty_layers.enabled.store(true, .release);
+     }
+ 
+     /// Build a `GdkTexture` from the present and set it as our current

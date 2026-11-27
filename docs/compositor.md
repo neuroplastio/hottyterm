@@ -23,8 +23,8 @@ frame instead.
 Landed: patches 0067 and 0068, and glifo's decode on a miss (hotty-blitz).
 Region uploads are left for stage 1, which replaces them. On Linux's
 headless display, the plx-like page went from 3.11G to 2.46G instructions
-per 10 s (-21%, three alternating rounds). CPU time there is the software
-OpenGL's.
+per 10 s (-21%, three alternating rounds). That display renders on the
+GPU (amdgpu).
 
 Found in a sample of that Mac:
 
@@ -45,6 +45,35 @@ Found in a sample of that Mac:
   from `diag-macos.sh --trace-dir`.
 
 ## Stage 1: a surface is a layer (weeks)
+
+Landed: patches 0069–0072 (`mods/ghostty/layers*.md`). A surface placed
+above the text on the active screen is a layer on both platforms. Surfaces
+under the text, and the stacking split below, are still drawn in the
+terminal's frame. What was built differs from the plan below in three ways:
+
+- hotty-blitz still paints into its own buffer. hottyterm keeps a store of
+  premultiplied pixels per layer and copies only the changed rectangles on
+  to the compositor, so the C ABI is unchanged.
+- On Linux the layers are GL textures in GTK's scene, not offloaded
+  subsurfaces. GTK 4.24 uploads a memory texture whole even with an update
+  region, so hottyterm updates its own GL textures with `glTexSubImage2D`.
+- A paint that changed only layers ends without a terminal frame, and so
+  does a hold that kept no frame back (patch 0069).
+
+Measured, with the plx-like page and its animations:
+
+| | before | layers |
+| --- | --- | --- |
+| Linux, 3440×1440 at 144 Hz, AMD GPU | ~14% | ~9% |
+| macOS probe runner (virtual M1), plx page | 13.1% | 6.8% |
+| macOS probe runner, one pulsing dot | 8.6% | 4.0% |
+
+On Linux, what's left is GTK's own frame at the display's rate (~5%) and
+the paint thread, which wakes about 400 times a second instead of once per
+refresh. Layers blend in sRGB, as browsers and macOS do, so translucent
+surfaces over the text look a little darker on Linux than before.
+
+The plan, as proposed:
 
 On macOS, each placed hotty surface gets a `CALayer` whose contents is an
 `IOSurface`. hotty-blitz paints damage straight into the IOSurface's memory

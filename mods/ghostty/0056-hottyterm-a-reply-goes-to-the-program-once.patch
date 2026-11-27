@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Fri, 13 Nov 2026 23:08:25 +0100
-Subject: [PATCH 56/68] hottyterm: a reply goes to the program once
+Subject: [PATCH 56/72] hottyterm: a reply goes to the program once
 
 What the surfaces collect for the program (a click, a key, a fit) was
 sent from two threads: the app thread's deliver read and emptied the

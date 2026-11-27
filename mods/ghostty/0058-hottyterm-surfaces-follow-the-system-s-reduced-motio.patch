@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Sun, 15 Nov 2026 17:44:24 +0100
-Subject: [PATCH 58/68] hottyterm: surfaces follow the system's reduced-motion
+Subject: [PATCH 58/72] hottyterm: surfaces follow the system's reduced-motion
  setting
 
 Watch GtkSettings gtk-enable-animations and NSWorkspace accessibility display changes. Keep the preference before the lazy hotty-blitz host exists, pass it through hotty_host_set_reduced_motion, and repaint idle surfaces on a change. Disconnect the platform observers before their surface is freed.

@@ -1,0 +1,883 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Fri, 27 Nov 2026 20:30:12 +0100
+Subject: [PATCH 70/72] hottyterm: hotty surfaces are layers the apprt
+ composites
+
+A surface placed above the text on the active screen is a layer: its
+paints go to a store of premultiplied pixels (renderer/hotty_layers.zig)
+with the rectangles that changed, and the renderer draws no quad for it.
+Each exported frame carries where its layers show, so a scroll moves them
+with the cells. A paint that changed only layers asks the apprt to
+composite again, through its notifier or a redraw, and draws no terminal
+frame. A surface that stops being a layer is drawn into its image again
+whole.
+
+An apprt opts in by enabling the store; until one does, nothing changes.
+---
+ src/Surface.zig               |   1 +
+ src/renderer.zig              |   1 +
+ src/renderer/State.zig        |   4 +
+ src/renderer/generic.zig      |  43 +++-
+ src/renderer/hotty_layers.zig | 439 ++++++++++++++++++++++++++++++++++
+ src/renderer/image.zig        |  23 +-
+ src/termio/hotty.zig          |  83 ++++++-
+ 7 files changed, 588 insertions(+), 6 deletions(-)
+ create mode 100644 src/renderer/hotty_layers.zig
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index fb303a2ce..9d3fab8a8 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -860,6 +860,7 @@ pub fn deinit(self: *Surface) void {
+     self.renderer.deinit();
+     self.renderer_thread.deinit();
+     self.io_thread.deinit();
++    self.renderer_state.hotty_layers.deinit(); // hottyterm: hotty_layers.zig
+     self.mouse.selection_gesture.deinit(&self.io.terminal);
+     self.io.deinit();
+ 
+diff --git a/src/renderer.zig b/src/renderer.zig
+index b5ba2c3ef..c05040119 100644
+--- a/src/renderer.zig
++++ b/src/renderer.zig
+@@ -66,4 +66,5 @@ test {
+     _ = size;
+     _ = Thread;
+     _ = State;
++    _ = @import("renderer/hotty_layers.zig"); // hottyterm
+ }
+diff --git a/src/renderer/State.zig b/src/renderer/State.zig
+index c2cfbf4ef..2fe1cc8e1 100644
+--- a/src/renderer/State.zig
++++ b/src/renderer/State.zig
+@@ -43,6 +43,10 @@ hotty_hold: bool = false,
+ /// of the hold draws.
+ hotty_held: bool = false,
+ 
++/// hottyterm: the hotty surfaces the apprt composites over the frame
++/// (hotty_layers.zig).
++hotty_layers: @import("hotty_layers.zig").Layers = .{},
++
+ /// hottyterm: the terminal's hotty surfaces (termio/hotty.zig), told at each
+ /// frame where the view is, so that what plays out of view stops.
+ hotty: ?*@import("../termio/hotty.zig").Hotty = null,
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index 962113d37..81885b5d7 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -4,6 +4,7 @@ const global = @import("../global.zig");
+ const xev = global.xev;
+ const wuffs = @import("wuffs");
+ const hotty = @import("../termio/hotty.zig");
++const hotty_layers = @import("hotty_layers.zig");
+ const apprt = @import("../apprt.zig");
+ const configpkg = @import("../config.zig");
+ const font = @import("../font/main.zig");
+@@ -131,6 +132,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+         /// present its rendered frame.
+         latest_frame: LatestFrame = .{},
+ 
++        /// hottyterm: where the layers show in the frame being drawn
++        /// (hotty_layers.zig), exported with it.
++        layer_geometry: std.ArrayListUnmanaged(hotty_layers.Geometry) = .empty,
++
+         /// Current font metrics defining our grid.
+         grid_metrics: font.Metrics,
+ 
+@@ -870,6 +875,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             if (self.search_matches) |*m| m.arena.deinit();
+ 
+             self.latest_frame.deinit(global.io());
++            self.layer_geometry.deinit(self.alloc);
+ 
+             // Stop and release the display link. Surfaces are destroyed
+             // on the main thread, where `close` stops the link before
+@@ -1043,23 +1049,28 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             const Self = @This();
+             mutex: std.Io.Mutex = .init,
+             latest: ?ExportedFrame = null,
++            /// hottyterm: where the layers show in `latest`.
++            geometry: std.ArrayListUnmanaged(hotty_layers.Geometry) = .empty,
+ 
+-            pub fn push(self: *LatestFrame, io: std.Io, value: ExportedFrame) void {
++            pub fn push(self: *LatestFrame, io: std.Io, value: ExportedFrame, geometry: []const hotty_layers.Geometry) void {
+                 if (comptime ExportedFrame == void) return;
+ 
+                 self.mutex.lockUncancelable(io);
+                 defer self.mutex.unlock(io);
+                 if (self.latest) |*old| old.deinit();
+                 self.latest = value;
++                self.geometry.clearRetainingCapacity();
++                self.geometry.appendSlice(std.heap.c_allocator, geometry) catch {};
+             }
+ 
+-            pub fn take(self: *LatestFrame, io: std.Io) ?ExportedFrame {
++            pub fn take(self: *LatestFrame, io: std.Io, geometry: ?*std.ArrayListUnmanaged(hotty_layers.Geometry)) ?ExportedFrame {
+                 if (comptime ExportedFrame == void) return null;
+ 
+                 self.mutex.lockUncancelable(io);
+                 defer self.mutex.unlock(io);
+                 const result = self.latest orelse return null;
+                 self.latest = null;
++                if (geometry) |g| std.mem.swap(std.ArrayListUnmanaged(hotty_layers.Geometry), g, &self.geometry);
+                 return result;
+             }
+ 
+@@ -1070,6 +1081,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 defer self.mutex.unlock(io);
+                 if (self.latest) |*v| v.deinit();
+                 self.latest = null;
++                self.geometry.deinit(std.heap.c_allocator);
+             }
+         };
+ 
+@@ -1079,7 +1091,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+         /// Has no effect for renderers that do not export frames
+         /// (i.e. `ExportedFrame == void`).
+         pub fn pushFrame(self: *Self, frame: ExportedFrame) void {
+-            return self.latest_frame.push(global.io(), frame);
++            return self.latest_frame.push(global.io(), frame, self.layer_geometry.items);
+         }
+ 
+         /// Take the latest completed frame for the apprt to composite.
+@@ -1089,7 +1101,14 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+         /// Has no effect for renderers that do not export frames
+         /// (i.e. `ExportedFrame == void`).
+         pub fn takeFrame(self: *Self) ?ExportedFrame {
+-            return self.latest_frame.take(global.io());
++            return self.latest_frame.take(global.io(), null);
++        }
++
++        /// hottyterm: `takeFrame`, with where the layers show in it
++        /// (hotty_layers.zig), swapped into `geometry`, whose items must
++        /// come from the C allocator.
++        pub fn takeFrameLayers(self: *Self, geometry: *std.ArrayListUnmanaged(hotty_layers.Geometry)) ?ExportedFrame {
++            return self.latest_frame.take(global.io(), geometry);
+         }
+ 
+         /// The display link output callback. CoreVideo invokes this on
+@@ -1545,6 +1564,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     // our image state that drawFrame uses.
+                     self.draw_mutex.lockUncancelable(global.io());
+                     defer self.draw_mutex.unlock(global.io());
++                    self.images.layers = &state.hotty_layers;
+                     self.images.kittyUpdate(
+                         self.alloc,
+                         state.terminal,
+@@ -1903,6 +1923,21 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             // The quads of every image placement, in one buffer.
+             try self.images.prepare(self.alloc);
+             try frame.images.sync(self.images.quads.items);
++            self.layer_geometry.clearRetainingCapacity();
++            for (self.images.composited.items) |p| try self.layer_geometry.append(self.alloc, .{
++                .image_id = switch (p.image_id) {
++                    .kitty => |id| id,
++                    .overlay => continue,
++                },
++                .x = @as(i32, @intCast(self.size.padding.left)) + p.x * @as(i32, @intCast(self.grid_metrics.cell_width)) + @as(i32, @intCast(p.cell_offset_x)),
++                .y = @as(i32, @intCast(self.size.padding.top)) + p.y * @as(i32, @intCast(self.grid_metrics.cell_height)) + @as(i32, @intCast(p.cell_offset_y)),
++                .w = p.width,
++                .h = p.height,
++                .source_x = p.source_x,
++                .source_y = p.source_y,
++                .source_w = p.source_width,
++                .source_h = p.source_height,
++            });
+ 
+             // Upload the background image to the GPU as necessary.
+             try self.uploadBackgroundImage();
+diff --git a/src/renderer/hotty_layers.zig b/src/renderer/hotty_layers.zig
+new file mode 100644
+index 000000000..8da558753
+--- /dev/null
++++ b/src/renderer/hotty_layers.zig
+@@ -0,0 +1,439 @@
++//! hottyterm: hotty surfaces the apprt composites over the terminal's frame,
++//! as a browser composites layers. A change to one writes its pixels here
++//! and asks the apprt for a draw: no terminal frame is drawn for it. The
++//! renderer draws no quad for them, and tells the apprt where each one
++//! shows (`Geometry`) with every frame it exports, so a scroll moves them
++//! with the cells.
++//!
++//! Pixels are premultiplied RGBA, `w * 4` bytes a row, as hotty-blitz
++//! paints them. The apprt makes textures from a layer's buffers and holds a
++//! buffer while a texture of it lives: a write goes to a buffer the apprt
++//! does not hold, brought up to date first from the newest one with only
++//! what changed since it was the newest (`Buffer.stale`).
++//!
++//! The terminal's lock may be held when this mutex is taken, never the
++//! other way round.
++
++const std = @import("std");
++const global = @import("../global.zig");
++
++const alloc = std.heap.c_allocator;
++
++pub const Rect = extern struct { x: u32, y: u32, w: u32, h: u32 };
++
++/// Where a composited surface shows in a frame, in the frame's pixels.
++pub const Geometry = struct {
++    image_id: u32,
++    /// The placement's top left and size.
++    x: i32,
++    y: i32,
++    w: u32,
++    h: u32,
++    /// The part of the image it shows.
++    source_x: u32,
++    source_y: u32,
++    source_w: u32,
++    source_h: u32,
++};
++
++/// At most this many rectangles in a region: past it, their bounds.
++const MAX_RECTS = 16;
++
++pub const Region = struct {
++    rects: std.ArrayListUnmanaged(Rect) = .empty,
++
++    pub fn add(self: *Region, r: Rect) void {
++        if (r.w == 0 or r.h == 0) return;
++        if (self.rects.items.len >= MAX_RECTS) {
++            var b = r;
++            for (self.rects.items) |o| b = bounds(b, o);
++            self.rects.clearRetainingCapacity();
++            self.rects.appendAssumeCapacity(b);
++            return;
++        }
++        self.rects.append(alloc, r) catch {
++            // Out of memory: everything there is counts.
++            var b = r;
++            for (self.rects.items) |o| b = bounds(b, o);
++            self.rects.clearRetainingCapacity();
++            if (self.rects.capacity > 0) self.rects.appendAssumeCapacity(b);
++        };
++    }
++
++    fn deinit(self: *Region) void {
++        self.rects.deinit(alloc);
++    }
++};
++
++fn bounds(a: Rect, b: Rect) Rect {
++    const x0 = @min(a.x, b.x);
++    const y0 = @min(a.y, b.y);
++    const x1 = @max(a.x + a.w, b.x + b.w);
++    const y1 = @max(a.y + a.h, b.y + b.h);
++    return .{ .x = x0, .y = y0, .w = x1 - x0, .h = y1 - y0 };
++}
++
++/// A layer's pixels, as one of its buffers.
++pub const Buffer = struct {
++    data: []u8,
++    /// One for the layer while the buffer is one of its own, and one for
++    /// each texture the apprt made of it.
++    refs: std.atomic.Value(u32) = .init(1),
++    /// What changed since its pixels were the newest.
++    stale: Region = .{},
++
++    /// Lets go of a hold (`Layers.take`); the last frees it. Any thread.
++    pub fn release(self: *Buffer) void {
++        if (self.refs.fetchSub(1, .acq_rel) != 1) return;
++        alloc.free(self.data);
++        self.stale.deinit();
++        alloc.destroy(self);
++    }
++
++    fn free(self: *const Buffer) bool {
++        return self.refs.load(.acquire) == 1;
++    }
++};
++
++const Layer = struct {
++    image_id: u32,
++    w: u32,
++    h: u32,
++    bufs: std.ArrayListUnmanaged(*Buffer) = .empty,
++    newest: ?*Buffer = null,
++    /// What changed since the apprt last took the pixels.
++    pending: Region = .{},
++    /// Counts writes: what the apprt took is current while its version is
++    /// this one.
++    version: u64 = 1,
++    /// Seen by the sync under way (`keep`).
++    kept: bool = true,
++
++    fn deinit(self: *Layer) void {
++        for (self.bufs.items) |b| b.release();
++        self.bufs.deinit(alloc);
++        self.pending.deinit();
++    }
++
++    /// A buffer to write: one the apprt does not hold, else a new one.
++    /// When some go free again, more than three are let go.
++    fn writable(self: *Layer) ?*Buffer {
++        var pick: ?*Buffer = null;
++        var i: usize = 0;
++        while (i < self.bufs.items.len) {
++            const b = self.bufs.items[i];
++            if (b != self.newest and b.free()) {
++                if (pick == null) {
++                    pick = b;
++                } else if (self.bufs.items.len > 3) {
++                    _ = self.bufs.swapRemove(i);
++                    b.release();
++                    continue;
++                }
++            }
++            i += 1;
++        }
++        if (pick) |b| return b;
++        const b = alloc.create(Buffer) catch return null;
++        const data = alloc.alloc(u8, @as(usize, self.w) * self.h * 4) catch {
++            alloc.destroy(b);
++            return null;
++        };
++        b.* = .{ .data = data };
++        self.bufs.append(alloc, b) catch {
++            b.release();
++            return null;
++        };
++        // All of it is to be filled.
++        b.stale.add(.{ .x = 0, .y = 0, .w = self.w, .h = self.h });
++        return b;
++    }
++
++    /// Writes `rects` of `frame` (premultiplied, rows `stride` apart), or
++    /// all of it.
++    fn write(self: *Layer, frame: []const u8, stride: usize, rects: []const Rect, full: bool) bool {
++        const whole = [_]Rect{.{ .x = 0, .y = 0, .w = self.w, .h = self.h }};
++        const rs: []const Rect = if (full) &whole else rects;
++        const b = self.writable() orelse return false;
++        // Up to date first with what changed since it was the newest, unless
++        // all of it is written now.
++        if (!full) if (self.newest) |n| {
++            for (b.stale.rects.items) |r| copy(b.data, self.w, n.data, self.w * 4, r);
++        };
++        b.stale.rects.clearRetainingCapacity();
++        for (rs) |r| copy(b.data, self.w, frame, stride, r);
++        for (self.bufs.items) |o| if (o != b) for (rs) |r| o.stale.add(r);
++        for (rs) |r| self.pending.add(r);
++        self.newest = b;
++        self.version +%= 1;
++        return true;
++    }
++};
++
++fn copy(dst: []u8, w: u32, src: []const u8, stride: usize, r: Rect) void {
++    const row = @as(usize, r.w) * 4;
++    const dst_stride = @as(usize, w) * 4;
++    var y: usize = 0;
++    while (y < r.h) : (y += 1) {
++        const at = (r.y + y);
++        @memcpy(
++            dst[at * dst_stride + @as(usize, r.x) * 4 ..][0..row],
++            src[at * stride + @as(usize, r.x) * 4 ..][0..row],
++        );
++    }
++}
++
++pub const Layers = struct {
++    mutex: std.Io.Mutex = .init,
++    /// Whether the apprt composites: set by it once, before any frame.
++    enabled: std.atomic.Value(bool) = .init(false),
++    /// Surface name (owned) → its layer.
++    layers: std.StringHashMapUnmanaged(Layer) = .empty,
++    /// Whether the sync under way made or let go of a layer.
++    synced: bool = false,
++    /// How the apprt is told a layer has new pixels, when not by a redraw.
++    notifier: ?Notifier = null,
++
++    pub const Notifier = struct {
++        ctx: *anyopaque,
++        /// Called under the lock: it only asks for a draw.
++        f: *const fn (*anyopaque) void,
++    };
++
++    pub fn setNotifier(self: *Layers, n: ?Notifier) void {
++        self.lock();
++        defer self.unlock();
++        self.notifier = n;
++    }
++
++    /// Tells the apprt a layer has new pixels: false when it has no
++    /// notifier and wants a redraw.
++    pub fn notify(self: *Layers) bool {
++        self.lock();
++        defer self.unlock();
++        const n = self.notifier orelse return false;
++        n.f(n.ctx);
++        return true;
++    }
++
++    pub fn deinit(self: *Layers) void {
++        var it = self.layers.iterator();
++        while (it.next()) |e| {
++            alloc.free(e.key_ptr.*);
++            e.value_ptr.deinit();
++        }
++        self.layers.deinit(alloc);
++    }
++
++    fn lock(self: *Layers) void {
++        self.mutex.lockUncancelable(global.io());
++    }
++
++    fn unlock(self: *Layers) void {
++        self.mutex.unlock(global.io());
++    }
++
++    pub fn on(self: *const Layers) bool {
++        return self.enabled.load(.acquire);
++    }
++
++    /// A frame of surface `name`: true if it is a layer and took it. One
++    /// of another size is taken only whole.
++    pub fn write(self: *Layers, name: []const u8, w: u32, h: u32, frame: []const u8, stride: usize, rects: []const Rect, full: bool) bool {
++        if (!self.on()) return false;
++        self.lock();
++        defer self.unlock();
++        const l = self.layers.getPtr(name) orelse return false;
++        for (rects) |r| if (@as(u64, r.x) + r.w > w or @as(u64, r.y) + r.h > h) return false;
++        if (l.w != w or l.h != h) {
++            if (!full) return false;
++            for (l.bufs.items) |b| b.release();
++            l.bufs.clearRetainingCapacity();
++            l.newest = null;
++            l.w = w;
++            l.h = h;
++        }
++        return l.write(frame, stride, rects, full);
++    }
++
++    /// Starts a sync: what `keep` does not name by `endSync` is let go.
++    pub fn beginSync(self: *Layers) void {
++        self.lock();
++        self.synced = false;
++        var it = self.layers.valueIterator();
++        while (it.next()) |l| l.kept = false;
++    }
++
++    /// Surface `name` is a layer, of image `image_id`, `w` by `h`. If it is
++    /// new, its pixels are `straight`'s (straight alpha), premultiplied.
++    pub fn keep(self: *Layers, name: []const u8, image_id: u32, w: u32, h: u32, straight: []const u8) void {
++        if (self.layers.getPtr(name)) |l| {
++            l.kept = true;
++            l.image_id = image_id;
++            return;
++        }
++        if (straight.len != @as(usize, w) * h * 4) return;
++        const owned = alloc.dupe(u8, name) catch return;
++        var l: Layer = .{ .image_id = image_id, .w = w, .h = h };
++        const b = l.writable() orelse {
++            alloc.free(owned);
++            return;
++        };
++        @memcpy(b.data, straight);
++        premultiply(b.data);
++        b.stale.rects.clearRetainingCapacity();
++        l.newest = b;
++        self.layers.put(alloc, owned, l) catch {
++            alloc.free(owned);
++            l.deinit();
++            return;
++        };
++        self.synced = true;
++    }
++
++    /// Whether `name` is a layer (within a sync).
++    pub fn has(self: *Layers, name: []const u8) bool {
++        return self.layers.contains(name);
++    }
++
++    /// Lets go of surface `name`'s layer (within a sync).
++    pub fn drop(self: *Layers, name: []const u8) void {
++        const kv = self.layers.fetchRemove(name) orelse return;
++        alloc.free(kv.key);
++        var l = kv.value;
++        l.deinit();
++        self.synced = true;
++    }
++
++    /// Ends a sync: true if the layers are not the ones before it.
++    pub fn endSync(self: *Layers) bool {
++        defer self.unlock();
++        var changed = self.synced;
++        var again = true;
++        while (again) {
++            again = false;
++            var it = self.layers.iterator();
++            while (it.next()) |e| {
++                if (e.value_ptr.kept) continue;
++                const key = e.key_ptr.*;
++                e.value_ptr.deinit();
++                self.layers.removeByPtr(e.key_ptr);
++                alloc.free(key);
++                changed = true;
++                again = true;
++                break;
++            }
++        }
++        return changed;
++    }
++
++    /// Whether image `image_id` is a layer's.
++    pub fn composited(self: *Layers, image_id: u32) bool {
++        if (!self.on()) return false;
++        self.lock();
++        defer self.unlock();
++        var it = self.layers.valueIterator();
++        while (it.next()) |l| if (l.image_id == image_id) return true;
++        return false;
++    }
++
++    pub const Taken = struct {
++        /// Held for the caller, who releases it.
++        buffer: *Buffer,
++        w: u32,
++        h: u32,
++        version: u64,
++        /// What changed since the caller last took them; the whole of it
++        /// when `None` came before.
++        changed: []const Rect,
++    };
++
++    /// Image `image_id`'s newest pixels, if their version is not
++    /// `version`. `changed` is valid until the next call. Main thread.
++    pub fn take(self: *Layers, image_id: u32, version: u64, changed: *std.ArrayListUnmanaged(Rect)) ?Taken {
++        self.lock();
++        defer self.unlock();
++        var it = self.layers.valueIterator();
++        while (it.next()) |l| {
++            if (l.image_id != image_id) continue;
++            if (l.version == version) return null;
++            const b = l.newest orelse return null;
++            _ = b.refs.fetchAdd(1, .acq_rel);
++            changed.clearRetainingCapacity();
++            changed.appendSlice(alloc, l.pending.rects.items) catch {
++                changed.clearRetainingCapacity();
++                changed.append(alloc, .{ .x = 0, .y = 0, .w = l.w, .h = l.h }) catch {};
++            };
++            l.pending.rects.clearRetainingCapacity();
++            return .{ .buffer = b, .w = l.w, .h = l.h, .version = l.version, .changed = changed.items };
++        }
++        return null;
++    }
++
++    pub fn freeRects(list: *std.ArrayListUnmanaged(Rect)) void {
++        list.deinit(alloc);
++    }
++};
++
++fn premultiply(px: []u8) void {
++    var i: usize = 0;
++    while (i + 4 <= px.len) : (i += 4) {
++        const a: u32 = px[i + 3];
++        if (a == 255) continue;
++        inline for (0..3) |c| px[i + c] = @intCast((@as(u32, px[i + c]) * a + 127) / 255);
++    }
++}
++
++test "a write goes to a buffer the apprt does not hold, brought up to date" {
++    var ls: Layers = .{};
++    defer ls.deinit();
++    ls.enabled.store(true, .release);
++    const w = 4;
++    const h = 2;
++    var px: [w * h * 4]u8 = @splat(255);
++    ls.beginSync();
++    ls.keep("s", 7, w, h, &px);
++    _ = ls.endSync();
++
++    var changed: std.ArrayListUnmanaged(Rect) = .empty;
++    defer Layers.freeRects(&changed);
++    const first = ls.take(7, 0, &changed).?;
++    // Held: the next write goes elsewhere.
++    var frame: [w * h * 4]u8 = @splat(0);
++    try std.testing.expect(ls.write("s", w, h, &frame, w * 4, &.{.{ .x = 1, .y = 0, .w = 1, .h = 1 }}, false));
++    const second = ls.take(7, first.version, &changed).?;
++    try std.testing.expect(second.buffer != first.buffer);
++    try std.testing.expectEqualSlices(Rect, &.{.{ .x = 1, .y = 0, .w = 1, .h = 1 }}, second.changed);
++    // The rest is as it was.
++    try std.testing.expectEqual(@as(u8, 255), second.buffer.data[0]);
++    try std.testing.expectEqual(@as(u8, 0), second.buffer.data[4]);
++    // Nothing new: nothing to take.
++    try std.testing.expect(ls.take(7, second.version, &changed) == null);
++    first.buffer.release();
++    // The first is free again: written next, with what it missed.
++    try std.testing.expect(ls.write("s", w, h, &frame, w * 4, &.{.{ .x = 2, .y = 1, .w = 1, .h = 1 }}, false));
++    const third = ls.take(7, second.version, &changed).?;
++    try std.testing.expect(third.buffer == first.buffer);
++    try std.testing.expectEqual(@as(u8, 0), third.buffer.data[4]);
++    try std.testing.expectEqual(@as(u8, 0), third.buffer.data[(1 * w + 2) * 4]);
++    try std.testing.expectEqual(@as(u8, 255), third.buffer.data[(1 * w + 3) * 4]);
++    second.buffer.release();
++    third.buffer.release();
++}
++
++test "a sync lets go of what it does not keep" {
++    var ls: Layers = .{};
++    defer ls.deinit();
++    ls.enabled.store(true, .release);
++    var px: [4]u8 = .{ 255, 0, 0, 128 };
++    ls.beginSync();
++    ls.keep("a", 1, 1, 1, &px);
++    ls.keep("b", 2, 1, 1, &px);
++    try std.testing.expect(ls.endSync());
++    try std.testing.expect(ls.composited(1));
++    ls.beginSync();
++    ls.keep("b", 2, 1, 1, &px);
++    try std.testing.expect(ls.endSync());
++    try std.testing.expect(!ls.composited(1));
++    try std.testing.expect(ls.composited(2));
++}
+diff --git a/src/renderer/image.zig b/src/renderer/image.zig
+index 362d67b22..9435cfd92 100644
+--- a/src/renderer/image.zig
++++ b/src/renderer/image.zig
+@@ -10,6 +10,7 @@ const GraphicsAPI = Renderer.API;
+ const Texture = GraphicsAPI.Texture;
+ const Overlay = @import("Overlay.zig");
+ const hotty = @import("../termio/hotty.zig");
++const hotty_layers = @import("hotty_layers.zig");
+ 
+ const log = std.log.scoped(.renderer_image);
+ 
+@@ -60,6 +61,12 @@ pub const State = struct {
+     /// hottyterm: where a backdrop bleeds to, set before each draw.
+     bleed: Bleed = .{},
+ 
++    /// hottyterm: the surfaces the apprt composites (hotty_layers.zig),
++    /// set before `kittyUpdate`. Their placements get no texture and no
++    /// quad: `prepare` lists them in `composited`.
++    layers: ?*hotty_layers.Layers = null,
++    composited: std.ArrayList(Placement) = .empty,
++
+     /// hottyterm: a hotty backdrop (hotty 0.6's V6-06, a draft) that
+     /// reaches an edge of the grid goes on to the window's edge, over the
+     /// padding and the pixels left over when the window isn't a whole
+@@ -104,6 +111,7 @@ pub const State = struct {
+         self.overlay_placements.deinit(alloc);
+         self.quads.deinit(alloc);
+         for (&self.draws) |*d| d.deinit(alloc);
++        self.composited.deinit(alloc);
+     }
+ 
+     /// Upload any images to the GPU that need to be uploaded,
+@@ -155,6 +163,7 @@ pub const State = struct {
+     pub fn prepare(self: *State, alloc: Allocator) Allocator.Error!void {
+         self.quads.clearRetainingCapacity();
+         for (&self.draws) |*d| d.clearRetainingCapacity();
++        self.composited.clearRetainingCapacity();
+ 
+         for (std.enums.values(DrawPlacements)) |placement_type| {
+             const placements: []const Placement = switch (placement_type) {
+@@ -165,6 +174,11 @@ pub const State = struct {
+             };
+ 
+             for (placements) |p| {
++                if (p.composited) {
++                    try self.composited.append(alloc, p);
++                    continue;
++                }
++
+                 // Look up the image
+                 const image = self.images.get(p.image_id) orelse {
+                     log.warn("image not found for placement image_id={}", .{p.image_id});
+@@ -439,9 +453,12 @@ pub const State = struct {
+                 .kitty => storage.imageById(p.image_id) orelse continue,
+             };
+ 
++            // hottyterm: a layer's pixels are the apprt's, not a texture's.
++            const composited = if (self.layers) |ls| ls.composited(image.id) else false;
++
+             // For errors we log and continue. We try to place other
+             // placements even if one fails.
+-            self.prepKittyImage(alloc, &image) catch |err| {
++            if (!composited) self.prepKittyImage(alloc, &image) catch |err| {
+                 log.warn("error preparing kitty placement err={}", .{err});
+                 continue;
+             };
+@@ -460,6 +477,7 @@ pub const State = struct {
+                 .source_width = p.source_width,
+                 .source_height = p.source_height,
+                 .backdrop = hotty.Hotty.isBackdrop(image.id, p.z),
++                .composited = composited,
+             }) catch |err| {
+                 log.warn("error preparing kitty placement err={}", .{err});
+             };
+@@ -689,6 +707,9 @@ pub const Placement = struct {
+ 
+     /// hottyterm: a hotty backdrop's, which bleeds (State.Bleed).
+     backdrop: bool = false,
++
++    /// hottyterm: a layer's, which the apprt composites.
++    composited: bool = false,
+ };
+ 
+ /// Image identifier used to store and lookup images.
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 3550cb8d9..97e412d49 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -47,6 +47,7 @@ const StreamHandler = @import("stream_handler.zig").StreamHandler;
+ const kitty = terminal.kitty;
+ const xev = global.xev;
+ const compat_fd = @import("../lib/compat/fd.zig");
++const hotty_layers = @import("../renderer/hotty_layers.zig");
+ 
+ const log = std.log.scoped(.hotty);
+ 
+@@ -1041,6 +1042,9 @@ pub const Hotty = struct {
+     /// The which-key menu shown anew, placed with its first frame
+     /// (`onFrame`), and whether one shows.
+     menu_place: ?Place = null,
++    /// A layer took a frame since the apprt was last asked to draw
++    /// (`afterPaint`).
++    layered: bool = false,
+     menu_shown: bool = false,
+     /// A paste command waits for the clipboard (`commandPaste`), with its
+     /// key, and since when.
+@@ -1163,6 +1167,57 @@ pub const Hotty = struct {
+         return @fieldParentPtr("hotty", self);
+     }
+ 
++    fn layers(self: *Hotty) *hotty_layers.Layers {
++        return &self.streamHandler().renderer_state.hotty_layers;
++    }
++
++    /// After a paint, with the lock held: the surfaces the apprt composites
++    /// are the placed ones above the text (`syncLayers`), and if a layer
++    /// took a frame the apprt draws, with no terminal frame for it.
++    fn afterPaint(self: *Hotty, t: *terminal.Terminal) void {
++        const ls = self.layers();
++        if (!ls.on()) return;
++        self.syncLayers(t);
++        if (!self.layered) return;
++        self.layered = false;
++        if (!ls.notify()) _ = self.streamHandler().surface_mailbox.push(.redraw, .{ .instant = {} });
++    }
++
++    /// The layers are the surfaces placed on the active screen above the
++    /// text. One that stops being a layer while placed is drawn again whole
++    /// into its image, which missed what the layer took. When they change,
++    /// the renderer finds them again.
++    fn syncLayers(self: *Hotty, t: *terminal.Terminal) void {
++        const ls = self.layers();
++        ls.beginSync();
++        var it = self.placed.iterator();
++        while (it.next()) |e| {
++            const p = e.value_ptr;
++            const name = e.key_ptr.*;
++            const layer = !p.hidden and !p.backdrop and p.z >= 0 and p.screen == t.screens.active_key;
++            if (!layer) {
++                if (ls.has(name)) {
++                    ls.drop(name);
++                    if (self.host) |h| if (!self.painting) {
++                        const z = self.alloc.dupeSentinel(u8, name, 0) catch continue;
++                        defer self.alloc.free(z);
++                        hotty_host_redeliver(h, z.ptr);
++                    };
++                }
++                continue;
++            }
++            const img = t.screens.active.kitty_images.imageById(p.image_id) orelse continue;
++            if (img.format != .rgba or img.compression != .none) continue;
++            const px = img.data.bytes() orelse continue;
++            ls.keep(name, p.image_id, img.width, img.height, px);
++        }
++        if (ls.endSync()) {
++            const storage = &t.screens.active.kitty_images;
++            storage.generation +%= 1;
++            self.streamHandler().queueRender() catch {};
++        }
++    }
++
+     /// The host, for a call into it, with the terminal's lock held: first
+     /// waits, the lock let go meanwhile, while a paint has it (`painting`).
+     /// Every call into the host but the painter's goes through here.
+@@ -2126,6 +2181,7 @@ pub const Hotty = struct {
+         const fx = self.effects();
+         hotty_host_events(h, &fx);
+         self.applyMenu(t, h, &ctx);
++        self.afterPaint(t);
+         return ctx.drew;
+     }
+ 
+@@ -2143,7 +2199,7 @@ pub const Hotty = struct {
+         defer trace.span("term.render", t0);
+         const io = global.io();
+         const mutex = self.streamHandler().renderer_state.mutex;
+-        var paint: Paint = .{ .alloc = self.alloc };
++        var paint: Paint = .{ .alloc = self.alloc, .layers = self.layers() };
+         defer paint.deinit();
+         const menu = self.menu_place != null;
+         // The renderer waits for this paint, as it waited for the lock,
+@@ -2175,6 +2231,8 @@ pub const Hotty = struct {
+             again = true;
+         }
+         if (again and self.render(t)) ctx.drew = true;
++        if (paint.layered) self.layered = true;
++        self.afterPaint(t);
+         // Output that came during an input's paint keeps its hold.
+         if (!self.hold_wanted and (hold or !self.paint_holds)) self.unhold();
+         return ctx.drew;
+@@ -2199,6 +2257,10 @@ pub const Hotty = struct {
+         alloc: Allocator,
+         frames: std.ArrayListUnmanaged(Frame) = .empty,
+         effects_: std.ArrayListUnmanaged(Effect) = .empty,
++        /// The apprt's layers, which take frames as they come (`onFrame`).
++        layers: ?*hotty_layers.Layers = null,
++        /// A layer took a frame.
++        layered: bool = false,
+ 
+         const Frame = struct {
+             name: [:0]u8,
+@@ -2329,6 +2391,11 @@ pub const Hotty = struct {
+             full: bool,
+         ) callconv(.c) void {
+             const self: *Paint = @ptrCast(@alignCast(ctx_ptr.?));
++            // A layer's frame needs no image, only its size when that changes.
++            if (self.layers) |ls| if (ls.write(std.mem.span(surface), w, h, rgba[0 .. stride * h], stride, layerRects(rects, nrects), full)) {
++                self.layered = true;
++                if (!full) return;
++            };
+             self.collect(std.mem.span(surface), w, h, rgba[0 .. stride * h], stride, rects[0..nrects], full) catch
+                 log.warn("hotty: surface {s} not updated, out of memory", .{surface});
+         }
+@@ -2487,6 +2554,7 @@ pub const Hotty = struct {
+         full: bool,
+     ) callconv(.c) void {
+         const ctx: *RenderCtx = @ptrCast(@alignCast(ctx_ptr.?));
++        const drew = ctx.drew;
+         ctx.drew = true;
+         const self = ctx.self;
+         const t = ctx.t;
+@@ -2512,6 +2580,15 @@ pub const Hotty = struct {
+             return;
+         }
+ 
++        // A layer's frame needs no image, only its size when that changes.
++        if (self.layers().write(name, w, h, frame, stride, layerRects(rects, nrects), full)) {
++            self.layered = true;
++            if (!full) {
++                ctx.drew = drew;
++                return;
++            }
++        }
++
+         const placed = self.placed.get(name) orelse return;
+         const screen = t.screens.get(placed.screen) orelse return;
+         const storage = &screen.kitty_images;
+@@ -2667,6 +2744,10 @@ pub const Hotty = struct {
+ 
+     /// A tightly packed straight-alpha copy of rectangle `r` of a
+     /// premultiplied frame.
++    fn layerRects(rects: [*]const Rect, n: usize) []const hotty_layers.Rect {
++        return @as([*]const hotty_layers.Rect, @ptrCast(rects))[0..n];
++    }
++
+     fn straight(alloc: Allocator, frame: []const u8, stride: usize, r: Rect) ![]u8 {
+         const row_len = @as(usize, r.w) * 4;
+         const out = try alloc.alloc(u8, row_len * r.h);
