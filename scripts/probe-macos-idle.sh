@@ -107,4 +107,16 @@ CFG
   kill "$pid" 2>/dev/null; sleep 2
 }
 for s in static dot plx hidden; do run "$s"; done
+
+# The diagnostics a user runs on their Mac (scripts/diag-macos.sh),
+# unattended, over the plx surfaces: its bundle is in the artifact.
+dir="$OUT/diag"; mkdir -p "$dir"
+sed -i '' "s#idle.py [a-z]* [^ ]*/ready#idle.py plx $dir/ready#" "$HOME/.config/ghostty/config"
+open -n -a "$APP"
+for _ in $(seq 1 30); do [ -f "$dir/ready" ] && break; sleep 1; done
+sleep 3
+diag="$(cd "$(dirname "$0")" && pwd)/diag-macos.sh"
+(cd "$dir" && DIAG_YES=1 SECS=8 sh "$diag" --trace 2>&1 | sed 's/^/   diag: /')
+pkill -f "$APP/Contents/MacOS/" 2>/dev/null
+ls "$dir"/hottyterm-diag-*/trace 2>/dev/null | sed 's/^/   diag trace: /'
 exit 0

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Mon, 23 Nov 2026 12:42:46 +0100
-Subject: [PATCH 64/65] hottyterm: acknowledge keys delivered as edit commands
+Subject: [PATCH 64/66] hottyterm: acknowledge keys delivered as edit commands
 
 Confirms the command after the terminal selection check and, for paste, once its text is available. Adds 0 lines to upstream files.
 ---
@@ -9,7 +9,7 @@ Confirms the command after the terminal selection check and, for paste, once its
  1 file changed, 3 insertions(+)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 333035ff..45ba6e6e 100644
+index 333035ff8..45ba6e6ed 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -717,6 +717,7 @@ extern fn hotty_host_set_refresh_rate(h: *Host, millihertz: u32) void;

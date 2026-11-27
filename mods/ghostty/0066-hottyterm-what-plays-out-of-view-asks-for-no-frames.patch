@@ -1,0 +1,205 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Fri, 27 Nov 2026 10:17:14 +0100
+Subject: [PATCH 66/66] hottyterm: what plays out of view asks for no frames
+
+A hotty surface whose placement was scrolled out of the view, or whose
+window was hidden (minimised, covered), kept asking for a frame of every
+CSS animation on it, and each frame was painted, uploaded and drawn at the
+display's rate for pixels nobody saw. The terminal now tells hotty-blitz
+which surfaces can be seen (hotty_host_set_seen): placed on the screen
+that shows, on rows of the view, in a window that is visible. It looks
+again whenever it schedules a frame, when the renderer finds that the view
+moved (a scroll, output pushing lines up), and when the window is hidden
+or shown. Seen again, a surface asks for a frame at once, at the time it
+then is.
+
+Adds 8 lines in upstream files: a hook in the renderer's frame, the
+renderer state's pointer to the surfaces, and one in the occlusion
+callback.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ src/Surface.zig          |  2 ++
+ src/renderer/State.zig   |  4 +++
+ src/renderer/generic.zig |  2 ++
+ src/termio/hotty.zig     | 75 +++++++++++++++++++++++++++++++++++++++-
+ 4 files changed, 82 insertions(+), 1 deletion(-)
+
+diff --git a/src/Surface.zig b/src/Surface.zig
+index e9c3c1326..fb303a2ce 100644
+--- a/src/Surface.zig
++++ b/src/Surface.zig
+@@ -3523,6 +3523,8 @@ pub fn occlusionCallback(self: *Surface, visible: bool) !void {
+     self.io.terminal.flags.visible = visible;
+     const report_visibility = self.io.terminal.modes.get(.report_visibility);
+     self.renderer_state.mutex.unlock(global.io());
++    // hottyterm: what plays on hotty surfaces stops while the window is hidden.
++    self.io.terminal_stream.handler.hotty.visibilityChanged();
+     if (report_visibility) {
+         self.queueIo(.{ .visibility_report = .{
+             .visible = visible,
+diff --git a/src/renderer/State.zig b/src/renderer/State.zig
+index 88990ef9d..1c72b4ed1 100644
+--- a/src/renderer/State.zig
++++ b/src/renderer/State.zig
+@@ -39,6 +39,10 @@ mouse: Mouse = .{},
+ /// update, until the update's surfaces are in (SPEC §6.3).
+ hotty_hold: bool = false,
+ 
++/// hottyterm: the terminal's hotty surfaces (termio/hotty.zig), told at each
++/// frame where the view is, so that what plays out of view stops.
++hotty: ?*@import("../termio/hotty.zig").Hotty = null,
++
+ /// The number of threads currently waiting to acquire `mutex` via
+ /// `lockDemand`. This is not protected by the mutex; it is read by
+ /// hot lock/unlock loops (the IO parse thread) in `yieldToDemand` to
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index 6738f4661..a0fd93d4b 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -1423,6 +1423,8 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 state.lockDemand(global.io());
+                 defer state.unlockDemand(global.io());
+                 hotty.trace.waited(t_lock, "updateFrame");
++                // hottyterm: what hotty surfaces the view shows.
++                if (state.hotty) |hs| hs.viewMoved(state.terminal);
+ 
+                 // If we're in a synchronized output state, we pause all rendering.
+                 // hottyterm: and while its end waits for hotty surfaces.
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 035355734..4b98b59d1 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -716,6 +716,7 @@ extern fn hotty_host_paste(h: *Host, text: [*]const u8, len: usize, fx: *const E
+ extern fn hotty_host_copy_key(h: *Host, physical: ?[*]const u8, physical_len: usize, other: ?[*]const u8, other_len: usize, text: *?[*:0]const u8) c_int;
+ extern fn hotty_host_set_reduced_motion(h: *Host, reduce: bool) void;
+ extern fn hotty_host_set_refresh_rate(h: *Host, millihertz: u32) void;
++extern fn hotty_host_set_seen(h: *Host, surface: [*:0]const u8, seen: bool) void;
+ extern fn hotty_host_set_network(h: *Host, policy: ?[*:0]const u8) void;
+ extern fn hotty_host_set_keys(h: *Host, mod_super: bool, edit: ?[*:0]const u8, commands: bool, menus: bool, fx: ?*const Effects) void;
+ extern fn hotty_host_edit_command(h: *Host, physical: ?[*]const u8, physical_len: usize, other: ?[*]const u8, other_len: usize) ?[*:0]const u8;
+@@ -884,6 +885,9 @@ const Placed = struct {
+     backdrop: bool = false,
+     /// The screen whose image storage holds it.
+     screen: terminal.ScreenSet.Key,
++    /// As the host last heard (`see`): in the terminal's view, in a window
++    /// that shows.
++    seen: bool = true,
+ };
+ 
+ pub const Hotty = struct {
+@@ -892,6 +896,8 @@ pub const Hotty = struct {
+     host: ?*Host = null,
+     /// Surface name (owned) → its image.
+     placed: std.StringHashMapUnmanaged(Placed) = .empty,
++    /// The view's top left at the renderer's last frame (`viewMoved`).
++    last_view: View = .{},
+     next_id: u32 = id_base,
+     cell_w: u32 = 0,
+     cell_h: u32 = 0,
+@@ -1790,6 +1796,8 @@ pub const Hotty = struct {
+     pub fn threadEnter(self: *Hotty, loop: *xev.Loop) void {
+         self.loop = loop;
+         self.loop_thread = std.Thread.getCurrentId();
++        // The renderer says when the view moves (`viewMoved`).
++        self.streamHandler().renderer_state.hotty = self;
+         if (self.timer == null) self.timer = xev.Timer.init() catch |err| t: {
+             log.warn("hotty: no timer, animated images stay still: {}", .{err});
+             break :t null;
+@@ -1810,6 +1818,66 @@ pub const Hotty = struct {
+         if (self.wakeup) |*w| w.notify() catch {};
+     }
+ 
++    /// Tells the host which surfaces can be seen (`hotty_host_set_seen`):
++    /// placed on the screen that shows, on rows of the view, in a window
++    /// that is not hidden. What plays on the others asks for no frames, so
++    /// an animation scrolled away or minimised costs nothing. The caller
++    /// holds the lock and has the host.
++    fn see(self: *Hotty, t: *terminal.Terminal, h: *Host) void {
++        var it = self.placed.iterator();
++        while (it.next()) |e| {
++            const p = e.value_ptr;
++            if (p.hidden) continue;
++            const seen = inView(t, p.*);
++            if (seen == p.seen) continue;
++            p.seen = seen;
++            var buf: [73]u8 = undefined;
++            const z = std.mem.printSentinel(&buf, "{s}", .{e.key_ptr.*}, 0) catch continue;
++            hotty_host_set_seen(h, z.ptr, seen);
++        }
++    }
++
++    /// Whether placed surface `p` shows: its rows meet the view's.
++    fn inView(t: *terminal.Terminal, p: Placed) bool {
++        if (!t.flags.visible) return false;
++        if (p.screen != t.screens.active_key) return false;
++        const screen = t.screens.get(p.screen) orelse return true;
++        const placement = screen.kitty_images.placements.get(.{
++            .image_id = p.image_id,
++            .placement_id = .{ .tag = .external, .id = 1 },
++        }) orelse return true;
++        const pin = switch (placement.location) {
++            .pin => |pin| pin.*,
++            else => return true,
++        };
++        const pages = &screen.pages;
++        const here = pages.pointFromPin(.screen, pin) orelse return true;
++        const top = pages.pointFromPin(.screen, pages.getTopLeft(.viewport)) orelse return true;
++        const y: usize = here.screen.y;
++        const y0: usize = top.screen.y;
++        return y < y0 + pages.rows and y + p.win.h > y0;
++    }
++
++    /// On the renderer's thread, with the lock held, for each frame: when
++    /// the view has moved since the last (a scroll, output that pushed
++    /// lines up), the loop looks again at what is seen (`see`).
++    pub fn viewMoved(self: *Hotty, t: *terminal.Terminal) void {
++        const tl = t.screens.active.pages.getTopLeft(.viewport);
++        const view: View = .{ .node = @intFromPtr(tl.node), .y = tl.y, .screen = t.screens.active_key };
++        if (std.meta.eql(view, self.last_view)) return;
++        self.last_view = view;
++        if (self.placed.count() == 0) return;
++        if (self.wakeup) |*w| w.notify() catch {};
++    }
++
++    /// The window was hidden or shown (the terminal's `visible` flag, set
++    /// with the lock held): the loop looks again at what is seen.
++    pub fn visibilityChanged(self: *Hotty) void {
++        if (self.wakeup) |*w| w.notify() catch {};
++    }
++
++    const View = struct { node: usize = 0, y: usize = 0, screen: terminal.ScreenSet.Key = .primary };
++
+     /// What a surface fetched arrived: draw it, and tell the program what
+     /// drawing it changed (`fit`), as the timer does.
+     fn onWake(
+@@ -1836,6 +1904,7 @@ pub const Hotty = struct {
+         const h = self.hostReady() orelse return;
+         const loop = self.loop orelse return;
+         const timer = self.timer orelse return;
++        self.see(t, h);
+         var ms = hotty_host_next_frame(h);
+         if (ms < 0) return; // nothing plays: a timer set before finds nothing and stops
+         if (self.loop_thread != std.Thread.getCurrentId()) {
+@@ -2671,8 +2740,11 @@ pub const Hotty = struct {
+     }
+ 
+     fn place(self: *Hotty, t: *terminal.Terminal, name: []const u8, p: Place, w: u32, h: u32, data: []const u8) !void {
+-        // One image per placement: a surface placed again moves.
++        // One image per placement: a surface placed again moves. What the
++        // host heard of it stays, for `see` to change.
++        var seen = true;
+         if (self.placed.fetchRemove(name)) |kv| {
++            seen = kv.value.seen;
+             self.deleteImage(t, kv.value);
+             self.alloc.free(kv.key);
+         }
+@@ -2705,6 +2777,7 @@ pub const Hotty = struct {
+             .created = p.created,
+             .backdrop = p.backdrop,
+             .screen = t.screens.active_key,
++            .seen = seen,
+         };
+         try self.placed.put(self.alloc, owned, entry);
+         keepImage(t, entry);

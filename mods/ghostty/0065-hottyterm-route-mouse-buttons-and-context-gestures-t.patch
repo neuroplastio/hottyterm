@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Mon, 23 Nov 2026 12:54:18 +0100
-Subject: [PATCH 65/65] hottyterm: route mouse buttons and context gestures
+Subject: [PATCH 65/66] hottyterm: route mouse buttons and context gestures
  through Blitz
 
 Track captures and swallowed releases by button, keep GTK pointer chords intact, and route middle paste and AppKit context clicks. Adds 81 lines in upstream files across the core, GTK, and AppKit hooks.
@@ -16,7 +16,7 @@ Track captures and swallowed releases by button, keep GTK pointer chords intact,
  7 files changed, 583 insertions(+), 257 deletions(-)
 
 diff --git a/include/ghostty.h b/include/ghostty.h
-index 49fe08b3..46fe2cf6 100644
+index 49fe08b33..46fe2cf68 100644
 --- a/include/ghostty.h
 +++ b/include/ghostty.h
 @@ -1239,6 +1239,9 @@ GHOSTTY_API bool ghostty_surface_mouse_button(ghostty_surface_t,
@@ -30,7 +30,7 @@ index 49fe08b3..46fe2cf6 100644
                                                double,
                                                double,
 diff --git a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift
-index 1a1f408d..acdc10fd 100644
+index 1a1f408da..acdc10fde 100644
 --- a/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 +++ b/macos/Sources/Ghostty/Surface View/SurfaceView_AppKit.swift	
 @@ -204,6 +204,7 @@ extension Ghostty {
@@ -99,7 +99,7 @@ index 1a1f408d..acdc10fd 100644
                  return nil
              }
 diff --git a/src/Surface.zig b/src/Surface.zig
-index 100964bc..e9c3c132 100644
+index 100964bcb..e9c3c1326 100644
 --- a/src/Surface.zig
 +++ b/src/Surface.zig
 @@ -3998,6 +3998,16 @@ pub fn mouseButtonCallback(
@@ -172,7 +172,7 @@ index 100964bc..e9c3c132 100644
      loc: apprt.Clipboard,
      req: apprt.ClipboardRequest,
 diff --git a/src/apprt/embedded.zig b/src/apprt/embedded.zig
-index 5197f7fe..0b326d1c 100644
+index 5197f7fe6..0b326d1cf 100644
 --- a/src/apprt/embedded.zig
 +++ b/src/apprt/embedded.zig
 @@ -2185,6 +2185,12 @@ pub const CAPI = struct {
@@ -189,7 +189,7 @@ index 5197f7fe..0b326d1c 100644
      export fn ghostty_surface_mouse_pos(
          surface: *Surface,
 diff --git a/src/apprt/gtk/class/surface.zig b/src/apprt/gtk/class/surface.zig
-index cee318f5..ad7e7c6e 100644
+index cee318f56..ad7e7c6ec 100644
 --- a/src/apprt/gtk/class/surface.zig
 +++ b/src/apprt/gtk/class/surface.zig
 @@ -753,6 +753,7 @@ pub const Surface = extern struct {
@@ -334,7 +334,7 @@ index cee318f5..ad7e7c6e 100644
              class.bindTemplateCallback("mouse_up", &gcMouseUp);
              class.bindTemplateCallback("mouse_motion", &ecMouseMotion);
 diff --git a/src/apprt/gtk/ui/1.0/surface.blp b/src/apprt/gtk/ui/1.0/surface.blp
-index 99f87da3..9d4e05bb 100644
+index 99f87da36..9d4e05bb6 100644
 --- a/src/apprt/gtk/ui/1.0/surface.blp
 +++ b/src/apprt/gtk/ui/1.0/surface.blp
 @@ -67,6 +67,11 @@ Overlay terminal_page {
@@ -350,7 +350,7 @@ index 99f87da3..9d4e05bb 100644
        pressed => $mouse_down();
        released => $mouse_up();
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 45ba6e6e..03535573 100644
+index 45ba6e6ed..035355734 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -692,12 +692,14 @@ extern fn hotty_host_render(h: *Host, ctx: ?*anyopaque, cb: FrameFn) void;

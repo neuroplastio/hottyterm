@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Mon, 16 Nov 2026 00:32:38 +0100
-Subject: [PATCH 60/62] hottyterm: a touchpad's sideways scroll reaches the
+Subject: [PATCH 60/66] hottyterm: a touchpad's sideways scroll reaches the
  terminal
 
 GTK's horizontal scroll controller turned a touchpad's sideways

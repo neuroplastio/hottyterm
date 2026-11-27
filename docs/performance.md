@@ -199,6 +199,32 @@ one (the traced window of 2026-11-16): 106 scrolls a second in a stroke
 against 112, 8.3 ms apart at the median against 8.4. Its strokes are
 longer and more regular, and its finger never stops in the middle of one.
 
+## Animations that only loop (2026-11-27)
+
+plx's strips and sidebar are surfaces whose only change is infinite CSS
+animations: a pulsing dot, a spinner, typing dots, fading miniatures.
+Measured with `idle.py`, the page `scripts/probe-macos-idle.sh` shows, run
+in hottyterm on hotty-blitz's headless display (60 Hz, scale 2), as CPU
+ticks over 10 s:
+
+| case | before | now |
+| --- | --- | --- |
+| the surfaces in view | 32% (26.11.26-dev.a4c7fd2) | 13.5% |
+| the same, scrolled into the scrollback | 41.6% | 0.4% |
+
+- **hotty-blitz plays loops from memory** (0.9.1–0.9.3): once a period has
+  been watched, a frame is copied or blended from pixels kept, with no
+  restyle and no paint.
+- **Nothing plays where nobody sees it** (`0066`, hotty-blitz 0.9.4): a
+  surface scrolled out of the view, or in a hidden window, asks for no
+  frames until it is seen again.
+- What is left in view is the terminal's own frame, `term.draw` at
+  1.3–1.6 ms each, once per display frame.
+
+The macOS numbers are from `probe-macos.yml` with `idle=true`. A Mac where
+it is still slow can run `scripts/diag-macos.sh`, which writes a bundle of
+hottyterm's own numbers and a trace that `scripts/diag-summary.py` sums up.
+
 ## Tried and not kept
 
 - **Rasterising on the GPU** (vello and vello_hybrid over wgpu, read back

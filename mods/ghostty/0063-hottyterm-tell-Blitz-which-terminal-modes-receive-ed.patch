@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Mon, 23 Nov 2026 12:42:11 +0100
-Subject: [PATCH 63/65] hottyterm: tell Blitz which terminal modes receive edge
+Subject: [PATCH 63/66] hottyterm: tell Blitz which terminal modes receive edge
  wheels
 
 Adds 8 lines to the upstream stream handler.
@@ -11,7 +11,7 @@ Adds 8 lines to the upstream stream handler.
  2 files changed, 26 insertions(+), 9 deletions(-)
 
 diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
-index 98653081..333035ff 100644
+index 986530812..333035ff8 100644
 --- a/src/termio/hotty.zig
 +++ b/src/termio/hotty.zig
 @@ -719,6 +719,7 @@ extern fn hotty_host_set_keys(h: *Host, mod_super: bool, edit: ?[*:0]const u8, c
@@ -62,7 +62,7 @@ index 98653081..333035ff 100644
          while (it.next()) |e| {
              self.deleteImage(t, e.value_ptr.*);
 diff --git a/src/termio/stream_handler.zig b/src/termio/stream_handler.zig
-index 84962fa3..554253f5 100644
+index 84962fa38..554253f5f 100644
 --- a/src/termio/stream_handler.zig
 +++ b/src/termio/stream_handler.zig
 @@ -782,38 +782,38 @@ pub const StreamHandler = struct {
