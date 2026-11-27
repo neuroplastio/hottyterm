@@ -27,7 +27,9 @@ def lines(path):
 def main(d):
     events = []
     for f in sorted(pathlib.Path(d).glob("*.jsonl")):
-        events.extend(lines(f))
+        # macOS's tar adds ._ files of metadata beside each.
+        if not f.name.startswith("._"):
+            events.extend(lines(f))
     if not events:
         sys.exit(f"no stamps in {d}")
     t0 = min(e["t"] for e in events)
@@ -46,6 +48,19 @@ def main(d):
         mean = f"{b / c / 1e3:.0f}" if b else ""
         ms = f"{b / 1e6 / secs:.1f}" if b else ""
         print(f"{n:<22}{c / secs:>9.1f}{ms:>9}{mean:>10}")
+
+    # The phases show as stretches: frames while shown, none while hidden.
+    print("\nevery 5 s: frames/s, and ms/s in hotty-blitz (resolve) and in the terminal (draw, upload)")
+    rows = collections.defaultdict(collections.Counter)
+    for e in events:
+        k = int((e["t"] - t0) / 5e9)
+        rows[k]["n:" + e["n"]] += 1
+        rows[k][e["n"]] += e.get("dur", 0)
+    for k in sorted(rows):
+        r = rows[k]
+        print(f"  {k * 5:>4} s {r['n:term.render'] / 5:>6.0f}  blitz {r['blitz.render'] / 5e6:>6.1f}"
+              f" ({r['blitz.resolve'] / 5e6:.1f})  term {(r['term.draw'] + r['term.upload']) / 5e6:>6.1f}"
+              f" ({r['term.draw'] / 5e6:.1f}, {r['term.upload'] / 5e6:.1f})")
 
     pty = sum(e.get("a", {}).get("n", 0) for e in events if e["n"] == "term.pty.read")
     print(f"\npty output: {pty / secs:.0f} bytes/s")
@@ -71,6 +86,9 @@ def main(d):
             why = ", ".join(f"{LOOP.get(k, 'unknown')} {v / secs:.1f}" for k, v in c.most_common())
             print(f"  {s:<30}{sum(c.values()) / secs:>8.1f}  {why}")
 
+    still = sum(1 for e in events if e["n"] == "blitz.loops.still")
+    if still:
+        print(f"\nsurfaces gone still (what they animate is never seen): {still}")
     stops = collections.Counter(e.get("a", {}).get("why", "?") for e in events if e["n"] == "blitz.loops.stop")
     if stops:
         print("\nloops given up: " + ", ".join(f"{k} {v}" for k, v in stops.most_common()))

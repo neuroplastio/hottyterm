@@ -133,6 +133,7 @@ refresh.
 | `blitz.raster` | span | one rectangle rasterised by vello_cpu's workers (`a.px`) |
 | `blitz.deliver` | span | the frame handed to the terminal, which writes its rectangles into the image (`a.full`, `a.px`). `a.loop` says whether infinite CSS animations played it from the pixels kept, or why not: 0 they did, 1 something else asked for the frame (a command, input, an image), 2 the frame was delivered again whole, 3 the size, scale, colour scheme or reduced motion changed, 4 damage was pending, 5 still watching a period, 6 backing off after a stop |
 | `blitz.loops.stop` | instant | the kept animations were given up (`a.why`: `timing` an animation's period is unknown, `period` the common period is too long, `outside` damage outside their regions, `ink` pixels around a region changed, `keep` a frame did not match, `budget` too much kept), to be watched again after `a.retry_ms` |
+| `blitz.loops.still` | instant | a surface stopped asking for frames: through a whole period (`a.period_ms`) of what it animates, nothing it moves was seen (it plays outside the surface, or a box clips it away). It asks again once anything else changes it |
 
 ## Correlation
 

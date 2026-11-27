@@ -220,6 +220,17 @@ ticks over 10 s:
   frames until it is seen again.
 - What is left in view is the terminal's own frame, `term.draw` at
   1.3–1.6 ms each, once per display frame.
+- **What nobody can see on a surface asks for no frames** (hotty-blitz
+  0.9.5). A `diag-macos.sh` bundle from a 144 Hz Mac running plx at 35%
+  had one surface play from memory, plx's nav at 144 frames a second. A
+  second surface restyled at 144 frames a second (0.35–0.75 ms each) and
+  painted nothing: what it animates lies outside it. Through a whole period
+  of nothing painted, or of pixels kept that are the same at every phase
+  (an animation a box clips away), a surface now stops asking until
+  something else changes it.
+- The bundle's frames that were played from memory cost the terminal
+  0.5–1 ms each in `term.draw` and 0.17–0.3 ms in `term.upload`, at
+  3440×1440. That's 10–19% of a core at 144 Hz.
 
 The macOS numbers are from `probe-macos.yml` with `idle=true`. A Mac where
 it is still slow can run `scripts/diag-macos.sh`, which writes a bundle of

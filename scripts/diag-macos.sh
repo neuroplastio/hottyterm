@@ -134,6 +134,6 @@ for f in $(find "$OUT" -type f); do
     done
 done
 
-tar -czf "$OUT.tar.gz" -C "$(dirname "$OUT")" "$(basename "$OUT")"
+COPYFILE_DISABLE=1 tar -czf "$OUT.tar.gz" -C "$(dirname "$OUT")" "$(basename "$OUT")"
 echo
 echo "Done: $OUT.tar.gz ($(du -h "$OUT.tar.gz" | cut -f1)). Look through $OUT before you send it."
