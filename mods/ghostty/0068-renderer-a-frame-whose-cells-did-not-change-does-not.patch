@@ -1,0 +1,69 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Fri, 27 Nov 2026 14:32:57 +0100
+Subject: [PATCH 68/68] renderer: a frame whose cells did not change does not
+ sync them
+
+Each frame in flight copied every background and text cell to its GPU
+buffers on every draw, though the cells change only when rebuildCells
+runs. A frame drawn for another reason (an image that changed, an
+animation) copied them all the same, at a display's full rate.
+
+The renderer counts its rebuilds, and each frame state remembers the
+count its buffers hold, with the text cell count, and syncs only when
+they differ.
+---
+ src/renderer/generic.zig | 19 +++++++++++++++++--
+ 1 file changed, 17 insertions(+), 2 deletions(-)
+
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index 685a04308..72cbcfffd 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -180,6 +180,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+         /// cells for the draw call.
+         cells_rebuilt: bool = false,
+ 
++        /// Counts the times rebuildCells has run, so that each frame
++        /// knows whether the cells it holds are current.
++        cells_generation: usize = 0,
++
+         /// Set to true after the Kitty image placements are rebuilt. Like
+         /// `cells_rebuilt`, this means the next frame must be drawn. This
+         /// matters when the images change but no cell does, for example
+@@ -392,6 +396,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             /// `prepare`).
+             images: ImageBuffer,
+ 
++            /// The renderer's `cells_generation` that `cells` and
++            /// `cells_bg` hold, and how many text cells that is: a frame
++            /// whose cells did not change does not sync them again.
++            cells_generation: ?usize = null,
++            fg_count: usize = 0,
++
+             const UniformBuffer = Buffer(shaderpkg.Uniforms);
+             const CellBgBuffer = Buffer(shaderpkg.CellBg);
+             const CellTextBuffer = Buffer(shaderpkg.CellText);
+@@ -1901,8 +1911,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+ 
+             // Setup our frame data
+             try frame.uniforms.sync(&.{self.uniforms});
+-            try frame.cells_bg.sync(self.cells.bg_cells);
+-            const fg_count = try frame.cells.syncFromArrayLists(self.cells.fg_rows);
++            if (frame.cells_generation != self.cells_generation) {
++                try frame.cells_bg.sync(self.cells.bg_cells);
++                frame.fg_count = try frame.cells.syncFromArrayLists(self.cells.fg_rows);
++                frame.cells_generation = self.cells_generation;
++            }
++            const fg_count = frame.fg_count;
+ 
+             // If our background image buffer has changed, sync it.
+             if (frame.bg_image_buffer_modified != self.bg_image_buffer_modified) {
+@@ -2954,6 +2968,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+ 
+             // Update that our cells rebuilt
+             self.cells_rebuilt = true;
++            self.cells_generation +%= 1;
+ 
+             // Log some things
+             // log.debug("rebuildCells complete cached_runs={}", .{

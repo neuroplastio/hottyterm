@@ -20,6 +20,12 @@ frame instead.
 
 ## Stage 0: waste in the current path (days)
 
+Landed: patches 0067 and 0068, and glifo's decode on a miss (hotty-blitz).
+Region uploads are left for stage 1, which replaces them. On Linux's
+headless display, the plx-like page went from 3.11G to 2.46G instructions
+per 10 s (-21%, three alternating rounds). CPU time there is the software
+OpenGL's.
+
 Found in a sample of that Mac:
 
 - **A new Metal buffer for every image quad, every frame** (`image.zig`

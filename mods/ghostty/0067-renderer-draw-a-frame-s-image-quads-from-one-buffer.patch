@@ -1,0 +1,464 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Fri, 27 Nov 2026 14:32:57 +0100
+Subject: [PATCH 67/68] renderer: draw a frame's image quads from one buffer
+
+Every image placement created a GPU buffer for its one quad on every
+frame and released it after the draw: with a few dozen placements at a
+display's 120-144 Hz, thousands of buffer allocations a second, which
+showed in macOS samples as newBufferWithBytes in the driver.
+
+The quads of every placement are now built once per frame (State.prepare)
+into one buffer each frame in flight holds, like its cells, and each
+placement is one instanced draw at its first quad (base instance), its
+backdrop's bleed quads included. Base instances need
+glDrawArraysInstancedBaseInstance (OpenGL 4.2; Ghostty asks for 4.3) and
+drawPrimitives:...:baseInstance: on Metal.
+---
+ pkg/opengl/draw.zig                |  17 +++
+ pkg/opengl/main.zig                |   1 +
+ src/renderer/generic.zig           |  22 +++-
+ src/renderer/image.zig             | 185 ++++++++++++++++-------------
+ src/renderer/metal/RenderPass.zig  |   6 +-
+ src/renderer/opengl/RenderPass.zig |  25 +++-
+ 6 files changed, 162 insertions(+), 94 deletions(-)
+
+diff --git a/pkg/opengl/draw.zig b/pkg/opengl/draw.zig
+index 40e718fb4..df0298b36 100644
+--- a/pkg/opengl/draw.zig
++++ b/pkg/opengl/draw.zig
+@@ -33,6 +33,23 @@ pub fn drawArraysInstanced(
+     try errors.getError();
+ }
+ 
++pub fn drawArraysInstancedBaseInstance(
++    mode: Primitive,
++    first: c.GLint,
++    count: c.GLsizei,
++    primcount: c.GLsizei,
++    base_instance: c.GLuint,
++) !void {
++    glad.context.DrawArraysInstancedBaseInstance.?(
++        @intCast(@backingInt(mode)),
++        first,
++        count,
++        primcount,
++        base_instance,
++    );
++    try errors.getError();
++}
++
+ pub fn drawElements(mode: c.GLenum, count: c.GLsizei, typ: c.GLenum, offset: usize) !void {
+     const offsetPtr = if (offset == 0) null else @as(*const anyopaque, @ptrFromInt(offset));
+     glad.context.DrawElements.?(mode, count, typ, offsetPtr);
+diff --git a/pkg/opengl/main.zig b/pkg/opengl/main.zig
+index 6ee8c5d05..f07f4802c 100644
+--- a/pkg/opengl/main.zig
++++ b/pkg/opengl/main.zig
+@@ -34,6 +34,7 @@ pub const clear = draw.clear;
+ pub const clearColor = draw.clearColor;
+ pub const drawArrays = draw.drawArrays;
+ pub const drawArraysInstanced = draw.drawArraysInstanced;
++pub const drawArraysInstancedBaseInstance = draw.drawArraysInstancedBaseInstance;
+ pub const drawElements = draw.drawElements;
+ pub const drawElementsInstanced = draw.drawElementsInstanced;
+ pub const enable = draw.enable;
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index a0fd93d4b..685a04308 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -388,10 +388,15 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             /// Custom shader state, this is null if we have no custom shaders.
+             custom_shader_state: ?CustomShaderState = null,
+ 
++            /// The quads of the images drawn in this frame (image.State's
++            /// `prepare`).
++            images: ImageBuffer,
++
+             const UniformBuffer = Buffer(shaderpkg.Uniforms);
+             const CellBgBuffer = Buffer(shaderpkg.CellBg);
+             const CellTextBuffer = Buffer(shaderpkg.CellText);
+             const BgImageBuffer = Buffer(shaderpkg.BgImage);
++            const ImageBuffer = Buffer(shaderpkg.Image);
+ 
+             pub fn init(api: GraphicsAPI, custom_shaders: bool) !FrameState {
+                 // Uniform buffer contains exactly 1 uniform struct. The
+@@ -418,6 +423,9 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 );
+                 errdefer bg_image_buffer.deinit();
+ 
++                var images = try ImageBuffer.init(api.imageBufferOptions(), 1);
++                errdefer images.deinit();
++
+                 // Initialize our textures for our font atlas.
+                 //
+                 // As with the buffers above, we start these off as small
+@@ -451,6 +459,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     .cells = cells,
+                     .cells_bg = cells_bg,
+                     .bg_image_buffer = bg_image_buffer,
++                    .images = images,
+                     .grayscale = grayscale,
+                     .color = color,
+                     .target = target,
+@@ -466,6 +475,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 self.grayscale.deinit();
+                 self.color.deinit();
+                 self.bg_image_buffer.deinit();
++                self.images.deinit();
+                 if (self.custom_shader_state) |*state| state.deinit();
+             }
+ 
+@@ -1879,6 +1889,10 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+             _ = self.images.upload(self.alloc, &self.api);
+             hotty.trace.span("term.upload", t_upload);
+ 
++            // The quads of every image placement, in one buffer.
++            try self.images.prepare(self.alloc);
++            try frame.images.sync(self.images.quads.items);
++
+             // Upload the background image to the GPU as necessary.
+             try self.uploadBackgroundImage();
+ 
+@@ -1975,7 +1989,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     .bottom = @as(f32, @floatFromInt(self.size.screen.height)) - @as(f32, @floatFromInt(self.size.padding.top)),
+                 };
+                 self.images.draw(
+-                    &self.api,
++                    frame.images.buffer,
+                     self.shaders.pipelines.image,
+                     &pass,
+                     .kitty_below_bg,
+@@ -1991,7 +2005,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+ 
+                 // Kitty images between cell backgrounds and text.
+                 self.images.draw(
+-                    &self.api,
++                    frame.images.buffer,
+                     self.shaders.pipelines.image,
+                     &pass,
+                     .kitty_below_text,
+@@ -2018,7 +2032,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+ 
+                 // Kitty images in front of text.
+                 self.images.draw(
+-                    &self.api,
++                    frame.images.buffer,
+                     self.shaders.pipelines.image,
+                     &pass,
+                     .kitty_above_text,
+@@ -2027,7 +2041,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 // Debug overlay. We do this before any custom shader state
+                 // because our debug overlay is aligned with the grid.
+                 if (self.overlay != null) self.images.draw(
+-                    &self.api,
++                    frame.images.buffer,
+                     self.shaders.pipelines.image,
+                     &pass,
+                     .overlay,
+diff --git a/src/renderer/image.zig b/src/renderer/image.zig
+index 621d92b1c..362d67b22 100644
+--- a/src/renderer/image.zig
++++ b/src/renderer/image.zig
+@@ -48,6 +48,15 @@ pub const State = struct {
+     /// Overlays
+     overlay_placements: std.ArrayList(Placement),
+ 
++    /// The quads of every placement drawn in a frame, in draw order, built
++    /// by `prepare`. The frame holds them in one buffer, so drawing them
++    /// creates no GPU buffer.
++    quads: std.ArrayList(GraphicsAPI.shaders.Image) = .empty,
++
++    /// For each set of placements (`DrawPlacements`), its draws: a texture
++    /// and its quads in `quads`.
++    draws: [4]std.ArrayList(QuadDraw) = @splat(.empty),
++
+     /// hottyterm: where a backdrop bleeds to, set before each draw.
+     bleed: Bleed = .{},
+ 
+@@ -69,6 +78,12 @@ pub const State = struct {
+         bottom: f32 = 0,
+     };
+ 
++    const QuadDraw = struct {
++        texture: Texture,
++        first: u32,
++        len: u32,
++    };
++
+     pub const empty: State = .{
+         .images = .empty,
+         .kitty_placements = .empty,
+@@ -87,6 +102,8 @@ pub const State = struct {
+         }
+         self.kitty_placements.deinit(alloc);
+         self.overlay_placements.deinit(alloc);
++        self.quads.deinit(alloc);
++        for (&self.draws) |*d| d.deinit(alloc);
+     }
+ 
+     /// Upload any images to the GPU that need to be uploaded,
+@@ -131,106 +148,108 @@ pub const State = struct {
+         overlay,
+     };
+ 
+-    /// Draw the given named set of placements.
++    /// Build the quads of every placement for the next frame, which the
++    /// caller puts in the frame's image buffer before drawing.
+     ///
+-    /// Any placements that have non-uploaded images are ignored. Any
+-    /// graphics API errors during drawing are also ignored.
+-    pub fn draw(
+-        self: *State,
+-        api: *GraphicsAPI,
+-        pipeline: GraphicsAPI.Pipeline,
+-        pass: *GraphicsAPI.RenderPass,
+-        placement_type: DrawPlacements,
+-    ) void {
+-        const placements: []const Placement = switch (placement_type) {
+-            .kitty_below_bg => self.kitty_placements.items[0..self.kitty_bg_end],
+-            .kitty_below_text => self.kitty_placements.items[self.kitty_bg_end..self.kitty_text_end],
+-            .kitty_above_text => self.kitty_placements.items[self.kitty_text_end..],
+-            .overlay => self.overlay_placements.items,
+-        };
+-
+-        for (placements) |p| {
+-            // Look up the image
+-            const image = self.images.get(p.image_id) orelse {
+-                log.warn("image not found for placement image_id={}", .{p.image_id});
+-                continue;
++    /// Any placements that have non-uploaded images are left out.
++    pub fn prepare(self: *State, alloc: Allocator) Allocator.Error!void {
++        self.quads.clearRetainingCapacity();
++        for (&self.draws) |*d| d.clearRetainingCapacity();
++
++        for (std.enums.values(DrawPlacements)) |placement_type| {
++            const placements: []const Placement = switch (placement_type) {
++                .kitty_below_bg => self.kitty_placements.items[0..self.kitty_bg_end],
++                .kitty_below_text => self.kitty_placements.items[self.kitty_bg_end..self.kitty_text_end],
++                .kitty_above_text => self.kitty_placements.items[self.kitty_text_end..],
++                .overlay => self.overlay_placements.items,
+             };
+ 
+-            // Get the texture
+-            const texture = switch (image.image) {
+-                .ready,
+-                .unload_ready,
+-                => |t| t,
+-                .update,
+-                .unload_update,
+-                => |u| u.texture,
+-                else => {
+-                    log.warn("image not ready for placement image_id={}", .{p.image_id});
++            for (placements) |p| {
++                // Look up the image
++                const image = self.images.get(p.image_id) orelse {
++                    log.warn("image not found for placement image_id={}", .{p.image_id});
+                     continue;
+-                },
+-            };
++                };
+ 
+-            drawQuad(api, pipeline, pass, texture, .{
+-                .grid_pos = .{
+-                    @as(f32, @floatFromInt(p.x)),
+-                    @as(f32, @floatFromInt(p.y)),
+-                },
++                // Get the texture
++                const texture = switch (image.image) {
++                    .ready,
++                    .unload_ready,
++                    => |t| t,
++                    .update,
++                    .unload_update,
++                    => |u| u.texture,
++                    else => {
++                        log.warn("image not ready for placement image_id={}", .{p.image_id});
++                        continue;
++                    },
++                };
+ 
+-                .cell_offset = .{
+-                    @as(f32, @floatFromInt(p.cell_offset_x)),
+-                    @as(f32, @floatFromInt(p.cell_offset_y)),
+-                },
++                const first: u32 = @intCast(self.quads.items.len);
++                try self.quads.append(alloc, .{
++                    .grid_pos = .{
++                        @as(f32, @floatFromInt(p.x)),
++                        @as(f32, @floatFromInt(p.y)),
++                    },
+ 
+-                .source_rect = .{
+-                    @as(f32, @floatFromInt(p.source_x)),
+-                    @as(f32, @floatFromInt(p.source_y)),
+-                    @as(f32, @floatFromInt(p.source_width)),
+-                    @as(f32, @floatFromInt(p.source_height)),
+-                },
++                    .cell_offset = .{
++                        @as(f32, @floatFromInt(p.cell_offset_x)),
++                        @as(f32, @floatFromInt(p.cell_offset_y)),
++                    },
+ 
+-                .dest_size = .{
+-                    @as(f32, @floatFromInt(p.width)),
+-                    @as(f32, @floatFromInt(p.height)),
+-                },
+-            });
++                    .source_rect = .{
++                        @as(f32, @floatFromInt(p.source_x)),
++                        @as(f32, @floatFromInt(p.source_y)),
++                        @as(f32, @floatFromInt(p.source_width)),
++                        @as(f32, @floatFromInt(p.source_height)),
++                    },
+ 
+-            // hottyterm: a backdrop goes on past the grid (Bleed).
+-            if (placement_type == .kitty_below_bg and p.backdrop) {
+-                for (bleedQuads(self.bleed, p)) |q| {
+-                    if (q) |quad| drawQuad(api, pipeline, pass, texture, quad);
++                    .dest_size = .{
++                        @as(f32, @floatFromInt(p.width)),
++                        @as(f32, @floatFromInt(p.height)),
++                    },
++                });
++
++                // hottyterm: a backdrop goes on past the grid (Bleed).
++                if (placement_type == .kitty_below_bg and p.backdrop) {
++                    for (bleedQuads(self.bleed, p)) |q| {
++                        if (q) |quad| try self.quads.append(alloc, quad);
++                    }
+                 }
++
++                try self.draws[@intFromEnum(placement_type)].append(alloc, .{
++                    .texture = texture,
++                    .first = first,
++                    .len = @as(u32, @intCast(self.quads.items.len)) - first,
++                });
+             }
+         }
+     }
+ 
+-    /// Draws one image quad.
+-    fn drawQuad(
+-        api: *GraphicsAPI,
++    /// Draw the given named set of placements, from `buffer`, which holds
++    /// the quads `prepare` built.
++    ///
++    /// Any graphics API errors during drawing are ignored.
++    pub fn draw(
++        self: *State,
++        buffer: @FieldType(GraphicsAPI.Buffer(GraphicsAPI.shaders.Image), "buffer"),
+         pipeline: GraphicsAPI.Pipeline,
+         pass: *GraphicsAPI.RenderPass,
+-        texture: Texture,
+-        quad: GraphicsAPI.shaders.Image,
++        placement_type: DrawPlacements,
+     ) void {
+-        // Create our vertex buffer, which is always exactly one item.
+-        // future(mitchellh): we can group rendering multiple instances of a single image
+-        var buf = GraphicsAPI.Buffer(GraphicsAPI.shaders.Image).initFill(
+-            api.imageBufferOptions(),
+-            &.{quad},
+-        ) catch |err| {
+-            log.warn("error creating image vertex buffer err={}", .{err});
+-            return;
+-        };
+-        defer buf.deinit();
+-
+-        pass.step(.{
+-            .pipeline = pipeline,
+-            .buffers = &.{buf.buffer},
+-            .textures = &.{texture},
+-            .draw = .{
+-                .type = .triangle_strip,
+-                .vertex_count = 4,
+-            },
+-        });
++        for (self.draws[@intFromEnum(placement_type)].items) |d| {
++            pass.step(.{
++                .pipeline = pipeline,
++                .buffers = &.{buffer},
++                .textures = &.{d.texture},
++                .draw = .{
++                    .type = .triangle_strip,
++                    .vertex_count = 4,
++                    .instance_count = d.len,
++                    .base_instance = d.first,
++                },
++            });
++        }
+     }
+ 
+     /// hottyterm: the quads a backdrop bleeds in (Bleed): past each edge of
+diff --git a/src/renderer/metal/RenderPass.zig b/src/renderer/metal/RenderPass.zig
+index 69f5d9c5d..5016e72b7 100644
+--- a/src/renderer/metal/RenderPass.zig
++++ b/src/renderer/metal/RenderPass.zig
+@@ -48,6 +48,9 @@ pub const Step = struct {
+         type: mtl.MTLPrimitiveType,
+         vertex_count: usize,
+         instance_count: usize = 1,
++        /// The first instance drawn, so that one buffer can hold the
++        /// instances of several draws.
++        base_instance: usize = 0,
+     };
+ };
+ 
+@@ -212,12 +215,13 @@ pub fn step(self: *const Self, s: Step) void {
+     // Draw!
+     self.encoder.msgSend(
+         void,
+-        objc.sel("drawPrimitives:vertexStart:vertexCount:instanceCount:"),
++        objc.sel("drawPrimitives:vertexStart:vertexCount:instanceCount:baseInstance:"),
+         .{
+             @backingInt(s.draw.type),
+             @as(c_ulong, 0),
+             @as(c_ulong, s.draw.vertex_count),
+             @as(c_ulong, s.draw.instance_count),
++            @as(c_ulong, s.draw.base_instance),
+         },
+     );
+ }
+diff --git a/src/renderer/opengl/RenderPass.zig b/src/renderer/opengl/RenderPass.zig
+index 180664942..5a2646f27 100644
+--- a/src/renderer/opengl/RenderPass.zig
++++ b/src/renderer/opengl/RenderPass.zig
+@@ -40,6 +40,9 @@ pub const Step = struct {
+         type: gl.Primitive,
+         vertex_count: usize,
+         instance_count: usize = 1,
++        /// The first instance drawn, so that one buffer can hold the
++        /// instances of several draws.
++        base_instance: usize = 0,
+     };
+ };
+ 
+@@ -128,12 +131,22 @@ pub fn step(self: *Self, s: Step) void {
+         gl.disable(gl.c.GL_BLEND) catch return;
+     }
+ 
+-    gl.drawArraysInstanced(
+-        s.draw.type,
+-        0,
+-        @intCast(s.draw.vertex_count),
+-        @intCast(s.draw.instance_count),
+-    ) catch return;
++    if (s.draw.base_instance == 0) {
++        gl.drawArraysInstanced(
++            s.draw.type,
++            0,
++            @intCast(s.draw.vertex_count),
++            @intCast(s.draw.instance_count),
++        ) catch return;
++    } else {
++        gl.drawArraysInstancedBaseInstance(
++            s.draw.type,
++            0,
++            @intCast(s.draw.vertex_count),
++            @intCast(s.draw.instance_count),
++            @intCast(s.draw.base_instance),
++        ) catch return;
++    }
+ }
+ 
+ /// Complete this render pass.
