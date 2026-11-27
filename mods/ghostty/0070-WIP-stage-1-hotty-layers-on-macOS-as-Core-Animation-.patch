@@ -1,0 +1,631 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: hotty Agent <hotty@neuroplast.io>
+Date: Fri, 27 Nov 2026 20:06:08 +0100
+Subject: [PATCH 70/70] WIP stage 1: hotty layers on macOS as Core Animation
+ layers
+
+---
+ pkg/macos/animation.zig               |   4 +
+ src/renderer/Metal.zig                |  20 +-
+ src/renderer/generic.zig              |   7 +
+ src/renderer/hotty_layers.zig         |  24 ++
+ src/renderer/metal/HottyLayers.zig    | 361 ++++++++++++++++++++++++++
+ src/renderer/metal/IOSurfaceLayer.zig |  12 +-
+ src/renderer/metal/Target.zig         |   5 +
+ src/termio/hotty.zig                  |   2 +-
+ 8 files changed, 430 insertions(+), 5 deletions(-)
+ create mode 100644 src/renderer/metal/HottyLayers.zig
+
+diff --git a/pkg/macos/animation.zig b/pkg/macos/animation.zig
+index 247f97605..6ae7f9a33 100644
+--- a/pkg/macos/animation.zig
++++ b/pkg/macos/animation.zig
+@@ -4,6 +4,10 @@ pub const c = @import("animation/c.zig").c;
+ pub extern "c" const kCAGravityTopLeft: *anyopaque;
+ pub extern "c" const kCAGravityBottomLeft: *anyopaque;
+ pub extern "c" const kCAGravityCenter: *anyopaque;
++pub extern "c" const kCAGravityResize: *anyopaque;
++
++/// https://developer.apple.com/documentation/quartzcore/calayer/filters?language=objc
++pub extern "c" const kCAFilterNearest: *anyopaque;
+ 
+ test {
+     @import("std").testing.refAllDecls(@This());
+diff --git a/src/renderer/Metal.zig b/src/renderer/Metal.zig
+index f4d9bde9d..82f395a25 100644
+--- a/src/renderer/Metal.zig
++++ b/src/renderer/Metal.zig
+@@ -17,6 +17,8 @@ const shadertoy = @import("shadertoy.zig");
+ 
+ const mtl = @import("metal/api.zig");
+ const IOSurfaceLayer = @import("metal/IOSurfaceLayer.zig");
++const HottyLayers = @import("metal/HottyLayers.zig"); // hottyterm
++const hotty_layers = @import("hotty_layers.zig"); // hottyterm
+ pub const Device = @import("metal/Device.zig");
+ 
+ pub const GraphicsAPI = Metal;
+@@ -46,6 +48,9 @@ const log = std.log.scoped(.metal);
+ 
+ layer: IOSurfaceLayer,
+ 
++/// hottyterm: hotty's surfaces as layers over `layer`'s.
++hotty: ?*HottyLayers = null,
++
+ /// The shared render device.
+ device: *const Device,
+ 
+@@ -135,6 +140,7 @@ pub fn init(
+ 
+     return .{
+         .layer = layer,
++        .hotty = HottyLayers.create(layer.layer) catch null,
+         .device = device,
+         .queue = queue,
+         .blending = opts.config.blending,
+@@ -147,6 +153,10 @@ pub fn deinit(self: *Metal) void {
+     // The MTLDevice is app-scoped and destroyed
+     // by the render device, not by us.
+ 
++    if (self.hotty) |h| {
++        h.detach();
++        h.release();
++    }
+     self.layer.release();
+ }
+ 
+@@ -240,13 +250,19 @@ pub fn initTarget(self: *const Metal, width: usize, height: usize) !Target {
+ 
+ /// Present the provided target.
+ pub inline fn present(self: *Metal, target: Target, sync: bool) !void {
++    if (self.hotty) |h| h.stage(target.surface, target.hotty_geometry.items);
+     if (sync) {
+-        self.layer.setSurfaceSync(target.surface);
++        self.layer.setSurfaceSync(target.surface, self.hotty);
+     } else {
+-        try self.layer.setSurface(target.surface);
++        try self.layer.setSurface(target.surface, self.hotty);
+     }
+ }
+ 
++/// hottyterm: composites `store`'s layers. Renderer thread.
++pub fn hottyLayers(self: *Metal, store: *hotty_layers.Layers) void {
++    if (self.hotty) |h| h.attach(store);
++}
++
+ /// Returns the options to use when constructing buffers.
+ pub inline fn bufferOptions(self: Metal) bufferpkg.Options {
+     return .{
+diff --git a/src/renderer/generic.zig b/src/renderer/generic.zig
+index 81885b5d7..70d78620c 100644
+--- a/src/renderer/generic.zig
++++ b/src/renderer/generic.zig
+@@ -1565,6 +1565,7 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                     self.draw_mutex.lockUncancelable(global.io());
+                     defer self.draw_mutex.unlock(global.io());
+                     self.images.layers = &state.hotty_layers;
++                    if (comptime @hasDecl(GraphicsAPI, "hottyLayers")) self.api.hottyLayers(&state.hotty_layers);
+                     self.images.kittyUpdate(
+                         self.alloc,
+                         state.terminal,
+@@ -1979,6 +1980,12 @@ pub fn Renderer(comptime GraphicsAPI: type) type {
+                 try self.syncAtlasTexture(&self.font_grid.atlas_color, &frame.color);
+             }
+ 
++            // hottyterm: the layers' geometry goes with the frame.
++            if (comptime @hasField(GraphicsAPI.Target, "hotty_geometry")) {
++                frame.target.hotty_geometry.clearRetainingCapacity();
++                frame.target.hotty_geometry.appendSlice(std.heap.c_allocator, self.layer_geometry.items) catch {};
++            }
++
+             // Get a frame context from the graphics API.
+             var frame_ctx = try self.api.beginFrame(self, &frame.target);
+             defer frame_ctx.complete(sync);
+diff --git a/src/renderer/hotty_layers.zig b/src/renderer/hotty_layers.zig
+index 218a7892a..8da558753 100644
+--- a/src/renderer/hotty_layers.zig
++++ b/src/renderer/hotty_layers.zig
+@@ -191,6 +191,30 @@ pub const Layers = struct {
+     layers: std.StringHashMapUnmanaged(Layer) = .empty,
+     /// Whether the sync under way made or let go of a layer.
+     synced: bool = false,
++    /// How the apprt is told a layer has new pixels, when not by a redraw.
++    notifier: ?Notifier = null,
++
++    pub const Notifier = struct {
++        ctx: *anyopaque,
++        /// Called under the lock: it only asks for a draw.
++        f: *const fn (*anyopaque) void,
++    };
++
++    pub fn setNotifier(self: *Layers, n: ?Notifier) void {
++        self.lock();
++        defer self.unlock();
++        self.notifier = n;
++    }
++
++    /// Tells the apprt a layer has new pixels: false when it has no
++    /// notifier and wants a redraw.
++    pub fn notify(self: *Layers) bool {
++        self.lock();
++        defer self.unlock();
++        const n = self.notifier orelse return false;
++        n.f(n.ctx);
++        return true;
++    }
+ 
+     pub fn deinit(self: *Layers) void {
+         var it = self.layers.iterator();
+diff --git a/src/renderer/metal/HottyLayers.zig b/src/renderer/metal/HottyLayers.zig
+new file mode 100644
+index 000000000..a0607f25f
+--- /dev/null
++++ b/src/renderer/metal/HottyLayers.zig
+@@ -0,0 +1,361 @@
++//! hottyterm: hotty surfaces as Core Animation layers over the terminal's
++//! (hotty_layers.zig). Each shows an IOSurface the window server composites
++//! with the terminal's; a change to one writes only what changed into an
++//! IOSurface the window server is not reading, and draws no terminal frame.
++//!
++//! Where each layer shows comes with the terminal frame it belongs to: the
++//! frame's completion stages it by the frame's IOSurface, and the main
++//! thread lays the layers out as it shows that IOSurface, in the same
++//! transaction. Everything else here is the main thread's.
++const HottyLayers = @This();
++
++const std = @import("std");
++const objc = @import("objc");
++const macos = @import("macos");
++const global = @import("../../global.zig");
++const hotty_layers = @import("../hotty_layers.zig");
++const IOSurfaceLayer = @import("IOSurfaceLayer.zig");
++
++const graphics = macos.graphics;
++const IOSurface = macos.iosurface.IOSurface;
++const Geometry = hotty_layers.Geometry;
++const Rect = hotty_layers.Rect;
++const Region = hotty_layers.Region;
++
++const alloc = std.heap.c_allocator;
++
++/// IOSurfaces a layer may have: one shown, the rest written or let go of
++/// by the window server.
++const MAX_SLOTS = 4;
++
++/// Metal's, and one for each call queued to the main thread.
++refs: std.atomic.Value(u32) = .init(1),
++/// The terminal's layer, which holds `container`.
++root: objc.Object,
++/// Holds the layers, flipped so they lay out from the top left as the
++/// terminal does.
++container: ?objc.Object = null,
++store: std.atomic.Value(?*hotty_layers.Layers) = .init(null),
++/// Whether a call to `update` is queued.
++queued: std.atomic.Value(bool) = .init(false),
++
++staged_mutex: std.Io.Mutex = .init,
++staged: [4]Staged = @splat(.{}),
++staged_next: usize = 0,
++
++geometry: std.ArrayListUnmanaged(Geometry) = .empty,
++entries: std.AutoHashMapUnmanaged(u32, Entry) = .empty,
++changed: std.ArrayListUnmanaged(Rect) = .empty,
++
++const Staged = struct {
++    surface: ?*IOSurface = null,
++    geometry: std.ArrayListUnmanaged(Geometry) = .empty,
++};
++
++const Slot = struct {
++    surface: *IOSurface,
++    /// What it lacks of the newest.
++    stale: Region = .{},
++};
++
++const Entry = struct {
++    /// Clips to where the surface shows; `content` shows its pixels.
++    clip: objc.Object,
++    content: objc.Object,
++    version: u64 = 0,
++    w: u32 = 0,
++    h: u32 = 0,
++    slots: std.ArrayListUnmanaged(Slot) = .empty,
++    newest: ?usize = null,
++
++    fn dropSlots(self: *Entry) void {
++        for (self.slots.items) |*s| {
++            s.surface.deinit();
++            s.stale.rects.deinit(alloc);
++        }
++        self.slots.clearRetainingCapacity();
++        self.newest = null;
++    }
++
++    fn deinit(self: *Entry) void {
++        self.dropSlots();
++        self.slots.deinit(alloc);
++        self.clip.msgSend(void, objc.sel("removeFromSuperlayer"), .{});
++        self.content.release();
++        self.clip.release();
++    }
++};
++
++pub fn create(root: objc.Object) !*HottyLayers {
++    const self = try alloc.create(HottyLayers);
++    self.* = .{ .root = root.retain() };
++    return self;
++}
++
++pub fn retain(self: *HottyLayers) void {
++    _ = self.refs.fetchAdd(1, .monotonic);
++}
++
++/// Main thread.
++pub fn release(self: *HottyLayers) void {
++    if (self.refs.fetchSub(1, .acq_rel) != 1) return;
++    var it = self.entries.valueIterator();
++    while (it.next()) |e| e.deinit();
++    self.entries.deinit(alloc);
++    if (self.container) |c| {
++        c.msgSend(void, objc.sel("removeFromSuperlayer"), .{});
++        c.release();
++    }
++    for (&self.staged) |*s| s.geometry.deinit(alloc);
++    self.geometry.deinit(alloc);
++    hotty_layers.Layers.freeRects(&self.changed);
++    self.root.release();
++    alloc.destroy(self);
++}
++
++/// Composites `store`'s layers from now on, unless HOTTY_LAYERS=0.
++/// Renderer thread.
++pub fn attach(self: *HottyLayers, store: *hotty_layers.Layers) void {
++    if (self.store.load(.acquire) != null) return;
++    if (std.c.getenv("HOTTY_LAYERS")) |v| if (std.mem.eql(u8, std.mem.span(v), "0")) return;
++    store.setNotifier(.{ .ctx = self, .f = &notify });
++    self.store.store(store, .release);
++    store.enabled.store(true, .release);
++}
++
++/// Stops before the store goes. Main thread.
++pub fn detach(self: *HottyLayers) void {
++    const store = self.store.swap(null, .acq_rel) orelse return;
++    store.setNotifier(null);
++}
++
++/// A layer has new pixels. The paint thread, under the store's lock.
++fn notify(ctx: *anyopaque) void {
++    const self: *HottyLayers = @ptrCast(@alignCast(ctx));
++    if (self.queued.swap(true, .acq_rel)) return;
++    self.retain();
++    dispatch_async_f(@ptrCast(macos.dispatch.queue.getMain()), self, &queuedUpdate);
++}
++
++fn queuedUpdate(ctx: ?*anyopaque) callconv(.c) void {
++    const self: *HottyLayers = @ptrCast(@alignCast(ctx.?));
++    self.queued.store(false, .release);
++    self.update(false);
++    self.release();
++}
++
++/// Where the layers show in the terminal frame drawn into `surface`.
++/// The frame's completion, before it is shown.
++pub fn stage(self: *HottyLayers, surface: *IOSurface, geometry: []const Geometry) void {
++    if (self.store.load(.acquire) == null) return;
++    self.staged_mutex.lockUncancelable(global.io());
++    defer self.staged_mutex.unlock(global.io());
++    const s = &self.staged[self.staged_next];
++    self.staged_next = (self.staged_next + 1) % self.staged.len;
++    s.surface = surface;
++    s.geometry.clearRetainingCapacity();
++    s.geometry.appendSlice(alloc, geometry) catch {
++        s.surface = null;
++    };
++}
++
++/// The terminal's layer shows `surface` now: the layers go where its
++/// frame put them. Main thread.
++pub fn presented(self: *HottyLayers, surface: *IOSurface) void {
++    {
++        self.staged_mutex.lockUncancelable(global.io());
++        defer self.staged_mutex.unlock(global.io());
++        // The newest staging of it.
++        var i: usize = 0;
++        const found = while (i < self.staged.len) : (i += 1) {
++            const k = (self.staged_next + self.staged.len - 1 - i) % self.staged.len;
++            if (self.staged[k].surface == surface) break &self.staged[k];
++        } else return;
++        std.mem.swap(std.ArrayListUnmanaged(Geometry), &self.geometry, &found.geometry);
++        found.surface = null;
++    }
++    self.update(true);
++}
++
++/// Brings the layers up to date with the store, and lays them out again
++/// when `laid_out`. Main thread.
++fn update(self: *HottyLayers, laid_out: bool) void {
++    const store = self.store.load(.acquire) orelse return;
++    const scale = self.root.getProperty(f64, "contentsScale");
++    const container = self.container orelse c: {
++        const c = (IOSurfaceLayer.init() catch return).layer;
++        c.setProperty("geometryFlipped", !self.root.msgSend(bool, objc.sel("contentsAreFlipped"), .{}));
++        c.setProperty("masksToBounds", true);
++        // kCALayerWidthSizable | kCALayerHeightSizable
++        c.setProperty("autoresizingMask", @as(c_uint, 2 | 16));
++        self.root.msgSend(void, objc.sel("addSublayer:"), .{c.value});
++        self.container = c;
++        break :c c;
++    };
++    if (laid_out) container.setProperty("frame", self.root.getProperty(graphics.Rect, "bounds"));
++
++    for (self.geometry.items, 0..) |g, i| {
++        const gop = self.entries.getOrPut(alloc, g.image_id) catch continue;
++        if (!gop.found_existing) {
++            const clip = (IOSurfaceLayer.init() catch {
++                self.entries.removeByPtr(gop.key_ptr);
++                continue;
++            }).layer;
++            const content = (IOSurfaceLayer.init() catch {
++                clip.release();
++                self.entries.removeByPtr(gop.key_ptr);
++                continue;
++            }).layer;
++            clip.setProperty("masksToBounds", true);
++            content.setProperty("contentsGravity", macos.animation.kCAGravityResize);
++            content.setProperty("magnificationFilter", macos.animation.kCAFilterNearest);
++            content.setProperty("minificationFilter", macos.animation.kCAFilterNearest);
++            clip.msgSend(void, objc.sel("addSublayer:"), .{content.value});
++            container.msgSend(void, objc.sel("addSublayer:"), .{clip.value});
++            gop.value_ptr.* = .{ .clip = clip, .content = content };
++        }
++        const e = gop.value_ptr;
++        const resized = self.refresh(store, g.image_id, e);
++        if (!laid_out and !resized and gop.found_existing) continue;
++        if (e.w == 0 or e.h == 0 or g.source_w == 0 or g.source_h == 0) continue;
++        e.clip.setProperty("zPosition", @as(f64, @floatFromInt(i)));
++        e.clip.setProperty("contentsScale", scale);
++        e.content.setProperty("contentsScale", scale);
++        e.clip.setProperty("frame", graphics.Rect.init(
++            @as(f64, @floatFromInt(g.x)) / scale,
++            @as(f64, @floatFromInt(g.y)) / scale,
++            @as(f64, @floatFromInt(g.w)) / scale,
++            @as(f64, @floatFromInt(g.h)) / scale,
++        ));
++        // The image at the placement's scale, moved so its source shows.
++        const sx = @as(f64, @floatFromInt(g.w)) / @as(f64, @floatFromInt(g.source_w));
++        const sy = @as(f64, @floatFromInt(g.h)) / @as(f64, @floatFromInt(g.source_h));
++        e.content.setProperty("frame", graphics.Rect.init(
++            -@as(f64, @floatFromInt(g.source_x)) * sx / scale,
++            -@as(f64, @floatFromInt(g.source_y)) * sy / scale,
++            @as(f64, @floatFromInt(e.w)) * sx / scale,
++            @as(f64, @floatFromInt(e.h)) * sy / scale,
++        ));
++    }
++
++    if (!laid_out) return;
++    var it = self.entries.iterator();
++    while (it.next()) |kv| {
++        for (self.geometry.items) |g| {
++            if (g.image_id == kv.key_ptr.*) break;
++        } else {
++            kv.value_ptr.deinit();
++            self.entries.removeByPtr(kv.key_ptr);
++            it = self.entries.iterator();
++        }
++    }
++}
++
++/// Writes image `id`'s new pixels into an IOSurface of `e` the window
++/// server is not reading, and shows it. True when its size changed.
++fn refresh(self: *HottyLayers, store: *hotty_layers.Layers, id: u32, e: *Entry) bool {
++    // A slot to write first: one not shown, else a new one.
++    var free: ?usize = null;
++    for (e.slots.items, 0..) |s, i| {
++        if (e.newest == i) continue;
++        if (IOSurfaceIsInUse(s.surface)) continue;
++        free = i;
++        break;
++    }
++    if (free == null and e.slots.items.len >= MAX_SLOTS) {
++        // All read: the oldest that is not shown.
++        free = if (e.newest == 0) 1 else 0;
++    }
++
++    const t = store.take(id, e.version, &self.changed) orelse return false;
++    defer t.buffer.release();
++    const resized = e.w != t.w or e.h != t.h;
++    if (resized) {
++        e.dropSlots();
++        e.w = t.w;
++        e.h = t.h;
++        free = null;
++    }
++    const whole = [_]Rect{.{ .x = 0, .y = 0, .w = t.w, .h = t.h }};
++    const at = free orelse at: {
++        const colorspace = graphics.ColorSpace.createNamed(.sRGB) catch return resized;
++        defer colorspace.release();
++        const surface = IOSurface.init(.{
++            .width = @intCast(t.w),
++            .height = @intCast(t.h),
++            .pixel_format = .@"32BGRA",
++            .bytes_per_element = 4,
++            .colorspace = colorspace,
++        }) catch return resized;
++        e.slots.append(alloc, .{ .surface = surface }) catch {
++            surface.deinit();
++            return resized;
++        };
++        e.slots.items[e.slots.items.len - 1].stale.add(whole[0]);
++        break :at e.slots.items.len - 1;
++    };
++    const slot = &e.slots.items[at];
++
++    if (IOSurfaceLock(slot.surface, 0, null) != 0) return resized;
++    const dst: [*]u8 = @ptrCast(IOSurfaceGetBaseAddress(slot.surface));
++    const dst_stride = IOSurfaceGetBytesPerRow(slot.surface);
++    // Up to date with the newest first; without one, all of it comes from
++    // the pixels.
++    var upload: []const Rect = t.changed;
++    if (e.newest) |n| {
++        const src_surface = e.slots.items[n].surface;
++        if (slot.stale.rects.items.len > 0 and IOSurfaceLock(src_surface, kIOSurfaceLockReadOnly, null) == 0) {
++            const src: [*]const u8 = @ptrCast(IOSurfaceGetBaseAddress(src_surface));
++            const src_stride = IOSurfaceGetBytesPerRow(src_surface);
++            for (slot.stale.rects.items) |r| {
++                const row = @as(usize, r.w) * 4;
++                for (0..r.h) |dy| {
++                    const y = @as(usize, r.y) + dy;
++                    const off = @as(usize, r.x) * 4;
++                    @memcpy(dst[y * dst_stride + off ..][0..row], src[y * src_stride + off ..][0..row]);
++                }
++            }
++            _ = IOSurfaceUnlock(src_surface, kIOSurfaceLockReadOnly, null);
++        } else if (slot.stale.rects.items.len > 0) upload = &whole;
++    } else upload = &whole;
++    slot.stale.rects.clearRetainingCapacity();
++    for (upload) |r| writeBgra(dst, dst_stride, t.buffer.data, t.w, r);
++    _ = IOSurfaceUnlock(slot.surface, 0, null);
++
++    for (e.slots.items, 0..) |*o, i| if (i != at) for (upload) |r| o.stale.add(r);
++    e.newest = at;
++    e.version = t.version;
++    e.content.setProperty("contents", slot.surface);
++    return resized;
++}
++
++/// Rect `r` of premultiplied RGBA `src` (`w` pixels a row) into BGRA `dst`.
++fn writeBgra(dst: [*]u8, dst_stride: usize, src: []const u8, w: u32, r: Rect) void {
++    if (r.w == 0 or r.h == 0) return;
++    for (0..r.h) |dy| {
++        const y = @as(usize, r.y) + dy;
++        const s: [*]align(1) const u32 = @ptrCast(src[(y * w + r.x) * 4 ..].ptr);
++        const d: [*]align(1) u32 = @ptrCast(dst + y * dst_stride + @as(usize, r.x) * 4);
++        var x: usize = 0;
++        const V = 8;
++        while (x + V <= r.w) : (x += V) {
++            const v: @Vector(V, u32) = s[x..][0..V].*;
++            const bgra: [V]u32 = (v & @as(@Vector(V, u32), @splat(0xFF00FF00))) |
++                ((v & @as(@Vector(V, u32), @splat(0xFF))) << @splat(16)) |
++                ((v >> @splat(16)) & @as(@Vector(V, u32), @splat(0xFF)));
++            d[x..][0..V].* = bgra;
++        }
++        while (x < r.w) : (x += 1) {
++            const v = s[x];
++            d[x] = (v & 0xFF00FF00) | ((v & 0xFF) << 16) | ((v >> 16) & 0xFF);
++        }
++    }
++}
++
++const kIOSurfaceLockReadOnly: u32 = 1;
++extern "c" fn IOSurfaceLock(surface: *IOSurface, options: u32, seed: ?*u32) i32;
++extern "c" fn IOSurfaceUnlock(surface: *IOSurface, options: u32, seed: ?*u32) i32;
++extern "c" fn IOSurfaceGetBaseAddress(surface: *IOSurface) *anyopaque;
++extern "c" fn IOSurfaceGetBytesPerRow(surface: *IOSurface) usize;
++extern "c" fn IOSurfaceIsInUse(surface: *IOSurface) bool;
++extern "c" fn dispatch_async_f(queue: *anyopaque, ctx: ?*anyopaque, work: *const fn (?*anyopaque) callconv(.c) void) void;
+diff --git a/src/renderer/metal/IOSurfaceLayer.zig b/src/renderer/metal/IOSurfaceLayer.zig
+index 8a11a3590..1e5a90659 100644
+--- a/src/renderer/metal/IOSurfaceLayer.zig
++++ b/src/renderer/metal/IOSurfaceLayer.zig
+@@ -7,6 +7,7 @@ const Allocator = std.mem.Allocator;
+ const objc = @import("objc");
+ const macos = @import("macos");
+ const hotty = @import("../../termio/hotty.zig"); // hottyterm: gov R-22's stamps
++const HottyLayers = @import("HottyLayers.zig"); // hottyterm
+ 
+ const IOSurface = macos.iosurface.IOSurface;
+ 
+@@ -51,13 +52,15 @@ pub fn release(self: *IOSurfaceLayer) void {
+ /// Sets the layer's `contents` to the provided IOSurface.
+ ///
+ /// Makes sure to do so on the main thread to avoid visual artifacts.
+-pub inline fn setSurface(self: *IOSurfaceLayer, surface: *IOSurface) !void {
++/// hottyterm: `layers` lays hotty's layers out for it as it shows.
++pub inline fn setSurface(self: *IOSurfaceLayer, surface: *IOSurface, layers: ?*HottyLayers) !void {
+     hotty.trace.instant("term.present"); // hottyterm: gov R-22's stamps
+     // We retain the surface to make sure it's not GC'd
+     // before we can set it as the contents of the layer.
+     //
+     // We release in the callback after setting the contents.
+     surface.retain();
++    if (layers) |l| l.retain(); // hottyterm: released in the callback
+     // NOTE: Since `self.layer` is passed as an `objc.c.id`, it's
+     //       automatically retained when the block is copied, so we
+     //       don't need to retain it ourselves like with the surface.
+@@ -65,6 +68,7 @@ pub inline fn setSurface(self: *IOSurfaceLayer, surface: *IOSurface) !void {
+     var block = SetSurfaceBlock.init(.{
+         .layer = self.layer.value,
+         .surface = surface,
++        .layers = layers,
+     }, &setSurfaceCallback);
+ 
+     // We check if we're on the main thread and run the block directly if so.
+@@ -86,14 +90,16 @@ pub inline fn setSurface(self: *IOSurfaceLayer, surface: *IOSurface) !void {
+ /// Sets the layer's `contents` to the provided IOSurface.
+ ///
+ /// Does not ensure this happens on the main thread.
+-pub inline fn setSurfaceSync(self: *IOSurfaceLayer, surface: *IOSurface) void {
++pub inline fn setSurfaceSync(self: *IOSurfaceLayer, surface: *IOSurface, layers: ?*HottyLayers) void {
+     self.layer.setProperty("contents", surface);
++    if (layers) |l| l.presented(surface); // hottyterm
+     hotty.trace.emit("term.contents", hotty.trace.now(), null, "\"sync\":true", .{}); // hottyterm
+ }
+ 
+ const SetSurfaceBlock = objc.Block(struct {
+     layer: objc.c.id,
+     surface: *IOSurface,
++    layers: ?*HottyLayers,
+ }, .{}, void);
+ 
+ fn setSurfaceCallback(
+@@ -104,6 +110,7 @@ fn setSurfaceCallback(
+ 
+     // See explanation of why we retain and release in `setSurface`.
+     defer surface.release();
++    defer if (block.layers) |l| l.release(); // hottyterm
+ 
+     // We check to see if the surface is the appropriate size for
+     // the layer, if it's not then we discard it. This is because
+@@ -124,6 +131,7 @@ fn setSurfaceCallback(
+     }
+ 
+     layer.setProperty("contents", surface);
++    if (block.layers) |l| l.presented(surface); // hottyterm
+     hotty.trace.instant("term.contents"); // hottyterm: gov R-22's stamps
+ }
+ 
+diff --git a/src/renderer/metal/Target.zig b/src/renderer/metal/Target.zig
+index cac831ed5..eb2d25fa6 100644
+--- a/src/renderer/metal/Target.zig
++++ b/src/renderer/metal/Target.zig
+@@ -36,6 +36,10 @@ surface: *IOSurface,
+ /// The underlying MTLTexture.
+ texture: objc.Object,
+ 
++/// hottyterm: where hotty's layers show in the frame drawn into it
++/// (metal/HottyLayers.zig).
++hotty_geometry: std.ArrayListUnmanaged(@import("../hotty_layers.zig").Geometry) = .empty,
++
+ /// Current width of this target.
+ width: usize,
+ /// Current height of this target.
+@@ -103,6 +107,7 @@ pub fn init(opts: Options) !Self {
+ }
+ 
+ pub fn deinit(self: *Self) void {
++    self.hotty_geometry.deinit(std.heap.c_allocator);
+     self.surface.deinit();
+     self.texture.release();
+ }
+diff --git a/src/termio/hotty.zig b/src/termio/hotty.zig
+index 6652e5e22..97e412d49 100644
+--- a/src/termio/hotty.zig
++++ b/src/termio/hotty.zig
+@@ -1180,7 +1180,7 @@ pub const Hotty = struct {
+         self.syncLayers(t);
+         if (!self.layered) return;
+         self.layered = false;
+-        _ = self.streamHandler().surface_mailbox.push(.redraw, .{ .instant = {} });
++        if (!ls.notify()) _ = self.streamHandler().surface_mailbox.push(.redraw, .{ .instant = {} });
+     }
+ 
+     /// The layers are the surfaces placed on the active screen above the

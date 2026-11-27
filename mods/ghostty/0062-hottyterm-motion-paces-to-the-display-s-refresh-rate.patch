@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Sun, 22 Nov 2026 18:54:12 +0100
-Subject: [PATCH 62/68] hottyterm: motion paces to the display's refresh rate
+Subject: [PATCH 62/70] hottyterm: motion paces to the display's refresh rate
 
 Pass hotty-blitz the refresh rate of the display the window is on, through
 hotty_host_set_refresh_rate, so that CSS animations and fading scrollbars

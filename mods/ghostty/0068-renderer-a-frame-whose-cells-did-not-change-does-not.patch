@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Fri, 27 Nov 2026 14:32:57 +0100
-Subject: [PATCH 68/68] renderer: a frame whose cells did not change does not
+Subject: [PATCH 68/70] renderer: a frame whose cells did not change does not
  sync them
 
 Each frame in flight copied every background and text cell to its GPU

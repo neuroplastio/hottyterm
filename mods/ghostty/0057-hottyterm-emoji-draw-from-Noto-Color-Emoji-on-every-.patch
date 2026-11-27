@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Mon, 16 Nov 2026 20:22:00 +0100
-Subject: [PATCH 57/68] hottyterm: emoji draw from Noto Color Emoji on every
+Subject: [PATCH 57/70] hottyterm: emoji draw from Noto Color Emoji on every
  platform
 
 Noto Color Emoji is the emoji fallback on every platform, ahead of any

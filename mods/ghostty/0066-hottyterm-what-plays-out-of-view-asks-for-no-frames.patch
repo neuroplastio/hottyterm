@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Fri, 27 Nov 2026 10:17:14 +0100
-Subject: [PATCH 66/68] hottyterm: what plays out of view asks for no frames
+Subject: [PATCH 66/70] hottyterm: what plays out of view asks for no frames
 
 A hotty surface whose placement was scrolled out of the view, or whose
 window was hidden (minimised, covered), kept asking for a frame of every

@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: hotty Agent <hotty@neuroplast.io>
 Date: Mon, 23 Nov 2026 12:54:18 +0100
-Subject: [PATCH 65/68] hottyterm: route mouse buttons and context gestures
+Subject: [PATCH 65/70] hottyterm: route mouse buttons and context gestures
  through Blitz
 
 Track captures and swallowed releases by button, keep GTK pointer chords intact, and route middle paste and AppKit context clicks. Adds 81 lines in upstream files across the core, GTK, and AppKit hooks.

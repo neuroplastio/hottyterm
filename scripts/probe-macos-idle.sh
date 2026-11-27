@@ -75,7 +75,8 @@ cputime() { ps -o time= -p "$1" | awk -F'[:.]' '{ s = 0; for (i = 1; i < NF; i++
 echo "== displays: $(system_profiler SPDisplaysDataType 2>/dev/null | grep -E 'Resolution|Refresh' | tr -s ' ' | tr '\n' ';')"
 
 run() {
-  scenario="$1"; dir="$OUT/$scenario"; mkdir -p "$dir"
+  scenario="$1"; layers="${2:-0}"; name="$scenario"; [ "$layers" = 1 ] && name="$scenario+layers"
+  dir="$OUT/$name"; mkdir -p "$dir"
   prog=dot; [ "$scenario" = static ] && prog=static; [ "$scenario" = plx ] || [ "$scenario" = hidden ] && prog=plx
   cat > "$HOME/.config/ghostty/config" <<CFG
 command = /usr/bin/python3 $OUT/idle.py $prog $dir/ready
@@ -85,9 +86,9 @@ window-height = 30
 confirm-close-surface = false
 quit-after-last-window-closed = true
 CFG
-  open -n -a "$APP"
+  open -n -a "$APP" --env "HOTTY_LAYERS=$layers"
   for _ in $(seq 1 30); do [ -f "$dir/ready" ] && break; sleep 1; done
-  [ -f "$dir/ready" ] || { echo "== $scenario: the program never started"; return; }
+  [ -f "$dir/ready" ] || { echo "== $name: the program never started"; return; }
   sleep 3
   pid=$(pgrep -n -f "$APP/Contents/MacOS/")
   screencapture -x "$dir/shot.png" 2>&1
@@ -96,7 +97,7 @@ CFG
     sleep 3
   fi
   a=$(cputime "$pid"); sleep "$SECS"; b=$(cputime "$pid")
-  echo "== $scenario: $(echo "$a $b $SECS" | awk '{printf "%.2f s over %d s (%.1f%%)", $2 - $1, $3, 100 * ($2 - $1) / $3}')"
+  echo "== $name: $(echo "$a $b $SECS" | awk '{printf "%.2f s over %d s (%.1f%%)", $2 - $1, $3, 100 * ($2 - $1) / $3}')"
   ps -M -p "$pid" > "$dir/threads.txt" 2>&1
   awk 'NR > 1 && $(NF-4) + 0 > 0.5 { print "   thread", $0 }' "$dir/threads.txt" | head -12
   sample "$pid" "$SECS" -mayDie -file "$dir/sample.txt" >/dev/null 2>&1 || echo "   sample failed"
@@ -106,7 +107,8 @@ CFG
   }
   kill "$pid" 2>/dev/null; sleep 2
 }
-for s in static dot plx hidden; do run "$s"; done
+# Each with hotty surfaces as compositor layers too (HOTTY_LAYERS=1).
+for s in static dot plx hidden; do run "$s" 0; run "$s" 1; done
 
 # The diagnostics a user runs on their Mac (scripts/diag-macos.sh),
 # unattended, over the plx surfaces: its bundle is in the artifact.
